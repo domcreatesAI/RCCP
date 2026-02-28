@@ -1,0 +1,29 @@
+{
+	"folders": [
+		{
+			"name": "backend",
+			"path": "backend"
+		},
+		{
+			"name": ".claude",
+			"path": ".claude"
+		},
+		{
+			"name": ".git",
+			"path": ".git"
+		},
+		{
+			"name": "db",
+			"path": "db"
+		},
+		{
+			"name": "docs",
+			"path": "docs"
+		},
+		{
+			"name": "frontend",
+			"path": "frontend"
+		}
+	],
+	"settings": {}
+}
