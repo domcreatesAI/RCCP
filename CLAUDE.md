@@ -33,10 +33,26 @@ Internal manufacturing planning app — **Rough Cut Capacity Planning (RCCP)**.
 ```
 RCCP-One/
 ├── CLAUDE.md                  ← you are here
-├── backend/                   ← Python FastAPI (not yet implemented)
-├── frontend/                  ← React TypeScript (not yet implemented)
+├── backend/                   ← Python FastAPI (scaffold complete, tested)
+│   ├── app/
+│   │   ├── main.py            — FastAPI app, CORS, health endpoint
+│   │   ├── config.py          — env vars
+│   │   ├── database.py        — pyodbc connection factory
+│   │   ├── routers/           — auth.py, batches.py, uploads.py
+│   │   └── services/          — auth_service.py, batch_service.py, upload_service.py
+│   ├── requirements.txt
+│   └── .env.example
+├── frontend/                  ← React TypeScript (scaffolded — login + Planning Data)
+│   ├── src/
+│   │   ├── api/               — client.ts, auth.ts, batches.ts, uploads.ts
+│   │   ├── components/        — layout/ + planning/ sub-folders
+│   │   ├── contexts/          — AuthContext.tsx
+│   │   ├── pages/             — LoginPage.tsx, PlanningDataPage.tsx
+│   │   └── types/             — index.ts
+│   ├── package.json
+│   └── vite.config.ts         — proxies /api → localhost:8000
 ├── db/
-│   ├── schema/                ← 9 SQL schema scripts (00–08)
+│   ├── schema/                ← 10 SQL schema scripts (00–09)
 │   ├── seeds/                 ← 2 seed scripts (app settings + masterdata)
 │   └── README.md
 └── docs/
@@ -202,22 +218,31 @@ Auth was originally deferred to Phase 5 but is being built in Phase 1.
 
 ---
 
-## Current Deployment State (as of 2026-02-27)
+## Current Deployment State (as of 2026-02-28)
+
+**GitHub repo:** `https://github.com/d0m1n/RCCP-One.git` — source of truth. Clone locally; do not develop on Google Drive (npm is too slow).
 
 **Database: FULLY DEPLOYED** — all 10 schema scripts (00–09) and both seed scripts run successfully.
 - All tables, views, and seed data in place on `localhost\SQLEXPRESS`, database `RCCP_One`
 - `09_users.sql` run — users table created, admin seeded, master_stock constraint fixed
 
-**Backend: scaffold complete and tested** — auth, batch management, file upload endpoints built and verified working.
+**Backend: scaffold complete and tested.**
 - Stack: FastAPI + pyodbc + bcrypt + PyJWT
+- Endpoints: `POST /api/auth/login`, `GET/POST /api/batches`, `GET /api/batches/{id}`, `POST /api/batches/{id}/files`, `GET /api/batches/{id}/files`
+- Login (`admin`/`admin123`), batch creation, DB connection all confirmed working in Swagger
 - Run from `backend/`: `uvicorn app.main:app --reload`
-- Login (`admin`/`admin123`), batch creation, DB connection all confirmed working
 
-**Frontend: not yet implemented.**
+**Frontend: scaffolded — login + Planning Data screen built.**
+- Login page and Planning Data two-panel layout complete
+- TanStack Query polling, batch switching, file upload wired to backend API
+- Validation panel (7 stages) renders from batch data
+- `npm install` + `npm run dev` from `frontend/` — runs on `http://localhost:5173`
+- Proxy: Vite proxies `/api` to `http://localhost:8000` (no CORS issues in dev)
+- **Status:** not yet end-to-end tested in browser — run both servers and verify login flow
 
-**Before running the backend:**
-1. Run `db/schema/09_users.sql` in SSMS
-2. Create `rccp_app` SQL login in SSMS:
+**Before running the backend (fresh machine setup):**
+1. Run `db/schema/09_users.sql` in SSMS (if not already done)
+2. Ensure `rccp_app` SQL login exists with access to `RCCP_One`:
    ```sql
    CREATE LOGIN rccp_app WITH PASSWORD = 'your_password';
    CREATE USER rccp_app FOR LOGIN rccp_app;
@@ -225,12 +250,12 @@ Auth was originally deferred to Phase 5 but is being built in Phase 1.
    ALTER ROLE db_datawriter ADD MEMBER rccp_app;
    GRANT EXECUTE TO rccp_app;
    ```
-3. `cd backend && python -m venv venv && venv\Scripts\activate`
+3. `cd backend && py -m venv venv && venv\Scripts\activate`
 4. `pip install -r requirements.txt`
 5. Copy `.env.example` → `.env`, fill in `DB_PASSWORD` and `JWT_SECRET`
 6. `uvicorn app.main:app --reload`
 
-**To redeploy from scratch** (all scripts are idempotent):
+**To redeploy DB from scratch** (all scripts are idempotent — run from `db/` folder):
 ```bat
 sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -i schema\00_reset_all_tables.sql
 sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -i schema\01_masterdata.sql
@@ -241,6 +266,7 @@ sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -i schema\05_item_resource_rules.s
 sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -i schema\06_resource_requirements.sql
 sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -i schema\07_line_pack_capabilities.sql
 sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -i schema\08_warehouse_capacity.sql
+sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -i schema\09_users.sql
 sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -i seeds\01_app_settings.sql
 sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -i seeds\02_masterdata_sample.sql
 ```
@@ -250,7 +276,6 @@ sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -i seeds\02_masterdata_sample.sql
 ## Open Questions (resolve before continuing)
 
 - SAP export column headers for all 6 file types — needed for Stage 3 (FIELD_MAPPING_CHECK) validation
-- Figma / Planning Data screen design — not yet shared
 - `standard_hourly_rate` for all 5 resource types
 - `units_per_pallet` for 1L (101221) and 4L (101233) items
 - `bottles_per_minute` for lines A202, A302–A308, A401, A501, A502
@@ -266,5 +291,5 @@ sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -i seeds\02_masterdata_sample.sql
 - Modular structure — do not build everything in one file
 - Do not build Phase 2+ features early
 - Challenge weak designs before implementing
-- No auth/user accounts in Phase 1 — `created_by` fields are nullable strings
+- Auth is in Phase 1 — `created_by` fields are nullable strings (auth came in late, existing rows remain nullable)
 - Separate concerns: routes / services / db access layers in backend
