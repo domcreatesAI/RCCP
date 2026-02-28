@@ -94,7 +94,7 @@ All scripts are idempotent — safe to re-run (except the reset script which dro
 | `schema/00_reset_all_tables.sql` | — | Drops all tables. Run before fresh deploy. |
 | `schema/01_masterdata.sql` | app_settings, warehouses, plants, pack_types, labour_pools, lines, items | |
 | `schema/02_workflow.sql` | import_batches, import_batch_files, import_validation_results, plan_versions | file_type CHECK uses `master_stock` |
-| `schema/03_planning_data.sql` | master_stock, demand_plan, line_capacity_calendar, staffing_plan, oee_daily, portfolio_changes | |
+| `schema/03_planning_data.sql` | master_stock, demand_plan, line_capacity_calendar, headcount_plan, oee_daily, portfolio_changes | |
 | `schema/04_views.sql` | vw_line_capacity_with_net, vw_batch_file_status, vw_batch_readiness, vw_master_stock | Note: vw_line_pack_capabilities is in 07 |
 | `schema/05_item_resource_rules.sql` | item_resource_rules | |
 | `schema/06_resource_requirements.sql` | resource_types, line_resource_requirements, plant_resource_requirements | |
@@ -210,7 +210,7 @@ Vite proxies `/api` → `http://localhost:8000`. Backend must be running.
 - `plan_versions` — named, immutable baselines
 
 **Planning Data** (SAP imports, scoped to a batch)
-- `master_stock`, `demand_plan`, `line_capacity_calendar`, `staffing_plan`, `oee_daily`, `portfolio_changes`
+- `master_stock`, `demand_plan`, `line_capacity_calendar`, `headcount_plan`, `oee_daily`, `portfolio_changes`
 
 **Views**
 - `vw_line_capacity_with_net` — adds `net_theoretical_hours`
@@ -247,6 +247,7 @@ Vite proxies `/api` → `http://localhost:8000`. Backend must be running.
 - [ ] **Warehouse capacity** (pallet positions per pack type per warehouse) — confirm with warehouse team
 - [ ] **`standard_hours_per_unit`** in item_resource_rules — all values are placeholders
 - [ ] **Upload base path** — confirm actual VM path for file storage (currently `uploads/`)
+- [ ] **MOQ (Minimum Order Quantity)** — needed for Phase 2 to calculate realistic production load on lines. A run must meet MOQ before it contributes load. Decide: per-item (`items.moq_ea`) or per-line-per-item (`line_pack_capabilities.moq_ea`)? Confirm with production/planning team.
 
 ---
 

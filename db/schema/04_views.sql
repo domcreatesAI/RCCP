@@ -139,7 +139,7 @@ SELECT
     COUNT(DISTINCT CASE
         WHEN ibf.file_type IN (
             'master_stock', 'demand_plan', 'line_capacity_calendar',
-            'staffing_plan', 'portfolio_changes'
+            'headcount_plan', 'portfolio_changes'
         ) AND ibf.is_current_version = 1
         THEN ibf.file_type
     END)                                    AS required_files_uploaded,
@@ -156,7 +156,7 @@ SELECT
         WHEN COUNT(DISTINCT CASE
             WHEN ibf.file_type IN (
                 'master_stock', 'demand_plan', 'line_capacity_calendar',
-                'staffing_plan', 'portfolio_changes'
+                'headcount_plan', 'portfolio_changes'
             ) AND ibf.is_current_version = 1
             THEN ibf.file_type END) < 5
         THEN 0

@@ -17,7 +17,7 @@ function deriveStageStatus(batch: Batch, stageNum: number) {
   const hasBlocked = files.some((f) => f.blocked_count && f.blocked_count > 0)
   const hasWarning = files.some((f) => f.warning_count && f.warning_count > 0)
   const requiredPresent = files.filter((f) =>
-    ['master_stock', 'demand_plan', 'line_capacity_calendar', 'staffing_plan', 'portfolio_changes']
+    ['master_stock', 'demand_plan', 'line_capacity_calendar', 'headcount_plan', 'portfolio_changes']
       .includes(f.file_type)
   ).length
 

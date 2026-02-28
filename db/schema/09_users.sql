@@ -39,7 +39,7 @@ ADD CONSTRAINT CK_import_batch_files_type CHECK (
         'master_stock',
         'demand_plan',
         'line_capacity_calendar',
-        'staffing_plan',
+        'headcount_plan',
         'oee_daily',
         'portfolio_changes'
     )

@@ -5,7 +5,7 @@ const REQUIRED_FILES: FileType[] = [
   'master_stock',
   'demand_plan',
   'line_capacity_calendar',
-  'staffing_plan',
+  'headcount_plan',
   'portfolio_changes',
 ]
 

@@ -16,8 +16,8 @@ const FILE_META: Record<FileType, { label: string; description: string }> = {
     label: 'Capacity calendar',
     description: 'Line availability, shift patterns, and maintenance windows',
   },
-  staffing_plan: {
-    label: 'Staffing plan',
+  headcount_plan: {
+    label: 'Headcount plan',
     description: 'Operator headcount and labour hours per line per week',
   },
   portfolio_changes: {

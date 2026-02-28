@@ -10,7 +10,7 @@ Always run scripts in this exact order. Each script is idempotent (safe to re-ru
 3. schema/02_workflow.sql           → import_batches, import_batch_files,
                                       import_validation_results, plan_versions
 4. schema/03_planning_data.sql      → inventory_snapshots, demand_plan,
-                                      line_capacity_calendar, staffing_plan,
+                                      line_capacity_calendar, headcount_plan,
                                       oee_daily, portfolio_changes
 5. schema/04_views.sql              → vw_line_capacity_with_net,
                                       vw_batch_file_status, vw_batch_readiness
@@ -74,7 +74,7 @@ Replace `YOUR_SERVER` with your SQL Server instance name (e.g. `localhost`, `.\S
 | `inventory_snapshots` | Stock on hand / in transit per item per date |
 | `demand_plan` | Monthly (or weekly) demand per item, 12–18 months |
 | `line_capacity_calendar` | Daily line availability inputs (losses tracked separately) |
-| `staffing_plan` | Planned headcount and hours per line per day |
+| `headcount_plan` | Planned headcount and hours per line per day |
 | `oee_daily` | OEE components per line per day (optional upload) |
 | `portfolio_changes` | Product changes within the planning horizon (required, can be empty) |
 

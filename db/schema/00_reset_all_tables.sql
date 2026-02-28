@@ -14,7 +14,7 @@ GO
 -- Planning data (deepest dependencies first)
 DROP TABLE IF EXISTS dbo.portfolio_changes;
 DROP TABLE IF EXISTS dbo.oee_daily;
-DROP TABLE IF EXISTS dbo.staffing_plan;
+DROP TABLE IF EXISTS dbo.headcount_plan;
 DROP TABLE IF EXISTS dbo.line_capacity_calendar;
 DROP TABLE IF EXISTS dbo.demand_plan;
 DROP TABLE IF EXISTS dbo.master_stock;

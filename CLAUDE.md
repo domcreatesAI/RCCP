@@ -91,7 +91,7 @@ RCCP-One/
 | `master_stock` | Yes | Renamed from `inventory_snapshots` |
 | `demand_plan` | Yes | Monthly per warehouse; weekly derived at query time |
 | `line_capacity_calendar` | Yes | |
-| `staffing_plan` | Yes | |
+| `headcount_plan` | Yes | |
 | `portfolio_changes` | Yes | Required but may have 0 data rows (valid) |
 | `oee_daily` | Optional | Missing = WARNING, not BLOCKED |
 
@@ -130,7 +130,7 @@ RCCP-One/
 **Headcount constraints (Phase 2):**
 - `line_resource_requirements` — people needed per line (Line Operators, Team Leaders)
 - `plant_resource_requirements` — shared people per plant (Forklift Drivers, Robot Operators, Material Handlers)
-- `staffing_plan` — actual planned headcount from SAP; compared against requirements to flag shortfalls
+- `headcount_plan` — actual planned headcount; compared against requirements to flag shortfalls
 
 **Warehouse space constraint (Phase 2):**
 - `warehouse_capacity` — max pallet positions per pack type per warehouse
@@ -182,7 +182,7 @@ Publish is blocked if any file has severity = `BLOCKED`.
 - `import_batches` / `import_batch_files` / `import_validation_results` / `plan_versions`
 
 **Planning data tables (batch-scoped):**
-- `master_stock`, `demand_plan`, `line_capacity_calendar`, `staffing_plan`, `oee_daily`, `portfolio_changes`
+- `master_stock`, `demand_plan`, `line_capacity_calendar`, `headcount_plan`, `oee_daily`, `portfolio_changes`
 
 **Views:**
 - `vw_line_capacity_with_net` — adds `net_theoretical_hours`

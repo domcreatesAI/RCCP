@@ -3,7 +3,7 @@
 -- Run after 02_workflow.sql
 --
 -- Tables: master_stock, demand_plan, line_capacity_calendar,
---         staffing_plan, oee_daily, portfolio_changes
+--         headcount_plan, oee_daily, portfolio_changes
 --
 -- All planning data rows are scoped to a batch_id.
 -- When a batch is archived, the data rows remain for historical reference.
@@ -188,9 +188,9 @@ GO
 -- line_resource_requirements to identify staffing shortfalls.
 -- shift_code is optional — some plants plan by shift, others by day.
 -- =============================================================================
-IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'staffing_plan')
+IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'headcount_plan')
 BEGIN
-    CREATE TABLE dbo.staffing_plan (
+    CREATE TABLE dbo.headcount_plan (
         staffing_id         INT             IDENTITY(1,1)   NOT NULL,
         batch_id            INT             NOT NULL,
         line_code           VARCHAR(50)     NOT NULL,
@@ -202,24 +202,24 @@ BEGIN
         source_row_number   INT             NULL,
         created_at          DATETIME2(7)    NOT NULL    DEFAULT GETUTCDATE(),
 
-        CONSTRAINT PK_staffing_plan             PRIMARY KEY (staffing_id),
-        CONSTRAINT FK_staffing_plan_batch       FOREIGN KEY (batch_id)
+        CONSTRAINT PK_headcount_plan             PRIMARY KEY (staffing_id),
+        CONSTRAINT FK_headcount_plan_batch       FOREIGN KEY (batch_id)
             REFERENCES dbo.import_batches (batch_id)
             ON DELETE CASCADE,
-        CONSTRAINT FK_staffing_plan_line        FOREIGN KEY (line_code)
+        CONSTRAINT FK_headcount_plan_line        FOREIGN KEY (line_code)
             REFERENCES dbo.lines (line_code)
             ON UPDATE CASCADE ON DELETE NO ACTION,
-        CONSTRAINT CK_staffing_plan_headcount   CHECK (planned_headcount >= 0),
-        CONSTRAINT CK_staffing_plan_hours       CHECK (available_hours IS NULL OR available_hours >= 0)
+        CONSTRAINT CK_headcount_plan_headcount   CHECK (planned_headcount >= 0),
+        CONSTRAINT CK_headcount_plan_hours       CHECK (available_hours IS NULL OR available_hours >= 0)
     );
 
-    CREATE INDEX IX_staffing_batch_line ON dbo.staffing_plan (batch_id, line_code);
-    CREATE INDEX IX_staffing_batch_date ON dbo.staffing_plan (batch_id, plan_date);
+    CREATE INDEX IX_staffing_batch_line ON dbo.headcount_plan (batch_id, line_code);
+    CREATE INDEX IX_staffing_batch_date ON dbo.headcount_plan (batch_id, plan_date);
 
-    PRINT 'Created table: staffing_plan';
+    PRINT 'Created table: headcount_plan';
 END
 ELSE
-    PRINT 'Table staffing_plan already exists. Skipped.';
+    PRINT 'Table headcount_plan already exists. Skipped.';
 GO
 
 -- =============================================================================
