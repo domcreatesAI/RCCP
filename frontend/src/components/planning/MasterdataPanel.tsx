@@ -30,16 +30,16 @@ const MASTERDATA_META: Record<string, { label: string; description: string }> = 
   },
 }
 
-// Types that have a downloadable Excel template (item_master comes from SAP)
 const TEMPLATE_TYPES = new Set([
   'line_pack_capabilities',
   'line_resource_requirements',
   'plant_resource_requirements',
   'warehouse_capacity',
+  'item_master',
   'item_status',
 ])
 
-const DISPLAY_ORDER = [
+export const DISPLAY_ORDER = [
   'line_pack_capabilities',
   'line_resource_requirements',
   'plant_resource_requirements',
@@ -48,32 +48,27 @@ const DISPLAY_ORDER = [
   'item_status',
 ]
 
-interface IssueListProps {
-  issues: MasterdataIssue[]
-  severity: 'BLOCKED' | 'WARNING'
+const STATUS_PILL: Record<string, string> = {
+  imported: 'bg-green-50 text-green-700',
+  warnings: 'bg-amber-50 text-amber-700',
+  blocked: 'bg-red-50 text-red-700',
+  not_uploaded: 'bg-gray-100 text-gray-500',
 }
 
-function IssueList({ issues, severity }: IssueListProps) {
+function IssueHint({ issues, severity }: { issues: MasterdataIssue[]; severity: 'BLOCKED' | 'WARNING' }) {
   if (issues.length === 0) return null
   const colour = severity === 'BLOCKED' ? 'text-red-600' : 'text-amber-600'
-  const bg = severity === 'BLOCKED' ? 'bg-red-50 border-red-100' : 'bg-amber-50 border-amber-100'
   return (
-    <div className={`mt-2 rounded-lg border px-3 py-2 ${bg}`}>
-      <p className={`text-xs font-semibold mb-1 ${colour}`}>
-        {severity === 'BLOCKED' ? 'Blocked' : 'Warnings'} ({issues.length})
-      </p>
-      <ul className="space-y-0.5">
-        {issues.map((issue, i) => (
-          <li key={i} className={`text-xs ${colour}`}>
-            {issue.message}
-          </li>
-        ))}
-      </ul>
+    <div className="mt-1 max-w-[280px]">
+      <p className={`text-xs ${colour} line-clamp-2`}>{issues[0].message}</p>
+      {issues.length > 1 && (
+        <p className="text-xs text-gray-400">+{issues.length - 1} more</p>
+      )}
     </div>
   )
 }
 
-function MasterdataRow({ mdType }: { mdType: string }) {
+export function MasterdataRow({ mdType }: { mdType: string }) {
   const queryClient = useQueryClient()
   const inputRef = useRef<HTMLInputElement>(null)
   const [lastResult, setLastResult] = useState<{ errors: MasterdataIssue[]; warnings: MasterdataIssue[] } | null>(null)
@@ -95,9 +90,7 @@ function MasterdataRow({ mdType }: { mdType: string }) {
     onError: (err: unknown) => {
       const detail = (err as { response?: { data?: { detail?: { errors?: MasterdataIssue[] } } } })
         ?.response?.data?.detail
-      if (detail?.errors) {
-        setLastResult({ errors: detail.errors, warnings: [] })
-      }
+      setLastResult({ errors: detail?.errors ?? [], warnings: [] })
     },
   })
 
@@ -110,59 +103,79 @@ function MasterdataRow({ mdType }: { mdType: string }) {
     e.target.value = ''
   }
 
+  // Determine status pill
+  let pillKey: string
+  let pillLabel: string
+  if (uploadMutation.isError) {
+    pillKey = 'blocked'
+    pillLabel = 'Blocked'
+  } else if (uploadMutation.isSuccess && lastResult) {
+    if (lastResult.errors.length === 0 && lastResult.warnings.length === 0) {
+      pillKey = 'imported'
+      pillLabel = 'Imported'
+    } else if (lastResult.errors.length === 0) {
+      pillKey = 'warnings'
+      pillLabel = 'Imported + warnings'
+    } else {
+      pillKey = 'blocked'
+      pillLabel = 'Blocked'
+    }
+  } else if (status?.last_uploaded_at) {
+    pillKey = 'imported'
+    pillLabel = 'Imported'
+  } else {
+    pillKey = 'not_uploaded'
+    pillLabel = 'Not uploaded'
+  }
+
   const isUploaded = !!status?.last_uploaded_at
-  const uploadedDate = status?.last_uploaded_at
-    ? new Date(status.last_uploaded_at).toLocaleString('en-GB', {
-        day: '2-digit', month: 'short', year: 'numeric',
-        hour: '2-digit', minute: '2-digit',
-      })
-    : null
 
   return (
     <tr className="border-t border-gray-100 hover:bg-gray-50/50 align-top">
-      {/* Label */}
+      {/* File */}
       <td className="py-3 px-4">
-        <p className="text-sm font-medium text-gray-900">{meta.label}</p>
-        <p className="text-xs text-gray-400">{meta.description}</p>
-      </td>
-
-      {/* Last updated */}
-      <td className="py-3 px-4 text-sm text-gray-500">
-        {isUploaded ? (
+        <div className="flex items-center gap-2">
+          <svg className="w-4 h-4 text-gray-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+              d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+          </svg>
           <div>
-            <p>{uploadedDate}</p>
-            {status?.last_uploaded_by && (
-              <p className="text-xs text-gray-400">{status.last_uploaded_by}</p>
-            )}
+            <p className="text-sm font-medium text-gray-900">{meta.label}</p>
+            <p className="text-xs text-gray-400">{meta.description}</p>
           </div>
-        ) : (
-          <span className="text-xs text-gray-400 italic">Never uploaded</span>
-        )}
+        </div>
       </td>
 
-      {/* Rows */}
-      <td className="py-3 px-4 text-sm text-gray-500">
-        {status?.last_row_count ?? '—'}
-      </td>
-
-      {/* Upload result */}
+      {/* Status */}
       <td className="py-3 px-4">
-        {uploadMutation.isSuccess && lastResult?.errors.length === 0 && (
-          <span className="text-xs text-green-600 font-medium">Imported</span>
+        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_PILL[pillKey]}`}>
+          {pillLabel}
+        </span>
+        {lastResult && lastResult.errors.length > 0 && (
+          <IssueHint issues={lastResult.errors} severity="BLOCKED" />
         )}
-        {uploadMutation.isError && lastResult?.errors && (
-          <div>
-            <span className="text-xs text-red-600 font-medium">Blocked — not imported</span>
-            <IssueList issues={lastResult.errors} severity="BLOCKED" />
-            <IssueList issues={lastResult.warnings} severity="WARNING" />
-          </div>
+        {lastResult && lastResult.errors.length === 0 && lastResult.warnings.length > 0 && (
+          <IssueHint issues={lastResult.warnings} severity="WARNING" />
         )}
-        {uploadMutation.isSuccess && (lastResult?.warnings.length ?? 0) > 0 && (
-          <div>
-            <span className="text-xs text-amber-600 font-medium">Imported with warnings</span>
-            <IssueList issues={lastResult!.warnings} severity="WARNING" />
-          </div>
-        )}
+      </td>
+
+      {/* Ver. (row count) */}
+      <td className="py-3 px-4 text-sm text-gray-500">
+        {status?.last_row_count != null ? `${status.last_row_count} rows` : '—'}
+      </td>
+
+      {/* Uploaded by */}
+      <td className="py-3 px-4 text-sm text-gray-500">
+        {status?.last_uploaded_by ?? '—'}
+      </td>
+
+      {/* Time */}
+      <td className="py-3 px-4 text-sm text-gray-500">
+        {status?.last_uploaded_at
+          ? new Date(status.last_uploaded_at).toLocaleString('en-GB', {
+              day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
+            })
+          : '—'}
       </td>
 
       {/* Actions */}
@@ -199,37 +212,5 @@ function MasterdataRow({ mdType }: { mdType: string }) {
         </div>
       </td>
     </tr>
-  )
-}
-
-export default function MasterdataPanel() {
-  const colHeaders = ['Masterdata file', 'Last updated', 'Rows', 'Result', 'Actions']
-
-  return (
-    <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-      <div className="px-4 py-3 border-b border-gray-100">
-        <p className="text-sm font-semibold text-gray-900">Masterdata</p>
-        <p className="text-xs text-gray-500 mt-0.5">
-          Update each cycle to ensure the capacity model uses current data.
-          BLOCKED issues reject the upload — fix the file and re-upload.
-        </p>
-      </div>
-      <table className="w-full">
-        <thead>
-          <tr className="bg-gray-50">
-            {colHeaders.map((h) => (
-              <th key={h} className="py-2 px-4 text-left text-xs font-medium text-gray-500">
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {DISPLAY_ORDER.map((mdType) => (
-            <MasterdataRow key={mdType} mdType={mdType} />
-          ))}
-        </tbody>
-      </table>
-    </div>
   )
 }

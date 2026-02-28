@@ -14,13 +14,14 @@ router = APIRouter(prefix="/masterdata", tags=["masterdata"])
 
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "uploads", "masterdata")
 
-# Types that have a downloadable Excel template (item_master comes from SAP — no template)
+# Types that have a downloadable Excel template
 MASTERDATA_TEMPLATE_TYPES = frozenset([
     "line_pack_capabilities",
     "line_resource_requirements",
     "plant_resource_requirements",
     "warehouse_capacity",
     "item_status",
+    "item_master",   # placeholder template — SAP column names TBC
 ])
 
 

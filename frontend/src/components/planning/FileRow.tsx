@@ -5,6 +5,8 @@ import type { BatchFile, FileType, ValidationStatus } from '../../types'
 
 // Files that have a downloadable Excel template
 const TEMPLATE_FILE_TYPES = new Set<FileType>([
+  'master_stock',
+  'demand_plan',
   'line_capacity_calendar',
   'headcount_plan',
   'portfolio_changes',

@@ -2,7 +2,7 @@
 
 > This file is the source of truth for project state.
 > Update it at the end of every working session.
-> Last updated: 2026-02-28 (session 3)
+> Last updated: 2026-02-28 (session 4)
 
 ---
 
@@ -55,8 +55,11 @@ Develop from a local clone — do not develop on Google Drive (npm too slow).
 | 6 | Backend: 7-stage validation pipeline (auto + manual re-run) | **Complete** |
 | 7 | Frontend: inline validation issue messages per file | **Complete** |
 | 8 | Backend + Frontend: Excel template downloads | **Complete** |
-| 9 | Backend + Frontend: Masterdata upload section (5 types, stages 2–6 validation) | **Complete** |
-| 10 | DB: script 11 (masterdata_uploads table + items.moq + items.mrp_type) | **Built — needs running on live DB** |
+| 9 | Backend + Frontend: Masterdata upload section (6 types, stages 2–6 validation) | **Complete** |
+| 10 | DB: script 11 (masterdata_uploads table + items.moq + items.mrp_type) | **Complete — deployed** |
+| 10a | Frontend: Unified one-card layout (required + masterdata + optional in one table), BatchActionBar at page bottom | **Complete** |
+| 10b | Templates: placeholder templates for master_stock, demand_plan, item_master; DD/MM/YYYY date format throughout | **Complete** |
+| 10c | Capacity calendar: `scripts/generate_capacity_calendar.py` → 25,564 rows, UK bank holidays 2026–2030 | **Complete** |
 | 11 | Backend: Publish batch endpoint | **Next** |
 | 12 | Backend: Create baseline endpoint | Not started |
 
@@ -64,10 +67,7 @@ Develop from a local clone — do not develop on Google Drive (npm too slow).
 
 ## Database — Deployment State
 
-**Status: Scripts 00–09 + seeds deployed. Script 11 needs running on the live DB:**
-```bat
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\11_masterdata_uploads.sql
-```
+**Status: Fully deployed — scripts 00–09 + 11 + both seeds deployed and verified.**
 
 ### How to Deploy (Clean Slate)
 
@@ -125,9 +125,10 @@ All scripts are idempotent — safe to re-run (except 00_reset which drops all t
 | GET | `/api/batches/{id}` | JWT | Batch detail + file status + top_issue_message per file |
 | POST | `/api/batches/{id}/files` | JWT | Upload file → auto-validates → returns updated status |
 | POST | `/api/batches/{id}/validate` | JWT | Re-run validation on all current files |
-| GET | `/api/templates/{file_type}` | JWT | Download Excel template (.xlsx) for 4 non-SAP files |
-| GET | `/api/masterdata/status` | JWT | Last upload info for all 5 masterdata types |
+| GET | `/api/templates/{file_type}` | JWT | Download Excel template (.xlsx); all 6 batch file types (SAP files = placeholder) |
+| GET | `/api/masterdata/status` | JWT | Last upload info for all 6 masterdata types |
 | POST | `/api/masterdata/{type}` | JWT | Upload + validate (stages 2–6) + full-replace import |
+| GET | `/api/masterdata/{type}/template` | JWT | Download masterdata template; all 6 types (item_master = placeholder) |
 | GET | `/api/health` | None | DB connection check |
 
 ### Running the backend (Windows)
@@ -159,11 +160,12 @@ copy .env.example .env   (fill in DB_PASSWORD and JWT_SECRET)
 - Login page (username/password → JWT → AuthContext → localStorage)
 - Planning Data page: single-column layout
   - Batch selector dropdown + "New batch" modal
-  - File table: 5 required + 1 optional rows — status pill + inline issue message per file
-  - Template download button on 4 non-SAP file rows
-  - "Run validation" button (re-validates all files)
-  - Publish batch bar (disabled until ready)
-  - Masterdata section below: 5 upload rows with last-updated info
+  - **Unified card**: one table with shared columns (File, Status, Ver., Uploaded by, Time, Actions)
+    - Required files section (5 rows): status pill + inline issue message + template button (SAP files have placeholder templates)
+    - Masterdata section (6 rows): same columns; Ver. = row count from last import
+    - Optional files section (1 row)
+  - "Run validation" button + "Publish batch" button in action bar at **page bottom** (separated from table)
+- Template download button on **all** file rows (including master_stock, demand_plan, item_master — placeholders pending SAP column confirmation)
 - 5-second polling on active batch
 
 ### Running the frontend
@@ -238,8 +240,8 @@ Vite proxies `/api` → `http://localhost:8000`. Backend must be running.
 
 ## Pending Items / Open Questions
 
-- [ ] **DB script 11** — run `11_masterdata_uploads.sql` on the live DB before testing masterdata uploads
-- [ ] **SAP export column headers** for `master_stock` and `demand_plan` — needed to complete stages 2–6 for SAP files (currently INFO). Once headers are confirmed, update `FILE_SCHEMAS` in `validation_service.py`
+- [x] **DB script 11** — deployed and verified
+- [ ] **SAP export column headers** for `master_stock` and `demand_plan` — needed to complete stages 2–6 for SAP files (currently INFO). Once confirmed: (1) update `FILE_SCHEMAS` in `validation_service.py`, (2) update placeholder templates in `template_service.py`
 - [ ] **`standard_hourly_rate`** for all 5 resource types — needed before Phase 3 cost calculations
 - [ ] **`bottles_per_minute`** for lines A202, A302–A308, A401, A501, A502 — confirm with engineering; upload via `line_pack_capabilities` masterdata
 - [ ] **Resource requirements** for Plants A2–A5 — upload via `plant_resource_requirements` masterdata
@@ -251,7 +253,7 @@ Vite proxies `/api` → `http://localhost:8000`. Backend must be running.
 
 ## Next Session Starting Point
 
-**Immediate task:** Run script 11 on the live DB, then test all masterdata uploads + validation UI changes in browser.
+**Immediate task:** Visual smoke test — upload capacity_calendar_2026_2030.xlsx via the Planning Data page; test masterdata upload flow in the new unified card.
 
 **Remaining Phase 1 tasks (in order):**
 1. **Publish batch** — `POST /api/batches/{id}/publish`

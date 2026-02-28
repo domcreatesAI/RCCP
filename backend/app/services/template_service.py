@@ -25,7 +25,7 @@ TEMPLATES: dict[str, dict] = {
         ),
         "columns": [
             ("line_code",               "Line Code",               "Production line code (e.g. A101, A202). Must match a line in the masterdata.",  "A101"),
-            ("calendar_date",           "Calendar Date",           "Date in YYYY-MM-DD format (e.g. 2026-03-01).",                                   "2026-03-01"),
+            ("calendar_date",           "Calendar Date",           "Date in DD/MM/YYYY format (e.g. 01/03/2026).",                                   "01/03/2026"),
             ("is_working_day",          "Is Working Day",          "1 = working day, 0 = non-working day (weekend, bank holiday).",                  "1"),
             ("planned_hours",           "Planned Hours",           "Total planned production hours for this line on this date (0–24). Required.",    "7.0"),
             ("maintenance_hours",       "Maintenance Hours",       "Scheduled maintenance time (hours). Optional — leave blank if none.",             "0.5"),
@@ -35,9 +35,9 @@ TEMPLATES: dict[str, dict] = {
             ("notes",                   "Notes",                   "Free text notes for this entry. Optional.",                                       ""),
         ],
         "sample_rows": [
-            ["A101", "2026-03-01", 1, 7.0, 0.5, 0, 0, 0, ""],
-            ["A101", "2026-03-02", 0, 0.0, 0,   0, 0, 0, "Weekend"],
-            ["A202", "2026-03-01", 1, 7.0, 0,   0, 0, 0, ""],
+            ["A101", "01/03/2026", 1, 7.0, 0.5, 0, 0, 0, ""],
+            ["A101", "02/03/2026", 0, 0.0, 0,   0, 0, 0, "Weekend"],
+            ["A202", "01/03/2026", 1, 7.0, 0,   0, 0, 0, ""],
         ],
     },
     "headcount_plan": {
@@ -48,16 +48,16 @@ TEMPLATES: dict[str, dict] = {
         ),
         "columns": [
             ("line_code",         "Line Code",          "Production line code (e.g. A101). Must match a line in the masterdata.",         "A101"),
-            ("plan_date",         "Plan Date",          "Date in YYYY-MM-DD format.",                                                     "2026-03-01"),
+            ("plan_date",         "Plan Date",          "Date in DD/MM/YYYY format (e.g. 01/03/2026).",                                  "01/03/2026"),
             ("planned_headcount", "Planned Headcount",  "Number of operators planned for this line on this date. Required. Must be ≥ 0.", "4"),
             ("shift_code",        "Shift Code",         "Optional shift identifier (e.g. DAY, NIGHT, A, B). Leave blank if not used.",    "DAY"),
             ("available_hours",   "Available Hours",    "Total labour hours available (headcount × shift hours). Optional.",              "28.0"),
             ("notes",             "Notes",              "Free text notes. Optional.",                                                     ""),
         ],
         "sample_rows": [
-            ["A101", "2026-03-01", 4, "DAY",   28.0, ""],
-            ["A101", "2026-03-02", 0, "",      0,    "Weekend — no staffing"],
-            ["A202", "2026-03-01", 3, "DAY",   21.0, ""],
+            ["A101", "01/03/2026", 4, "DAY",   28.0, ""],
+            ["A101", "02/03/2026", 0, "",      0,    "Weekend — no staffing"],
+            ["A202", "01/03/2026", 3, "DAY",   21.0, ""],
         ],
     },
     "portfolio_changes": {
@@ -69,15 +69,15 @@ TEMPLATES: dict[str, dict] = {
         ),
         "columns": [
             ("change_type",   "Change Type",    "Type of change. Must be one of: NEW_LAUNCH, DISCONTINUE, REFORMULATION, LINE_CHANGE, OTHER.",  "NEW_LAUNCH"),
-            ("effective_date","Effective Date", "Date the change takes effect (YYYY-MM-DD).",                                                   "2026-04-01"),
+            ("effective_date","Effective Date", "Date the change takes effect (DD/MM/YYYY).",                                                   "01/04/2026"),
             ("item_code",     "Item Code",      "SKU / item code affected. Optional — leave blank for plant-wide or range changes.",             "101221"),
             ("description",   "Description",    "Brief description of the change. Optional.",                                                   "New 1L SKU launch"),
             ("impact_notes",  "Impact Notes",   "Notes on capacity or planning impact. Optional.",                                              "Requires A101 line qualification"),
         ],
         "sample_rows": [
-            ["NEW_LAUNCH",    "2026-04-01", "101221", "New 1L SKU launch",          "Requires A101 line qualification"],
-            ["DISCONTINUE",   "2026-06-01", "101233", "4L SKU discontinuation",     "Run out existing stock first"],
-            ["REFORMULATION", "2026-05-01", "",       "Recipe change — all 60L SKUs", "Minor: no line change required"],
+            ["NEW_LAUNCH",    "01/04/2026", "101221", "New 1L SKU launch",          "Requires A101 line qualification"],
+            ["DISCONTINUE",   "01/06/2026", "101233", "4L SKU discontinuation",     "Run out existing stock first"],
+            ["REFORMULATION", "01/05/2026", "",       "Recipe change — all 60L SKUs", "Minor: no line change required"],
         ],
     },
     "oee_daily": {
@@ -90,16 +90,88 @@ TEMPLATES: dict[str, dict] = {
         ),
         "columns": [
             ("line_code",        "Line Code",        "Production line code. Must match a line in the masterdata.",                              "A101"),
-            ("record_date",      "Record Date",      "Date of the OEE record (YYYY-MM-DD).",                                                   "2026-02-28"),
+            ("record_date",      "Record Date",      "Date of the OEE record (DD/MM/YYYY).",                                                   "28/02/2026"),
             ("oee_pct",          "OEE %",            "Composite OEE as a decimal between 0 and 1 (e.g. 0.72 = 72%). Required.",               "0.72"),
             ("availability_pct", "Availability %",   "Availability component (0–1). Optional.",                                                "0.90"),
             ("performance_pct",  "Performance %",    "Performance component (0–1). Optional.",                                                 "0.85"),
             ("quality_pct",      "Quality %",        "Quality component (0–1). Optional. Note: OEE ≈ A × P × Q.",                             "0.94"),
         ],
         "sample_rows": [
-            ["A101", "2026-02-28", 0.72, 0.90, 0.85, 0.94],
-            ["A202", "2026-02-28", 0.68, 0.88, 0.80, 0.97],
-            ["A101", "2026-02-27", 0.75, 0.92, 0.87, 0.94],
+            ["A101", "28/02/2026", 0.72, 0.90, 0.85, 0.94],
+            ["A202", "28/02/2026", 0.68, 0.88, 0.80, 0.97],
+            ["A101", "27/02/2026", 0.75, 0.92, 0.87, 0.94],
+        ],
+    },
+
+    # ------------------------------------------------------------------
+    # SAP export reference templates — placeholders until SAP column
+    # names are confirmed. Served via GET /api/templates/{file_type}.
+    # ------------------------------------------------------------------
+    "master_stock": {
+        "title": "Master Stock (SAP Export)",
+        "description": (
+            "PLACEHOLDER TEMPLATE — column names must be confirmed against the actual SAP stock report. "
+            "One row per item per warehouse location. "
+            "Export from SAP transaction MB52 or equivalent stock overview report. "
+            "Upload at the start of each planning cycle before running validation."
+        ),
+        "columns": [
+            ("item_code",        "Item Code",         "SAP material number (e.g. 101221). Must match an item in the masterdata.",                      "101221"),
+            ("warehouse_code",   "Warehouse Code",    "Storage location / warehouse (e.g. UKP1, UKP3). Must match a warehouse in the masterdata.",     "UKP1"),
+            ("quantity_on_hand", "Quantity On Hand",  "Total stock on hand in eaches (EA) including allocated stock. Must be ≥ 0.",                    "1200"),
+            ("free_stock_ea",    "Free Stock (EA)",   "Unallocated / unrestricted stock in eaches. Must be ≥ 0.",                                       "800"),
+            ("total_stock_ea",   "Total Stock (EA)",  "Total stock including restricted/allocated. Must be ≥ 0. Can equal quantity_on_hand.",           "1200"),
+            ("safety_stock_ea",  "Safety Stock (EA)", "Minimum stock target in eaches. Optional — leave blank if not used.",                            "200"),
+        ],
+        "sample_rows": [
+            ["101221", "UKP1", 1200, 800, 1200, 200],
+            ["101322", "UKP1",  600, 600,  600,  50],
+            ["101233", "UKP3",  300, 300,  300,   0],
+        ],
+    },
+    "demand_plan": {
+        "title": "Demand Plan (SAP Export)",
+        "description": (
+            "PLACEHOLDER TEMPLATE — column names must be confirmed against the actual SAP demand planning report. "
+            "One row per item per warehouse per month. "
+            "Export from SAP transaction MD73 or equivalent demand planning report. "
+            "Covers the full planning horizon (typically 12–18 months forward)."
+        ),
+        "columns": [
+            ("item_code",       "Item Code",       "SAP material number (e.g. 101221). Must match an item in the masterdata.",                  "101221"),
+            ("warehouse_code",  "Warehouse Code",  "Storage location / warehouse (e.g. UKP1, UKP3). Must match a warehouse in the masterdata.", "UKP1"),
+            ("plan_month",      "Plan Month",      "First day of the planning month in DD/MM/YYYY format (e.g. 01/03/2026).",                   "01/03/2026"),
+            ("demand_quantity", "Demand Quantity", "Forecast demand for this item/warehouse/month in eaches (EA). Must be ≥ 0.",                "500"),
+        ],
+        "sample_rows": [
+            ["101221", "UKP1", "01/03/2026", 500],
+            ["101221", "UKP1", "01/04/2026", 480],
+            ["101322", "UKP3", "01/03/2026", 200],
+        ],
+    },
+
+    # ------------------------------------------------------------------
+    # Item master — SAP export reference template (placeholder)
+    # Served via GET /api/masterdata/item_master/template
+    # ------------------------------------------------------------------
+    "item_master": {
+        "title": "Item Master (SAP Export)",
+        "description": (
+            "PLACEHOLDER TEMPLATE — column names must be confirmed against the actual SAP item master report. "
+            "One row per item. Used to update MOQ, units per pallet, and MRP type on existing items. "
+            "Items not present in the file are left unchanged. "
+            "Export from SAP transaction MM60 or equivalent material master report."
+        ),
+        "columns": [
+            ("item_code",       "Item Code",        "SAP material number (e.g. 101221). Must already exist in the RCCP item masterdata.",                       "101221"),
+            ("moq",             "MOQ",              "Minimum order quantity in eaches. Optional — leave blank to leave unchanged. Must be > 0 if provided.",    "240"),
+            ("units_per_pallet","Units Per Pallet", "Pack units per full pallet. Optional — leave blank to leave unchanged. Must be > 0 if provided.",          "120"),
+            ("mrp_type",        "MRP Type",         "SAP MRP planning type (e.g. PD, VB, ND). Optional — leave blank to leave unchanged.",                     "PD"),
+        ],
+        "sample_rows": [
+            ["101221", 240,  None, "PD"],
+            ["101322", 120, 120,  "PD"],
+            ["101233", 240,  None, "VB"],
         ],
     },
 

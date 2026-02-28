@@ -4,7 +4,6 @@ import { listBatches, getBatch } from '../api/batches'
 import BatchSelector from '../components/planning/BatchSelector'
 import BatchHeader from '../components/planning/BatchHeader'
 import FileUploadTable, { BatchActionBar } from '../components/planning/FileUploadTable'
-import MasterdataPanel from '../components/planning/MasterdataPanel'
 
 export default function PlanningDataPage() {
   const [selectedBatchId, setSelectedBatchId] = useState<number | null>(null)
@@ -64,12 +63,7 @@ export default function PlanningDataPage() {
         </>
       )}
 
-      {/* Masterdata section — shown regardless of batch selection */}
-      <div className="mt-6">
-        <MasterdataPanel />
-      </div>
-
-      {/* Action bar — at the bottom, after masterdata */}
+      {/* Action bar — at the bottom */}
       {batch && (
         <div className="mt-6">
           <BatchActionBar batch={batch} />

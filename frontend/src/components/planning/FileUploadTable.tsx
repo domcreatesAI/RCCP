@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import FileRow from './FileRow'
+import { MasterdataRow, DISPLAY_ORDER } from './MasterdataPanel'
 import { validateBatch } from '../../api/batches'
 import type { Batch, FileType } from '../../types'
 
@@ -27,74 +28,81 @@ export default function FileUploadTable({ batch }: Props) {
   const colHeaders = ['File', 'Status', 'Ver.', 'Uploaded by', 'Time', 'Actions']
 
   return (
-    <div className="space-y-4">
-      {/* Required files */}
-      <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-          <div>
-            <p className="text-sm font-semibold text-gray-900">Required files (5)</p>
-            <p className="text-xs text-gray-500 mt-0.5">
-              All required files must be present before validation.{' '}
-              <span className="font-medium">portfolio_changes</span> accepts an empty file if no changes apply.
-            </p>
-          </div>
-          <span className={`text-sm font-semibold ${requiredPresent === 5 ? 'text-green-600' : 'text-red-600'}`}>
-            {requiredPresent}/5 present
-          </span>
+    <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+      {/* Card header */}
+      <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+        <div>
+          <p className="text-sm font-semibold text-gray-900">Planning data</p>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Upload and validate all files for this planning cycle.{' '}
+            <span className="font-medium">portfolio_changes</span> accepts an empty file if no changes apply.
+          </p>
         </div>
-        <table className="w-full">
-          <thead>
-            <tr className="bg-gray-50">
-              {colHeaders.map((h) => (
-                <th key={h} className="py-2 px-4 text-left text-xs font-medium text-gray-500">
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {REQUIRED_FILES.map((ft) => (
-              <FileRow
-                key={ft}
-                batchId={batch.batch_id}
-                fileType={ft}
-                file={filesByType[ft]}
-              />
-            ))}
-          </tbody>
-        </table>
+        <span className={`text-sm font-semibold ${requiredPresent === 5 ? 'text-green-600' : 'text-red-600'}`}>
+          {requiredPresent}/5 required
+        </span>
       </div>
 
-      {/* Optional files */}
-      <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-100">
-          <p className="text-sm font-semibold text-gray-900">Optional files</p>
-          <p className="text-xs text-gray-500 mt-0.5">Missing optional files produce a warning, not a blocker.</p>
-        </div>
-        <table className="w-full">
-          <thead>
-            <tr className="bg-gray-50">
-              {colHeaders.map((h) => (
-                <th key={h} className="py-2 px-4 text-left text-xs font-medium text-gray-500">
-                  {h}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {OPTIONAL_FILES.map((ft) => (
-              <FileRow
-                key={ft}
-                batchId={batch.batch_id}
-                fileType={ft}
-                file={filesByType[ft]}
-                optional
-              />
+      <table className="w-full">
+        <thead>
+          <tr className="bg-gray-50">
+            {colHeaders.map((h) => (
+              <th key={h} className="py-2 px-4 text-left text-xs font-medium text-gray-500">
+                {h}
+              </th>
             ))}
-          </tbody>
-        </table>
-      </div>
+          </tr>
+        </thead>
 
+        {/* Required planning files */}
+        <tbody>
+          {REQUIRED_FILES.map((ft) => (
+            <FileRow
+              key={ft}
+              batchId={batch.batch_id}
+              fileType={ft}
+              file={filesByType[ft]}
+            />
+          ))}
+        </tbody>
+
+        {/* Masterdata section */}
+        <tbody>
+          <tr className="bg-gray-50 border-t-2 border-gray-200">
+            <td colSpan={6} className="px-4 py-2">
+              <p className="text-xs font-semibold text-gray-500">Masterdata</p>
+              <p className="text-xs text-gray-400">
+                Update each cycle to ensure the capacity model uses current data.
+                BLOCKED issues reject the upload — fix the file and re-upload.
+              </p>
+            </td>
+          </tr>
+          {DISPLAY_ORDER.map((mdType) => (
+            <MasterdataRow key={mdType} mdType={mdType} />
+          ))}
+        </tbody>
+
+        {/* Optional files section */}
+        <tbody>
+          <tr className="bg-gray-50 border-t-2 border-gray-200">
+            <td colSpan={6} className="px-4 py-2">
+              <p className="text-xs font-semibold text-gray-500">Optional files</p>
+              <p className="text-xs text-gray-400">
+                Missing optional files produce a warning, not a blocker.
+              </p>
+            </td>
+          </tr>
+          {OPTIONAL_FILES.map((ft) => (
+            <FileRow
+              key={ft}
+              batchId={batch.batch_id}
+              fileType={ft}
+              file={filesByType[ft]}
+              optional
+            />
+          ))}
+        </tbody>
+      </table>
     </div>
   )
 }

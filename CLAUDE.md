@@ -107,10 +107,10 @@ BLOCKED = rejected, WARNING = imported with caution. Tracked in `masterdata_uplo
 | `line_resource_requirements` | `line_resource_requirements` | Headcount per line per role |
 | `plant_resource_requirements` | `plant_resource_requirements` | Shared headcount per plant per role |
 | `warehouse_capacity` | `warehouse_capacity` | Max pallet positions per pack type |
-| `item_master` | `items` (UPDATE moq, units_per_pallet, mrp_type) | SAP item master export |
+| `item_master` | `items` (UPDATE moq, units_per_pallet, mrp_type) | SAP item master export — placeholder template, update when SAP column names confirmed |
+| `item_status` | `items` (UPDATE sku_status) | 1=In Design, 2=Phase Out, 3=Obsolete |
 
 Note: `resource_requirements.xlsx` (2 tabs) was split into two separate uploads for simplicity.
-`sku_status` updates are handled via the `item_master` upload going forward.
 
 ---
 
@@ -231,20 +231,20 @@ Auth was originally deferred to Phase 5 but is being built in Phase 1.
 
 **GitHub repo:** `https://github.com/d0m1n/RCCP-One.git` — source of truth. Clone locally; do not develop on Google Drive (npm is too slow).
 
-**Database: FULLY DEPLOYED** — scripts 00–09 + both seeds deployed. Script 11 needs running on the live DB:
-```bat
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\11_masterdata_uploads.sql
-```
+**Database: FULLY DEPLOYED** — scripts 00–09 + 11 + both seeds deployed and verified.
 
 **Backend: Phase 1 workflow complete (Publish + Baseline still to build).**
 - Stack: FastAPI + pyodbc + bcrypt + PyJWT
-- All endpoints working — see PROJECT_STATUS.md for full list
+- All endpoints working including masterdata templates for all 6 types — see PROJECT_STATUS.md for full list
 - Run from `backend/`: `.\venv\Scripts\uvicorn.exe app.main:app --reload`
 
 **Frontend: Phase 1 workflow complete (Publish + Baseline still to build).**
-- Login → Planning Data page with batch workflow + masterdata section
-- File upload, validation, inline issue messages, template downloads all working
+- Login → Planning Data page: unified one-card layout (required files + masterdata + optional in one table with shared columns)
+- BatchActionBar (Run validation / Publish batch) rendered at page bottom, separate from the table
+- Template buttons on all file rows including SAP files (master_stock, demand_plan, item_master = placeholders)
 - Run from `frontend/`: `npm run dev` → `http://localhost:5173`
+
+**Capacity calendar pre-filled:** `scripts/generate_capacity_calendar.py` generates `uploads/capacity_calendar_2026_2030.xlsx` — 14 lines × 1,826 days (2026–2030), UK bank holidays hardcoded, DD/MM/YYYY date format.
 
 **Before running the backend (fresh machine setup):**
 1. Ensure `rccp_app` SQL login exists with access to `RCCP_One`
