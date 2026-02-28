@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 from app.database import get_connection
 from app.services.auth_service import get_current_user
-from app.services import batch_service, upload_service
+from app.services import batch_service, upload_service, validation_service
 
 router = APIRouter(prefix="/batches", tags=["uploads"])
 
@@ -29,13 +29,26 @@ def upload_file(
         if not batch:
             raise HTTPException(status_code=404, detail="Batch not found")
 
-        return upload_service.save_upload(
+        file_record = upload_service.save_upload(
             conn,
             batch_id,
             file_type,
             file,
             current_user["username"],
         )
+
+        # Auto-run validation immediately after upload
+        validation_service.run_validation(
+            conn,
+            batch_id,
+            file_record["batch_file_id"],
+            file_type,
+            file_record["stored_file_path"],
+        )
+
+        # Return the updated record (with real validation_status, not PENDING)
+        return upload_service.get_file_record(conn, file_record["batch_file_id"])
+
     except HTTPException:
         raise
     except Exception as e:

@@ -102,6 +102,37 @@ def save_upload(
     }
 
 
+def get_file_record(conn: pyodbc.Connection, batch_file_id: int) -> dict | None:
+    """Fetch a single file record by ID (used after validation to return updated status)."""
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT batch_file_id, batch_id, file_type, original_filename, stored_file_path,
+               file_size_bytes, upload_version, is_current_version,
+               validation_status, uploaded_by, uploaded_at
+        FROM dbo.import_batch_files
+        WHERE batch_file_id = ?
+        """,
+        batch_file_id,
+    )
+    r = cursor.fetchone()
+    if not r:
+        return None
+    return {
+        "batch_file_id": r[0],
+        "batch_id": r[1],
+        "file_type": r[2],
+        "original_filename": r[3],
+        "stored_file_path": r[4],
+        "file_size_bytes": r[5],
+        "upload_version": r[6],
+        "is_current_version": bool(r[7]),
+        "validation_status": r[8],
+        "uploaded_by": r[9],
+        "uploaded_at": str(r[10]) if r[10] else None,
+    }
+
+
 def list_batch_files(conn: pyodbc.Connection, batch_id: int) -> list:
     cursor = conn.cursor()
     cursor.execute(

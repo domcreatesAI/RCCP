@@ -2,7 +2,7 @@
 
 > This file is the source of truth for project state.
 > Update it at the end of every working session.
-> Last updated: 2026-02-28
+> Last updated: 2026-02-28 (session 3)
 
 ---
 
@@ -49,43 +49,47 @@ Develop from a local clone — do not develop on Google Drive (npm too slow).
 |------|------|--------|
 | 1 | Architecture review & challenge | Done |
 | 2 | Confirm Phase 1 architecture | Done |
-| 3 | SQL Server schema (all 10 scripts + seeds) | **Complete — deployed** |
-| 4 | Backend: auth, batch management, file upload | **Complete — tested in Swagger** |
-| 5 | Frontend: login screen + Planning Data screen scaffold | **Complete — not yet browser-tested** |
-| 6 | Frontend: end-to-end browser test (login → upload → verify in DB) | **Next** |
-| 7 | Backend: 7-stage validation pipeline | Not started |
-| 8 | Backend: Publish batch endpoint | Not started |
-| 9 | Backend: Create baseline endpoint | Not started |
+| 3 | SQL Server schema (scripts 00–09 + seeds) | **Complete — deployed** |
+| 4 | Backend: auth, batch management, file upload | **Complete — tested** |
+| 5 | Frontend: login + Planning Data screen | **Complete — browser-tested** |
+| 6 | Backend: 7-stage validation pipeline (auto + manual re-run) | **Complete** |
+| 7 | Frontend: inline validation issue messages per file | **Complete** |
+| 8 | Backend + Frontend: Excel template downloads | **Complete** |
+| 9 | Backend + Frontend: Masterdata upload section (5 types, stages 2–6 validation) | **Complete** |
+| 10 | DB: script 11 (masterdata_uploads table + items.moq + items.mrp_type) | **Built — needs running on live DB** |
+| 11 | Backend: Publish batch endpoint | **Next** |
+| 12 | Backend: Create baseline endpoint | Not started |
 
 ---
 
 ## Database — Deployment State
 
-**Status: FULLY DEPLOYED** on `localhost\SQLEXPRESS`, database `RCCP_One`.
-
-All 10 schema scripts and both seed scripts have been run successfully.
-Users table exists, admin seeded (username: `admin`, password: `admin123`).
+**Status: Scripts 00–09 + seeds deployed. Script 11 needs running on the live DB:**
+```bat
+sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\11_masterdata_uploads.sql
+```
 
 ### How to Deploy (Clean Slate)
 
-Run in this order from the `db/` folder:
+Run in this order from the repo root (always use `-C` flag with ODBC Driver 18):
 
 ```bat
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -i schema\00_reset_all_tables.sql
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -i schema\01_masterdata.sql
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -i schema\02_workflow.sql
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -i schema\03_planning_data.sql
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -i schema\04_views.sql
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -i schema\05_item_resource_rules.sql
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -i schema\06_resource_requirements.sql
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -i schema\07_line_pack_capabilities.sql
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -i schema\08_warehouse_capacity.sql
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -i schema\09_users.sql
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -i seeds\01_app_settings.sql
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -i seeds\02_masterdata_sample.sql
+sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\00_reset_all_tables.sql
+sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\01_masterdata.sql
+sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\02_workflow.sql
+sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\03_planning_data.sql
+sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\04_views.sql
+sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\05_item_resource_rules.sql
+sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\06_resource_requirements.sql
+sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\07_line_pack_capabilities.sql
+sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\08_warehouse_capacity.sql
+sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\09_users.sql
+sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\11_masterdata_uploads.sql
+sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\seeds\01_app_settings.sql
+sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\seeds\02_masterdata_sample.sql
 ```
 
-All scripts are idempotent — safe to re-run (except the reset script which drops all tables).
+All scripts are idempotent — safe to re-run (except 00_reset which drops all tables).
 
 ### Script Summary
 
@@ -93,14 +97,15 @@ All scripts are idempotent — safe to re-run (except the reset script which dro
 |--------|---------|-------|
 | `schema/00_reset_all_tables.sql` | — | Drops all tables. Run before fresh deploy. |
 | `schema/01_masterdata.sql` | app_settings, warehouses, plants, pack_types, labour_pools, lines, items | |
-| `schema/02_workflow.sql` | import_batches, import_batch_files, import_validation_results, plan_versions | file_type CHECK uses `master_stock` |
+| `schema/02_workflow.sql` | import_batches, import_batch_files, import_validation_results, plan_versions | |
 | `schema/03_planning_data.sql` | master_stock, demand_plan, line_capacity_calendar, headcount_plan, oee_daily, portfolio_changes | |
-| `schema/04_views.sql` | vw_line_capacity_with_net, vw_batch_file_status, vw_batch_readiness, vw_master_stock | Note: vw_line_pack_capabilities is in 07 |
+| `schema/04_views.sql` | vw_line_capacity_with_net, vw_batch_file_status, vw_batch_readiness, vw_master_stock | |
 | `schema/05_item_resource_rules.sql` | item_resource_rules | |
 | `schema/06_resource_requirements.sql` | resource_types, line_resource_requirements, plant_resource_requirements | |
-| `schema/07_line_pack_capabilities.sql` | line_pack_capabilities + vw_line_pack_capabilities | View co-located with its table |
+| `schema/07_line_pack_capabilities.sql` | line_pack_capabilities + vw_line_pack_capabilities | View co-located with table |
 | `schema/08_warehouse_capacity.sql` | warehouse_capacity | |
 | `schema/09_users.sql` | users | Also fixes master_stock CHECK constraint on import_batch_files |
+| `schema/11_masterdata_uploads.sql` | masterdata_uploads; adds items.moq, items.mrp_type | Idempotent |
 | `seeds/01_app_settings.sql` | Default config values incl. overtime/shift multipliers | |
 | `seeds/02_masterdata_sample.sql` | All masterdata: warehouses, plants, lines, items, resource types, requirements, line pack speeds | |
 
@@ -108,11 +113,7 @@ All scripts are idempotent — safe to re-run (except the reset script which dro
 
 ## Backend — State
 
-**Status: Scaffold complete and tested.**
-
-- All endpoints verified working via Swagger UI (`http://localhost:8000/docs`)
-- Login confirmed: `admin` / `admin123` → JWT token returned
-- Batch creation confirmed: `import_batches` row visible in SSMS
+**Status: Phase 1 workflow complete. Publish + Baseline endpoints still to build.**
 
 ### Endpoints
 
@@ -121,61 +122,58 @@ All scripts are idempotent — safe to re-run (except the reset script which dro
 | POST | `/api/auth/login` | None | Returns `access_token`, `role` |
 | GET | `/api/batches` | JWT | List all batches |
 | POST | `/api/batches` | JWT | Create batch (name + plan_cycle_date) |
-| GET | `/api/batches/{id}` | JWT | Batch detail + file status from vw_batch_file_status |
-| POST | `/api/batches/{id}/files` | JWT | Upload a file (multipart/form-data) |
-| GET | `/api/batches/{id}/files` | JWT | List files for batch |
-| GET | `/health` | None | Health check |
+| GET | `/api/batches/{id}` | JWT | Batch detail + file status + top_issue_message per file |
+| POST | `/api/batches/{id}/files` | JWT | Upload file → auto-validates → returns updated status |
+| POST | `/api/batches/{id}/validate` | JWT | Re-run validation on all current files |
+| GET | `/api/templates/{file_type}` | JWT | Download Excel template (.xlsx) for 4 non-SAP files |
+| GET | `/api/masterdata/status` | JWT | Last upload info for all 5 masterdata types |
+| POST | `/api/masterdata/{type}` | JWT | Upload + validate (stages 2–6) + full-replace import |
+| GET | `/api/health` | None | DB connection check |
 
-### Running the backend
+### Running the backend (Windows)
 
-```bash
+```bat
 cd backend
-py -m venv venv          # Windows: use `py` not `python`
-venv\Scripts\activate
-pip install -r requirements.txt
-# copy .env.example → .env, fill in DB_PASSWORD and JWT_SECRET
-uvicorn app.main:app --reload
+py -m venv venv
+.\venv\Scripts\python.exe -m pip install -r requirements.txt
+copy .env.example .env   (fill in DB_PASSWORD and JWT_SECRET)
+.\venv\Scripts\uvicorn.exe app.main:app --reload
 ```
 
 ### Known quirks
 
 - Use `py` launcher on Windows, not `python`
+- On PowerShell, call executables directly (`.\venv\Scripts\python.exe`) — activate.bat doesn't persist
 - `bcrypt` used directly — passlib is incompatible with Python 3.13 + bcrypt 4.x
 - `.env` must be in `backend/` root, not `backend/app/`
+- sqlcmd requires `-C` flag on this machine (ODBC Driver 18 enforces SSL by default)
 
 ---
 
 ## Frontend — State
 
-**Status: Scaffolded — login + Planning Data screen built. Not yet browser-tested.**
+**Status: Phase 1 workflow complete. Publish + Baseline UI still to build.**
 
 ### What's built
 
 - Login page (username/password → JWT → AuthContext → localStorage)
-- Planning Data page: two-panel layout (65% files / 35% validation)
-- Batch selector dropdown + "New batch" modal
-- File table: 5 required + 1 optional rows with status pills, upload buttons
-- Validation panel: 7 stage rows with derived status icons
-- Publish Batch bar (disabled when required files missing or BLOCKED)
+- Planning Data page: single-column layout
+  - Batch selector dropdown + "New batch" modal
+  - File table: 5 required + 1 optional rows — status pill + inline issue message per file
+  - Template download button on 4 non-SAP file rows
+  - "Run validation" button (re-validates all files)
+  - Publish batch bar (disabled until ready)
+  - Masterdata section below: 5 upload rows with last-updated info
 - 5-second polling on active batch
 
 ### Running the frontend
 
 ```bash
 cd frontend
-npm install
 npm run dev      # → http://localhost:5173
 ```
 
 Vite proxies `/api` → `http://localhost:8000`. Backend must be running.
-
-### First browser test checklist
-
-- [ ] Login with `admin` / `admin123` → redirected to Planning Data
-- [ ] Create new batch → batch appears in selector
-- [ ] Upload a test Excel file → file row updates to PENDING status
-- [ ] Confirm rows in SSMS `import_batches` + `import_batch_files`
-- [ ] Logout → redirected to login
 
 ---
 
@@ -190,9 +188,10 @@ Vite proxies `/api` → `http://localhost:8000`. Backend must be running.
 - `pack_types` — Small Pack, 60L, Barrel 200L, IBC
 - `labour_pools` — shared filling crew groups per plant (`max_concurrent_lines` = physical ceiling)
 - `lines` — 14 production lines. `oee_target` default 0.55, `available_mins_per_day` default 420
-- `items` — SKUs with `pack_size_l`, `pack_type_code`, `units_per_pallet`, `sku_status`
+- `items` — SKUs with `pack_size_l`, `pack_type_code`, `units_per_pallet`, `sku_status`, `moq`, `mrp_type`
+- `masterdata_uploads` — audit trail: every masterdata upload (type, filename, row_count, who, when)
 
-**Capacity & Resource Masterdata** (Excel-uploadable, full replace)
+**Capacity & Resource Masterdata** (uploadable via `/api/masterdata/{type}`, full replace with validation)
 - `resource_types` — controlled vocabulary for staff roles (LINE or PLANT scope)
 - `line_resource_requirements` — headcount per line per role
 - `plant_resource_requirements` — shared headcount per plant per role
@@ -239,34 +238,29 @@ Vite proxies `/api` → `http://localhost:8000`. Backend must be running.
 
 ## Pending Items / Open Questions
 
-- [ ] **SAP export column headers** for all 6 file types — needed for Stage 3 (FIELD_MAPPING_CHECK)
+- [ ] **DB script 11** — run `11_masterdata_uploads.sql` on the live DB before testing masterdata uploads
+- [ ] **SAP export column headers** for `master_stock` and `demand_plan` — needed to complete stages 2–6 for SAP files (currently INFO). Once headers are confirmed, update `FILE_SCHEMAS` in `validation_service.py`
 - [ ] **`standard_hourly_rate`** for all 5 resource types — needed before Phase 3 cost calculations
-- [ ] **`units_per_pallet`** for 1L (101221) and 4L (101233) items — confirm with warehouse
-- [ ] **`bottles_per_minute`** for lines A202, A302–A308, A401, A501, A502 — confirm with engineering
-- [ ] **Resource requirements** for Plants A2–A5 — data not yet provided
-- [ ] **Warehouse capacity** (pallet positions per pack type per warehouse) — confirm with warehouse team
-- [ ] **`standard_hours_per_unit`** in item_resource_rules — all values are placeholders
-- [ ] **Upload base path** — confirm actual VM path for file storage (currently `uploads/`)
-- [ ] **MOQ (Minimum Order Quantity)** — needed for Phase 2 to calculate realistic production load on lines. A run must meet MOQ before it contributes load. Decide: per-item (`items.moq_ea`) or per-line-per-item (`line_pack_capabilities.moq_ea`)? Confirm with production/planning team.
+- [ ] **`bottles_per_minute`** for lines A202, A302–A308, A401, A501, A502 — confirm with engineering; upload via `line_pack_capabilities` masterdata
+- [ ] **Resource requirements** for Plants A2–A5 — upload via `plant_resource_requirements` masterdata
+- [ ] **Warehouse capacity** (pallet positions per pack type per warehouse) — upload via `warehouse_capacity` masterdata
+- [ ] **`standard_hours_per_unit`** in item_resource_rules — all values are placeholders (Phase 2)
+- [ ] **MOQ** — `items.moq` column exists; populate via `item_master` masterdata upload. Confirm SAP item master export format and column names.
 
 ---
 
 ## Next Session Starting Point
 
-**Immediate:** Run frontend browser test against live backend — verify end-to-end flow.
+**Immediate task:** Run script 11 on the live DB, then test all masterdata uploads + validation UI changes in browser.
 
-**After browser test passes — next backend tasks:**
-1. 7-stage validation pipeline (stub stages 1–7, return results to `import_validation_results`)
-2. Publish batch endpoint (`POST /api/batches/{id}/publish`)
-3. Create baseline endpoint (`POST /api/baselines`)
-4. Masterdata upload endpoints (line pack capabilities, resource requirements, warehouse capacity, SKU status)
-5. Template download + source file download
-
-**Validation pipeline notes:**
-- Stage 1 (REQUIRED_FILE_CHECK): all 5 required file types uploaded → PASS
-- Stage 2 (TEMPLATE_STRUCTURE_CHECK): Excel has expected sheets → needs SAP column headers
-- Stage 3 (FIELD_MAPPING_CHECK): column names match → needs SAP column headers
-- Stage 4 (DATA_TYPE_CHECK): correct types per column
-- Stage 5 (REFERENCE_CHECK): FKs exist (e.g. item codes in items table)
-- Stage 6 (BUSINESS_RULE_CHECK): date ranges, no negative stock, etc.
-- Stage 7 (BATCH_READINESS): summary — can publish?
+**Remaining Phase 1 tasks (in order):**
+1. **Publish batch** — `POST /api/batches/{id}/publish`
+   - Enforce only one PUBLISHED batch at a time
+   - Update batch status to PUBLISHED, record published_at + published_by
+   - Reject if any BLOCKED issues or required files missing
+   - Add Publish button to frontend (wire up mutation, refresh batch)
+2. **Create baseline** — `POST /api/baselines`
+   - Named, immutable snapshot of a published batch
+   - One active baseline at a time
+   - Frontend: "Create baseline" button on published batch
+3. **SAP column headers** — get from user or SAP export; update `FILE_SCHEMAS` in `validation_service.py` for `master_stock` and `demand_plan`

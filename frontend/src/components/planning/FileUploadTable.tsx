@@ -1,4 +1,6 @@
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import FileRow from './FileRow'
+import { validateBatch } from '../../api/batches'
 import type { Batch, FileType } from '../../types'
 
 const REQUIRED_FILES: FileType[] = [
@@ -21,8 +23,6 @@ export default function FileUploadTable({ batch }: Props) {
   )
 
   const requiredPresent = REQUIRED_FILES.filter((ft) => filesByType[ft]).length
-  const hasBlocked = (batch.files ?? []).some((f) => f.validation_status === 'BLOCKED')
-  const canPublish = requiredPresent === 5 && !hasBlocked && batch.status !== 'PUBLISHED'
 
   const colHeaders = ['File', 'Status', 'Ver.', 'Uploaded by', 'Time', 'Actions']
 
@@ -95,19 +95,56 @@ export default function FileUploadTable({ batch }: Props) {
         </table>
       </div>
 
-      {/* Publish bar */}
-      <div className="bg-white border border-gray-200 rounded-xl px-4 py-3 flex items-center justify-between">
-        <div className="text-sm text-gray-500">
-          {batch.status === 'PUBLISHED' ? (
-            <span className="text-green-600 font-medium">This batch has been published.</span>
-          ) : hasBlocked ? (
-            <span className="text-red-600">One or more files have BLOCKED issues — resolve before publishing.</span>
-          ) : requiredPresent < 5 ? (
-            <span>Upload all 5 required files before publishing.</span>
-          ) : (
-            <span className="text-green-600">All required files present — ready to publish.</span>
-          )}
-        </div>
+    </div>
+  )
+}
+
+interface ActionBarProps {
+  batch: Batch
+}
+
+export function BatchActionBar({ batch }: ActionBarProps) {
+  const queryClient = useQueryClient()
+
+  const filesByType = Object.fromEntries(
+    (batch.files ?? []).map((f) => [f.file_type, f])
+  )
+
+  const requiredPresent = REQUIRED_FILES.filter((ft) => filesByType[ft]).length
+  const hasBlocked = (batch.files ?? []).some((f) => f.validation_status === 'BLOCKED')
+  const canPublish = requiredPresent === 5 && !hasBlocked && batch.status !== 'PUBLISHED'
+  const hasFiles = (batch.files ?? []).length > 0
+
+  const validateMutation = useMutation({
+    mutationFn: () => validateBatch(batch.batch_id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['batch', batch.batch_id] })
+    },
+  })
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl px-4 py-3 flex items-center justify-between">
+      <div className="text-sm text-gray-500">
+        {batch.status === 'PUBLISHED' ? (
+          <span className="text-green-600 font-medium">This batch has been published.</span>
+        ) : hasBlocked ? (
+          <span className="text-red-600">One or more files have BLOCKED issues — resolve before publishing.</span>
+        ) : requiredPresent < 5 ? (
+          <span>Upload all 5 required files before publishing.</span>
+        ) : (
+          <span className="text-green-600">All required files present — ready to publish.</span>
+        )}
+      </div>
+      <div className="flex items-center gap-2">
+        {hasFiles && batch.status !== 'PUBLISHED' && (
+          <button
+            onClick={() => validateMutation.mutate()}
+            disabled={validateMutation.isPending}
+            className="px-4 py-2 border border-gray-300 text-gray-600 text-sm font-medium rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            {validateMutation.isPending ? 'Validating…' : 'Run validation'}
+          </button>
+        )}
         <button
           disabled={!canPublish}
           className="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"

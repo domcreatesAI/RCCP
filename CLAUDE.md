@@ -33,18 +33,19 @@ Internal manufacturing planning app — **Rough Cut Capacity Planning (RCCP)**.
 ```
 RCCP-One/
 ├── CLAUDE.md                  ← you are here
-├── backend/                   ← Python FastAPI (scaffold complete, tested)
+├── backend/                   ← Python FastAPI (Phase 1 mostly complete)
 │   ├── app/
 │   │   ├── main.py            — FastAPI app, CORS, health endpoint
 │   │   ├── config.py          — env vars
 │   │   ├── database.py        — pyodbc connection factory
-│   │   ├── routers/           — auth.py, batches.py, uploads.py
-│   │   └── services/          — auth_service.py, batch_service.py, upload_service.py
+│   │   ├── routers/           — auth.py, batches.py, uploads.py, templates.py, masterdata.py
+│   │   └── services/          — auth_service.py, batch_service.py, upload_service.py,
+│   │                             validation_service.py, template_service.py, masterdata_service.py
 │   ├── requirements.txt
 │   └── .env.example
-├── frontend/                  ← React TypeScript (scaffolded — login + Planning Data)
+├── frontend/                  ← React TypeScript (Phase 1 mostly complete)
 │   ├── src/
-│   │   ├── api/               — client.ts, auth.ts, batches.ts, uploads.ts
+│   │   ├── api/               — client.ts, auth.ts, batches.ts, uploads.ts, masterdata.ts
 │   │   ├── components/        — layout/ + planning/ sub-folders
 │   │   ├── contexts/          — AuthContext.tsx
 │   │   ├── pages/             — LoginPage.tsx, PlanningDataPage.tsx
@@ -52,7 +53,7 @@ RCCP-One/
 │   ├── package.json
 │   └── vite.config.ts         — proxies /api → localhost:8000
 ├── db/
-│   ├── schema/                ← 10 SQL schema scripts (00–09)
+│   ├── schema/                ← 11 SQL schema scripts (00–11)
 │   ├── seeds/                 ← 2 seed scripts (app settings + masterdata)
 │   └── README.md
 └── docs/
@@ -97,12 +98,19 @@ RCCP-One/
 
 ## Masterdata Excel Uploads (separate from batch workflow, full replace)
 
-| File | Updates |
-|------|---------|
-| `line_pack_capabilities.xlsx` | `line_pack_capabilities` table |
-| `resource_requirements.xlsx` (2 tabs) | `line_resource_requirements` + `plant_resource_requirements` |
-| `warehouse_master.xlsx` | `warehouse_capacity` table |
-| `sku_status.xlsx` | `items.sku_status` column |
+Uploaded via `POST /api/masterdata/{type}`. Synchronous validation (stages 2–6) on every upload.
+BLOCKED = rejected, WARNING = imported with caution. Tracked in `masterdata_uploads` table.
+
+| Upload type key | Table(s) updated | Notes |
+|----------------|-----------------|-------|
+| `line_pack_capabilities` | `line_pack_capabilities` | Fill speeds + pack sizes per line |
+| `line_resource_requirements` | `line_resource_requirements` | Headcount per line per role |
+| `plant_resource_requirements` | `plant_resource_requirements` | Shared headcount per plant per role |
+| `warehouse_capacity` | `warehouse_capacity` | Max pallet positions per pack type |
+| `item_master` | `items` (UPDATE moq, units_per_pallet, mrp_type) | SAP item master export |
+
+Note: `resource_requirements.xlsx` (2 tabs) was split into two separate uploads for simplicity.
+`sku_status` updates are handled via the `item_master` upload going forward.
 
 ---
 
@@ -170,12 +178,13 @@ Publish is blocked if any file has severity = `BLOCKED`.
 - `pack_types` — warehouse capacity categories: SMALL_PACK, 60L, BARREL_200L, IBC
 - `labour_pools` — filling crew groups; `max_concurrent_lines` = physical ceiling
 - `lines` — 14 production lines; include `oee_target` (default 0.55) and `available_mins_per_day` (default 420)
-- `items` — SKUs with `pack_size_l`, `pack_type_code`, `units_per_pallet`, `sku_status` (1/2/3)
+- `items` — SKUs with `pack_size_l`, `pack_type_code`, `units_per_pallet`, `sku_status` (1/2/3), `moq`, `mrp_type`
 - `resource_types` — controlled vocabulary for staff roles (scope = LINE or PLANT)
-- `line_resource_requirements` — headcount per line per role (Excel upload)
-- `plant_resource_requirements` — shared headcount per plant per role (Excel upload)
-- `line_pack_capabilities` — pack sizes + fill speeds per line (Excel upload)
-- `warehouse_capacity` — max pallet positions per pack type per warehouse (Excel upload)
+- `line_resource_requirements` — headcount per line per role (masterdata upload)
+- `plant_resource_requirements` — shared headcount per plant per role (masterdata upload)
+- `line_pack_capabilities` — pack sizes + fill speeds per line (masterdata upload)
+- `warehouse_capacity` — max pallet positions per pack type per warehouse (masterdata upload)
+- `masterdata_uploads` — audit trail for all masterdata file uploads (who, when, how many rows)
 - `item_resource_rules` — standard hours/unit per item group per line (Phase 2 input)
 
 **Workflow tables:**
@@ -222,66 +231,56 @@ Auth was originally deferred to Phase 5 but is being built in Phase 1.
 
 **GitHub repo:** `https://github.com/d0m1n/RCCP-One.git` — source of truth. Clone locally; do not develop on Google Drive (npm is too slow).
 
-**Database: FULLY DEPLOYED** — all 10 schema scripts (00–09) and both seed scripts run successfully.
-- All tables, views, and seed data in place on `localhost\SQLEXPRESS`, database `RCCP_One`
-- `09_users.sql` run — users table created, admin seeded, master_stock constraint fixed
+**Database: FULLY DEPLOYED** — scripts 00–09 + both seeds deployed. Script 11 needs running on the live DB:
+```bat
+sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\11_masterdata_uploads.sql
+```
 
-**Backend: scaffold complete and tested.**
+**Backend: Phase 1 workflow complete (Publish + Baseline still to build).**
 - Stack: FastAPI + pyodbc + bcrypt + PyJWT
-- Endpoints: `POST /api/auth/login`, `GET/POST /api/batches`, `GET /api/batches/{id}`, `POST /api/batches/{id}/files`, `GET /api/batches/{id}/files`
-- Login (`admin`/`admin123`), batch creation, DB connection all confirmed working in Swagger
-- Run from `backend/`: `uvicorn app.main:app --reload`
+- All endpoints working — see PROJECT_STATUS.md for full list
+- Run from `backend/`: `.\venv\Scripts\uvicorn.exe app.main:app --reload`
 
-**Frontend: scaffolded — login + Planning Data screen built.**
-- Login page and Planning Data two-panel layout complete
-- TanStack Query polling, batch switching, file upload wired to backend API
-- Validation panel (7 stages) renders from batch data
-- `npm install` + `npm run dev` from `frontend/` — runs on `http://localhost:5173`
-- Proxy: Vite proxies `/api` to `http://localhost:8000` (no CORS issues in dev)
-- **Status:** not yet end-to-end tested in browser — run both servers and verify login flow
+**Frontend: Phase 1 workflow complete (Publish + Baseline still to build).**
+- Login → Planning Data page with batch workflow + masterdata section
+- File upload, validation, inline issue messages, template downloads all working
+- Run from `frontend/`: `npm run dev` → `http://localhost:5173`
 
 **Before running the backend (fresh machine setup):**
-1. Run `db/schema/09_users.sql` in SSMS (if not already done)
-2. Ensure `rccp_app` SQL login exists with access to `RCCP_One`:
-   ```sql
-   CREATE LOGIN rccp_app WITH PASSWORD = 'your_password';
-   CREATE USER rccp_app FOR LOGIN rccp_app;
-   ALTER ROLE db_datareader ADD MEMBER rccp_app;
-   ALTER ROLE db_datawriter ADD MEMBER rccp_app;
-   GRANT EXECUTE TO rccp_app;
-   ```
-3. `cd backend && py -m venv venv && venv\Scripts\activate`
-4. `pip install -r requirements.txt`
-5. Copy `.env.example` → `.env`, fill in `DB_PASSWORD` and `JWT_SECRET`
-6. `uvicorn app.main:app --reload`
+1. Ensure `rccp_app` SQL login exists with access to `RCCP_One`
+2. `cd backend && py -m venv venv`
+3. `.\venv\Scripts\python.exe -m pip install -r requirements.txt`
+4. Copy `.env.example` → `.env`, fill in `DB_PASSWORD` and `JWT_SECRET`
+5. `.\venv\Scripts\uvicorn.exe app.main:app --reload`
 
-**To redeploy DB from scratch** (all scripts are idempotent — run from `db/` folder):
+**To redeploy DB from scratch** (run from repo root with `-C` flag for ODBC Driver 18):
 ```bat
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -i schema\00_reset_all_tables.sql
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -i schema\01_masterdata.sql
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -i schema\02_workflow.sql
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -i schema\03_planning_data.sql
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -i schema\04_views.sql
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -i schema\05_item_resource_rules.sql
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -i schema\06_resource_requirements.sql
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -i schema\07_line_pack_capabilities.sql
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -i schema\08_warehouse_capacity.sql
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -i schema\09_users.sql
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -i seeds\01_app_settings.sql
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -i seeds\02_masterdata_sample.sql
+sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\00_reset_all_tables.sql
+sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\01_masterdata.sql
+sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\02_workflow.sql
+sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\03_planning_data.sql
+sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\04_views.sql
+sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\05_item_resource_rules.sql
+sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\06_resource_requirements.sql
+sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\07_line_pack_capabilities.sql
+sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\08_warehouse_capacity.sql
+sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\09_users.sql
+sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\11_masterdata_uploads.sql
+sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\seeds\01_app_settings.sql
+sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\seeds\02_masterdata_sample.sql
 ```
 
 ---
 
 ## Open Questions (resolve before continuing)
 
-- SAP export column headers for all 6 file types — needed for Stage 3 (FIELD_MAPPING_CHECK) validation
-- `standard_hourly_rate` for all 5 resource types
-- `units_per_pallet` for 1L (101221) and 4L (101233) items
+- **SAP export column headers** for `master_stock` and `demand_plan` — needed to complete stages 2–6 for SAP files (currently return INFO)
+- `standard_hourly_rate` for all 5 resource types (Phase 3 cost calculations)
 - `bottles_per_minute` for lines A202, A302–A308, A401, A501, A502
 - Resource requirements for Plants A2–A5
 - Actual warehouse capacity (pallet positions) per pack type per warehouse
 - `standard_hours_per_unit` in item_resource_rules — all values are placeholders
+- **MOQ** — `items.moq` column now exists; populate via `item_master` masterdata upload once SAP extract format is confirmed
 
 ---
 

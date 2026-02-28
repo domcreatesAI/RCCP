@@ -18,3 +18,8 @@ export async function createBatch(batchName: string, planCycleDate: string): Pro
   })
   return data
 }
+
+export async function validateBatch(batchId: number): Promise<Batch> {
+  const { data } = await client.post<Batch>(`/batches/${batchId}/validate`)
+  return data
+}

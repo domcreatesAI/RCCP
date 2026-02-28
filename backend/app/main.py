@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import auth, batches, uploads
+from app.routers import auth, batches, uploads, templates, masterdata
 
 app = FastAPI(title="RCCP One API", version="1.0.0")
 
@@ -19,6 +19,8 @@ app.add_middleware(
 app.include_router(auth.router, prefix="/api")
 app.include_router(batches.router, prefix="/api")
 app.include_router(uploads.router, prefix="/api")
+app.include_router(templates.router, prefix="/api")
+app.include_router(masterdata.router, prefix="/api")
 
 
 @app.get("/api/health", tags=["health"])

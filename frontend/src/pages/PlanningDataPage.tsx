@@ -3,8 +3,8 @@ import { useQuery } from '@tanstack/react-query'
 import { listBatches, getBatch } from '../api/batches'
 import BatchSelector from '../components/planning/BatchSelector'
 import BatchHeader from '../components/planning/BatchHeader'
-import FileUploadTable from '../components/planning/FileUploadTable'
-import ValidationPanel from '../components/planning/ValidationPanel'
+import FileUploadTable, { BatchActionBar } from '../components/planning/FileUploadTable'
+import MasterdataPanel from '../components/planning/MasterdataPanel'
 
 export default function PlanningDataPage() {
   const [selectedBatchId, setSelectedBatchId] = useState<number | null>(null)
@@ -57,24 +57,23 @@ export default function PlanningDataPage() {
 
       {batch && (
         <>
-          {/* Batch header */}
           <div className="mb-4">
             <BatchHeader batch={batch} />
           </div>
-
-          {/* Two-panel layout */}
-          <div className="flex gap-5 items-start">
-            {/* Left: file upload */}
-            <div className="flex-1 min-w-0">
-              <FileUploadTable batch={batch} />
-            </div>
-
-            {/* Right: validation panel */}
-            <div className="w-80 shrink-0">
-              <ValidationPanel batch={batch} />
-            </div>
-          </div>
+          <FileUploadTable batch={batch} />
         </>
+      )}
+
+      {/* Masterdata section — shown regardless of batch selection */}
+      <div className="mt-6">
+        <MasterdataPanel />
+      </div>
+
+      {/* Action bar — at the bottom, after masterdata */}
+      {batch && (
+        <div className="mt-6">
+          <BatchActionBar batch={batch} />
+        </div>
       )}
     </div>
   )

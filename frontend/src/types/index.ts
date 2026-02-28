@@ -1,3 +1,9 @@
+export interface ValidationStage {
+  stage: number
+  name: string
+  severity: 'PASS' | 'WARNING' | 'BLOCKED' | 'INFO'
+}
+
 export interface Batch {
   batch_id: number
   batch_name: string
@@ -9,6 +15,7 @@ export interface Batch {
   published_at: string | null
   published_by: string | null
   files?: BatchFile[]
+  validation_stages?: ValidationStage[]
 }
 
 export interface BatchFile {
@@ -26,6 +33,8 @@ export interface BatchFile {
   blocked_count?: number
   warning_count?: number
   info_count?: number
+  top_issue_message?: string | null
+  total_issue_count?: number
 }
 
 export type FileType =
