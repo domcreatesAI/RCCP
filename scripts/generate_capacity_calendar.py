@@ -93,6 +93,8 @@ UK_BANK_HOLIDAYS = {
 # ---------------------------------------------------------------------------
 _HEADER_FILL = PatternFill("solid", fgColor="1E3A5F")
 _HEADER_FONT = Font(color="FFFFFF", bold=True, size=10)
+_DESC_FILL   = PatternFill("solid", fgColor="FFE066")   # amber — row 1 descriptions
+_DESC_FONT   = Font(color="7A5700", italic=True, size=9)
 _BH_FILL     = PatternFill("solid", fgColor="FFF3CD")   # amber tint for bank holidays
 _WE_FILL     = PatternFill("solid", fgColor="F3F4F6")   # light grey for weekends
 _CENTER      = Alignment(horizontal="center", vertical="center")
@@ -108,6 +110,19 @@ COLUMNS = [
     "planned_downtime_hours",
     "other_loss_hours",
     "notes",
+]
+
+# Row 1 descriptions (validator ignores row 1 — leave in file for reference)
+DESCRIPTIONS = [
+    "Production line code (e.g. A101). Must match a line in the masterdata.",
+    "Date in DD/MM/YYYY format.",
+    "1 = working day, 0 = non-working day (weekend, bank holiday).",
+    "Total planned production hours (0–24). Review and adjust per line/shift pattern.",
+    "Scheduled maintenance time (hours). Optional — leave 0 if none.",
+    "Public holiday loss (hours). Optional.",
+    "Other planned downtime (hours). Optional.",
+    "Any other losses not covered above (hours). Optional.",
+    "Free text notes. Optional.",
 ]
 
 COL_WIDTHS = {
@@ -131,17 +146,24 @@ def generate() -> None:
     ws = wb.active
     ws.title = "Data"
 
-    # Header row
+    # Row 1: field descriptions (amber — validator ignores this row entirely)
+    for col_idx, desc in enumerate(DESCRIPTIONS, start=1):
+        cell = ws.cell(row=1, column=col_idx, value=desc)
+        cell.font      = _DESC_FONT
+        cell.fill      = _DESC_FILL
+        cell.alignment = _LEFT
+
+    # Row 2: column keys — what the validator reads
     for col_idx, col in enumerate(COLUMNS, start=1):
-        cell = ws.cell(row=1, column=col_idx, value=col)
+        cell = ws.cell(row=2, column=col_idx, value=col)
         cell.font      = _HEADER_FONT
         cell.fill      = _HEADER_FILL
         cell.alignment = _CENTER
         ws.column_dimensions[get_column_letter(col_idx)].width = COL_WIDTHS.get(col, 16)
 
-    ws.freeze_panes = "A2"
+    ws.freeze_panes = "A3"
 
-    row_num = 2
+    row_num = 3
     current = start
     while current <= end:
         is_weekend    = current.weekday() >= 5          # Sat=5, Sun=6
@@ -187,7 +209,7 @@ def generate() -> None:
         f"Generated: {date.today().strftime('%d/%m/%Y')}",
         f"Lines: {len(LINES)}",
         f"Date range: 01/01/2026 – 31/12/2030",
-        f"Total rows: {row_num - 2:,}",
+        f"Total rows: {row_num - 3:,}",
         "",
         "Non-working day rules applied:",
         "  - Saturdays and Sundays → is_working_day=0, planned_hours=0",
@@ -216,7 +238,7 @@ def generate() -> None:
 
     wb.save(out_path)
     print(f"Saved: {os.path.abspath(out_path)}")
-    print(f"Rows: {row_num - 2:,}  ({len(LINES)} lines × {(end - start).days + 1} days)")
+    print(f"Rows: {row_num - 3:,}  ({len(LINES)} lines × {(end - start).days + 1} days)")
 
 
 if __name__ == "__main__":

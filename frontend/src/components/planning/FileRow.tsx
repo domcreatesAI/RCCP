@@ -1,6 +1,6 @@
 import { useRef } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { uploadFile } from '../../api/uploads'
+import { uploadFile, downloadBatchFile } from '../../api/uploads'
 import type { BatchFile, FileType, ValidationStatus } from '../../types'
 
 // Files that have a downloadable Excel template
@@ -10,7 +10,6 @@ const TEMPLATE_FILE_TYPES = new Set<FileType>([
   'line_capacity_calendar',
   'headcount_plan',
   'portfolio_changes',
-  'oee_daily',
 ])
 
 const FILE_META: Record<FileType, { label: string; description: string }> = {
@@ -33,10 +32,6 @@ const FILE_META: Record<FileType, { label: string; description: string }> = {
   portfolio_changes: {
     label: 'Portfolio changes',
     description: 'New product launches and discontinuations — may have zero rows',
-  },
-  oee_daily: {
-    label: 'OEE daily',
-    description: 'Daily OEE actuals per line — optional, missing = warning',
   },
 }
 
@@ -72,12 +67,16 @@ export default function FileRow({ batchId, fileType, file, optional }: Props) {
     e.target.value = ''
   }
 
+  function handleDownload() {
+    if (file) downloadBatchFile(batchId, fileType, file.original_filename)
+  }
+
   const status: ValidationStatus | null = file?.validation_status ?? null
   const hasFile = !!file
 
   return (
     <tr className="border-t border-gray-100 hover:bg-gray-50/50">
-      {/* File name + description */}
+      {/* File name + description + template link */}
       <td className="py-3 px-4">
         <div className="flex items-center gap-2">
           <svg className="w-4 h-4 text-gray-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -87,6 +86,19 @@ export default function FileRow({ batchId, fileType, file, optional }: Props) {
           <div>
             <p className="text-sm font-medium text-gray-900">{meta.label}</p>
             <p className="text-xs text-gray-400">{meta.description}</p>
+            {TEMPLATE_FILE_TYPES.has(fileType) && (
+              <a
+                href={`/api/templates/${fileType}`}
+                download
+                className="mt-0.5 text-xs text-blue-500 hover:text-blue-600 flex items-center gap-0.5 w-fit"
+              >
+                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                Template
+              </a>
+            )}
           </div>
         </div>
       </td>
@@ -96,13 +108,15 @@ export default function FileRow({ batchId, fileType, file, optional }: Props) {
         {hasFile && status ? (
           <div>
             <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_PILL[status]}`}>
-              {status === 'PASS' ? 'Pass' : status === 'WARNING' ? 'Warning' : status === 'BLOCKED' ? 'Blocked' : 'Pending'}
+              {status === 'PASS' ? '✓ Valid' : status === 'WARNING' ? 'Warning' : status === 'BLOCKED' ? 'Blocked' : 'Pending'}
             </span>
-            {file?.top_issue_message && status !== 'PASS' && (
-              <div className="mt-1 max-w-[280px]">
-                <p className="text-xs text-gray-500 line-clamp-2">{file.top_issue_message}</p>
-                {(file.total_issue_count ?? 0) > 1 && (
-                  <p className="text-xs text-gray-400">+{(file.total_issue_count ?? 1) - 1} more</p>
+            {(file?.top_issues?.length ?? 0) > 0 && status !== 'PASS' && (
+              <div className="mt-1 max-w-[280px] space-y-0.5">
+                {file!.top_issues!.map((msg, i) => (
+                  <p key={i} className="text-xs text-gray-500 line-clamp-2">{msg}</p>
+                ))}
+                {(file!.total_issue_count ?? 0) > (file!.top_issues!.length) && (
+                  <p className="text-xs text-gray-400">+{(file!.total_issue_count ?? 0) - file!.top_issues!.length} more</p>
                 )}
               </div>
             )}
@@ -112,11 +126,6 @@ export default function FileRow({ batchId, fileType, file, optional }: Props) {
             Not uploaded
           </span>
         )}
-      </td>
-
-      {/* Version */}
-      <td className="py-3 px-4 text-sm text-gray-500">
-        {file ? `v${file.upload_version}` : '—'}
       </td>
 
       {/* Uploaded by */}
@@ -134,20 +143,6 @@ export default function FileRow({ batchId, fileType, file, optional }: Props) {
       {/* Actions */}
       <td className="py-3 px-4">
         <div className="flex items-center gap-1.5">
-          {TEMPLATE_FILE_TYPES.has(fileType) && (
-            <a
-              href={`/api/templates/${fileType}`}
-              download
-              title="Download Excel template"
-              className="text-xs px-2.5 py-1.5 rounded-lg font-medium border border-gray-300 text-gray-600 hover:bg-gray-50 transition-colors flex items-center gap-1"
-            >
-              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-              </svg>
-              Template
-            </a>
-          )}
           <input
             ref={inputRef}
             type="file"
@@ -158,14 +153,23 @@ export default function FileRow({ batchId, fileType, file, optional }: Props) {
           <button
             onClick={() => inputRef.current?.click()}
             disabled={uploadMutation.isPending}
-            className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
-              hasFile
-                ? 'border border-gray-300 text-gray-600 hover:bg-gray-50'
-                : 'bg-blue-600 text-white hover:bg-blue-700'
-            } disabled:opacity-50`}
+            className="text-xs px-3 py-1.5 rounded-lg font-medium border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50 transition-colors"
           >
-            {uploadMutation.isPending ? 'Uploading…' : hasFile ? 'Re-upload' : 'Upload'}
+            {uploadMutation.isPending ? 'Uploading…' : 'Upload'}
           </button>
+          {hasFile && (
+            <button
+              onClick={handleDownload}
+              title="Download uploaded file"
+              className="text-xs px-2.5 py-1.5 rounded-lg font-medium border border-gray-300 text-gray-600 hover:bg-gray-50 transition-colors flex items-center gap-1"
+            >
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              Download
+            </button>
+          )}
         </div>
       </td>
     </tr>

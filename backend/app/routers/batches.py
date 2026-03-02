@@ -1,6 +1,7 @@
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from app.database import get_connection
@@ -84,6 +85,54 @@ def validate_batch(batch_id: int, current_user: dict = Depends(get_current_user)
         batch["files"] = batch_service.get_batch_file_status(conn, batch_id)
         batch["validation_stages"] = batch_service.get_validation_stage_summary(conn, batch_id)
         return batch
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@router.get("/{batch_id}/files/{file_type}/download")
+def download_batch_file(
+    batch_id: int,
+    file_type: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Download the currently uploaded file for a given file type."""
+    conn = get_connection()
+    try:
+        info = batch_service.get_current_file_for_download(conn, batch_id, file_type)
+        if not info:
+            raise HTTPException(status_code=404, detail="No uploaded file found for this type")
+        return FileResponse(
+            path=info["stored_file_path"],
+            filename=info["original_filename"],
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@router.delete("/{batch_id}/files")
+def reset_batch_files(
+    batch_id: int,
+    current_user: dict = Depends(get_current_user),
+):
+    """Delete all uploaded files for a batch and reset its status to DRAFT."""
+    conn = get_connection()
+    try:
+        batch = batch_service.get_batch(conn, batch_id)
+        if not batch:
+            raise HTTPException(status_code=404, detail="Batch not found")
+        if batch["status"] == "PUBLISHED":
+            raise HTTPException(status_code=422, detail="Cannot reset a published batch")
+        count = batch_service.reset_batch_files(conn, batch_id)
+        return {"deleted": count}
     except HTTPException:
         raise
     except Exception as e:

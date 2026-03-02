@@ -53,7 +53,7 @@ RCCP-One/
 │   ├── package.json
 │   └── vite.config.ts         — proxies /api → localhost:8000
 ├── db/
-│   ├── schema/                ← 11 SQL schema scripts (00–11)
+│   ├── schema/                ← SQL schema scripts (00–09, 11–16)
 │   ├── seeds/                 ← 2 seed scripts (app settings + masterdata)
 │   └── README.md
 └── docs/
@@ -78,7 +78,7 @@ RCCP-One/
 
 ## Core Workflow (Phase 1)
 
-1. Upload 5 required + 1 optional Excel files (SAP exports) per planning cycle
+1. Upload 5 required Excel files (SAP exports) per planning cycle
 2. Run 7-stage validation pipeline per file
 3. Publish batch (only when no BLOCKED issues)
 4. Create named, immutable baseline from published batch
@@ -94,7 +94,6 @@ RCCP-One/
 | `line_capacity_calendar` | Yes | |
 | `headcount_plan` | Yes | |
 | `portfolio_changes` | Yes | Required but may have 0 data rows (valid) |
-| `oee_daily` | Optional | Missing = WARNING, not BLOCKED |
 
 ## Masterdata Excel Uploads (separate from batch workflow, full replace)
 
@@ -107,8 +106,6 @@ BLOCKED = rejected, WARNING = imported with caution. Tracked in `masterdata_uplo
 | `line_resource_requirements` | `line_resource_requirements` | Headcount per line per role |
 | `plant_resource_requirements` | `plant_resource_requirements` | Shared headcount per plant per role |
 | `warehouse_capacity` | `warehouse_capacity` | Max pallet positions per pack type |
-| `item_master` | `items` (UPDATE moq, units_per_pallet, mrp_type) | SAP item master export — placeholder template, update when SAP column names confirmed |
-| `item_status` | `items` (UPDATE sku_status) | 1=In Design, 2=Phase Out, 3=Obsolete |
 
 Note: `resource_requirements.xlsx` (2 tabs) was split into two separate uploads for simplicity.
 
@@ -191,7 +188,7 @@ Publish is blocked if any file has severity = `BLOCKED`.
 - `import_batches` / `import_batch_files` / `import_validation_results` / `plan_versions`
 
 **Planning data tables (batch-scoped):**
-- `master_stock`, `demand_plan`, `line_capacity_calendar`, `headcount_plan`, `oee_daily`, `portfolio_changes`
+- `master_stock`, `demand_plan`, `line_capacity_calendar`, `headcount_plan`, `portfolio_changes`
 
 **Views:**
 - `vw_line_capacity_with_net` — adds `net_theoretical_hours`
@@ -227,21 +224,22 @@ Auth was originally deferred to Phase 5 but is being built in Phase 1.
 
 ---
 
-## Current Deployment State (as of 2026-02-28)
+## Current Deployment State (as of 2026-03-02)
 
 **GitHub repo:** `https://github.com/d0m1n/RCCP-One.git` — source of truth. Clone locally; do not develop on Google Drive (npm is too slow).
 
-**Database: FULLY DEPLOYED** — scripts 00–09 + 11 + both seeds deployed and verified.
+**Database: FULLY DEPLOYED** — scripts 00–09 + 11 + both seeds deployed and verified. Migrations 12–16 applied on top.
 
 **Backend: Phase 1 workflow complete (Publish + Baseline still to build).**
 - Stack: FastAPI + pyodbc + bcrypt + PyJWT
-- All endpoints working including masterdata templates for all 6 types — see PROJECT_STATUS.md for full list
+- All endpoints working including masterdata templates for all 4 types — see PROJECT_STATUS.md for full list
+- demand_plan: PIR format confirmed (SAP wide-format, `material_id`/`plant` key cols, monthly columns `M03.2026`)
 - Run from `backend/`: `.\venv\Scripts\uvicorn.exe app.main:app --reload`
 
 **Frontend: Phase 1 workflow complete (Publish + Baseline still to build).**
-- Login → Planning Data page: unified one-card layout (required files + masterdata + optional in one table with shared columns)
-- BatchActionBar (Run validation / Publish batch) rendered at page bottom, separate from the table
-- Template buttons on all file rows including SAP files (master_stock, demand_plan, item_master = placeholders)
+- Login → Planning Data page: unified one-card layout (required files + masterdata in one table with shared columns)
+- BatchActionBar (Re-validate / Publish batch) rendered at page bottom, separate from the table
+- Template buttons on all 5 required file rows + all 4 masterdata rows
 - Run from `frontend/`: `npm run dev` → `http://localhost:5173`
 
 **Capacity calendar pre-filled:** `scripts/generate_capacity_calendar.py` generates `uploads/capacity_calendar_2026_2030.xlsx` — 14 lines × 1,826 days (2026–2030), UK bank holidays hardcoded, DD/MM/YYYY date format.
@@ -270,17 +268,28 @@ sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\seeds\01_app_settings.sql
 sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\seeds\02_masterdata_sample.sql
 ```
 
+**Migrations (apply to existing deployment, in order):**
+```bat
+sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\10_rename_staffing_to_headcount.sql
+sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\12_fix_masterdata_uploads_ck.sql
+sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\13_line_pack_oee.sql
+sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\14_masterdata_stored_path.sql
+sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\15_remove_item_status_type.sql
+sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\16_remove_oee_daily.sql
+```
+
 ---
 
 ## Open Questions (resolve before continuing)
 
-- **SAP export column headers** for `master_stock` and `demand_plan` — needed to complete stages 2–6 for SAP files (currently return INFO)
+- **SAP export column headers** for `master_stock` — needed to complete stages 3–6 (currently return INFO)
+- `demand_plan`: PIR format confirmed and implemented. Filter PIR to UK plants (UKP1/3/4/5) before upload.
 - `standard_hourly_rate` for all 5 resource types (Phase 3 cost calculations)
 - `bottles_per_minute` for lines A202, A302–A308, A401, A501, A502
 - Resource requirements for Plants A2–A5
 - Actual warehouse capacity (pallet positions) per pack type per warehouse
 - `standard_hours_per_unit` in item_resource_rules — all values are placeholders
-- **MOQ** — `items.moq` column now exists; populate via `item_master` masterdata upload once SAP extract format is confirmed
+- **MOQ** — `items.moq` column exists; populated via `master_stock` upload (moq field maps to items.moq)
 
 ---
 

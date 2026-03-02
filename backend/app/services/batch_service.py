@@ -133,6 +133,68 @@ def get_validation_stage_summary(conn: pyodbc.Connection, batch_id: int) -> list
     ]
 
 
+def get_current_file_for_download(conn: pyodbc.Connection, batch_id: int, file_type: str) -> dict | None:
+    """Return stored_file_path and original_filename for the current-version file."""
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT stored_file_path, original_filename
+        FROM dbo.import_batch_files
+        WHERE batch_id = ? AND file_type = ? AND is_current_version = 1
+        """,
+        batch_id,
+        file_type,
+    )
+    row = cursor.fetchone()
+    if not row:
+        return None
+    return {"stored_file_path": row[0], "original_filename": row[1]}
+
+
+def reset_batch_files(conn: pyodbc.Connection, batch_id: int) -> int:
+    """Delete all uploaded files for a batch (all versions). Returns count of records deleted."""
+    import os
+
+    cursor = conn.cursor()
+
+    # Collect file paths before deleting
+    cursor.execute(
+        "SELECT stored_file_path FROM dbo.import_batch_files WHERE batch_id = ?",
+        batch_id,
+    )
+    paths = [r[0] for r in cursor.fetchall()]
+
+    # Delete validation results first (FK constraint)
+    cursor.execute(
+        """
+        DELETE r FROM dbo.import_validation_results r
+        INNER JOIN dbo.import_batch_files f ON f.batch_file_id = r.batch_file_id
+        WHERE f.batch_id = ?
+        """,
+        batch_id,
+    )
+
+    # Delete file records
+    cursor.execute("DELETE FROM dbo.import_batch_files WHERE batch_id = ?", batch_id)
+
+    # Reset batch status to DRAFT
+    cursor.execute(
+        "UPDATE dbo.import_batches SET status = 'DRAFT' WHERE batch_id = ?",
+        batch_id,
+    )
+
+    conn.commit()
+
+    # Best-effort physical file cleanup
+    for path in paths:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
+    return len(paths)
+
+
 def get_batch_file_status(conn: pyodbc.Connection, batch_id: int) -> list:
     cursor = conn.cursor()
     cursor.execute(
@@ -149,24 +211,37 @@ def get_batch_file_status(conn: pyodbc.Connection, batch_id: int) -> list:
             v.uploaded_by,
             v.uploaded_at,
             (
-                SELECT TOP 1 ivr2.stage_name + N' — ' + ivr2.message
-                FROM dbo.import_validation_results ivr2
-                WHERE ivr2.batch_file_id = v.batch_file_id
-                  AND ivr2.severity <> 'PASS'
-                ORDER BY
-                    CASE ivr2.severity
-                        WHEN 'BLOCKED' THEN 1
-                        WHEN 'WARNING' THEN 2
-                        WHEN 'INFO'    THEN 3
-                        ELSE 4
-                    END,
-                    ivr2.validation_stage ASC
-            ) AS top_issue_message,
+                SELECT STRING_AGG(sub.msg, N'<|>') WITHIN GROUP (ORDER BY sub.sev, sub.stage)
+                FROM (
+                    SELECT TOP 3
+                        ivr2.stage_name + N' — ' + ivr2.message AS msg,
+                        CASE ivr2.severity
+                            WHEN 'BLOCKED' THEN 1
+                            WHEN 'WARNING' THEN 2
+                            WHEN 'INFO'    THEN 3
+                            ELSE 4
+                        END AS sev,
+                        ivr2.validation_stage AS stage
+                    FROM dbo.import_validation_results ivr2
+                    WHERE ivr2.batch_file_id = v.batch_file_id
+                      AND ivr2.severity <> 'PASS'
+                      AND ivr2.validation_stage BETWEEN 2 AND 6
+                    ORDER BY
+                        CASE ivr2.severity
+                            WHEN 'BLOCKED' THEN 1
+                            WHEN 'WARNING' THEN 2
+                            WHEN 'INFO'    THEN 3
+                            ELSE 4
+                        END,
+                        ivr2.validation_stage ASC
+                ) sub
+            ) AS top_issues_raw,
             (
                 SELECT COUNT(*)
                 FROM dbo.import_validation_results ivr3
                 WHERE ivr3.batch_file_id = v.batch_file_id
                   AND ivr3.severity <> 'PASS'
+                  AND ivr3.validation_stage BETWEEN 2 AND 6
             ) AS total_issue_count
         FROM dbo.vw_batch_file_status v
         WHERE v.batch_id = ?
@@ -187,7 +262,7 @@ def get_batch_file_status(conn: pyodbc.Connection, batch_id: int) -> list:
             "info_count": r[7],
             "uploaded_by": r[8],
             "uploaded_at": str(r[9]) if r[9] else None,
-            "top_issue_message": r[10],
+            "top_issues": [m for m in (r[10] or "").split("<|>") if m],
             "total_issue_count": r[11] or 0,
         }
         for r in cursor.fetchall()

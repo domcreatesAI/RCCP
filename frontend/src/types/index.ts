@@ -33,7 +33,7 @@ export interface BatchFile {
   blocked_count?: number
   warning_count?: number
   info_count?: number
-  top_issue_message?: string | null
+  top_issues?: string[]
   total_issue_count?: number
 }
 
@@ -43,7 +43,6 @@ export type FileType =
   | 'line_capacity_calendar'
   | 'headcount_plan'
   | 'portfolio_changes'
-  | 'oee_daily'
 
 export type ValidationStatus = 'PENDING' | 'PASS' | 'WARNING' | 'BLOCKED'
 

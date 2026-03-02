@@ -60,7 +60,7 @@ GO
 --
 -- file_type values (enforced by CHECK constraint):
 --   master_stock | demand_plan | line_capacity_calendar |
---   headcount_plan | oee_daily | portfolio_changes
+--   headcount_plan | portfolio_changes
 --
 -- validation_status: PENDING | PASS | WARNING | BLOCKED
 -- =============================================================================

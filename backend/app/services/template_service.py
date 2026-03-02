@@ -1,7 +1,7 @@
 """
 Generates downloadable Excel templates for the 4 template-based planning files.
 
-SAP files (master_stock, demand_plan) are not templated here — they come from SAP exports.
+demand_plan comes from the SAP PIR export — the entry here shows the expected format for reference.
 """
 
 import io
@@ -80,98 +80,62 @@ TEMPLATES: dict[str, dict] = {
             ["REFORMULATION", "01/05/2026", "",       "Recipe change — all 60L SKUs", "Minor: no line change required"],
         ],
     },
-    "oee_daily": {
-        "title": "OEE Daily",
-        "description": (
-            "Daily OEE actuals per production line. This file is OPTIONAL — "
-            "if not uploaded, a WARNING is raised but the batch can still be published. "
-            "All percentage values must be between 0 and 1 (e.g. 0.85 = 85%). "
-            "availability_pct, performance_pct and quality_pct are optional components."
-        ),
-        "columns": [
-            ("line_code",        "Line Code",        "Production line code. Must match a line in the masterdata.",                              "A101"),
-            ("record_date",      "Record Date",      "Date of the OEE record (DD/MM/YYYY).",                                                   "28/02/2026"),
-            ("oee_pct",          "OEE %",            "Composite OEE as a decimal between 0 and 1 (e.g. 0.72 = 72%). Required.",               "0.72"),
-            ("availability_pct", "Availability %",   "Availability component (0–1). Optional.",                                                "0.90"),
-            ("performance_pct",  "Performance %",    "Performance component (0–1). Optional.",                                                 "0.85"),
-            ("quality_pct",      "Quality %",        "Quality component (0–1). Optional. Note: OEE ≈ A × P × Q.",                             "0.94"),
-        ],
-        "sample_rows": [
-            ["A101", "28/02/2026", 0.72, 0.90, 0.85, 0.94],
-            ["A202", "28/02/2026", 0.68, 0.88, 0.80, 0.97],
-            ["A101", "27/02/2026", 0.75, 0.92, 0.87, 0.94],
-        ],
-    },
-
-    # ------------------------------------------------------------------
-    # SAP export reference templates — placeholders until SAP column
-    # names are confirmed. Served via GET /api/templates/{file_type}.
-    # ------------------------------------------------------------------
     "master_stock": {
-        "title": "Master Stock (SAP Export)",
+        "title": "Master Stock",
         "description": (
-            "PLACEHOLDER TEMPLATE — column names must be confirmed against the actual SAP stock report. "
-            "One row per item per warehouse location. "
-            "Export from SAP transaction MB52 or equivalent stock overview report. "
-            "Upload at the start of each planning cycle before running validation."
+            "Period-opening stock levels by item and warehouse. "
+            "One row per item per warehouse. "
+            "MOQ and Item status are optional — leave blank to keep existing values. "
+            "On a valid upload, items.mrp_type, items.units_per_pallet, items.pack_size_l, "
+            "items.moq and items.sku_status are updated from this file."
         ),
         "columns": [
-            ("item_code",        "Item Code",         "SAP material number (e.g. 101221). Must match an item in the masterdata.",                      "101221"),
-            ("warehouse_code",   "Warehouse Code",    "Storage location / warehouse (e.g. UKP1, UKP3). Must match a warehouse in the masterdata.",     "UKP1"),
-            ("quantity_on_hand", "Quantity On Hand",  "Total stock on hand in eaches (EA) including allocated stock. Must be ≥ 0.",                    "1200"),
-            ("free_stock_ea",    "Free Stock (EA)",   "Unallocated / unrestricted stock in eaches. Must be ≥ 0.",                                       "800"),
-            ("total_stock_ea",   "Total Stock (EA)",  "Total stock including restricted/allocated. Must be ≥ 0. Can equal quantity_on_hand.",           "1200"),
-            ("safety_stock_ea",  "Safety Stock (EA)", "Minimum stock target in eaches. Optional — leave blank if not used.",                            "200"),
+            ("material",             "Material",             "SAP material number. Must match an item in the items masterdata.",                                          "100000"),
+            ("plant",                "Plant",                "Warehouse code (e.g. UKP1, UKP3). Must match a warehouse in the masterdata.",                              "UKP1"),
+            ("abc_indicator",        "ABC Indicator",        "SAP ABC classification. Optional — stored for reference.",                                                 "#"),
+            ("mrp_type",             "MRP Type",             "SAP MRP planning type (e.g. ZN, PD). Optional. Updates items.mrp_type.",                                  "ZN"),
+            ("unrestrictedstock",    "UnrestrictedStock",    "Total unrestricted stock in eaches. Required. Must be ≥ 0.",                                               "1200"),
+            ("unrestricted_-_sales", "Unrestricted - Sales", "Stock available after sales allocations. Required. May be negative (back-orders).",                        "800"),
+            ("safety_stock",         "Safety Stock",         "Minimum target stock level in eaches. Optional. Must be ≥ 0 if provided.",                                "200"),
+            ("rounding_value",       "Rounding value",       "Units per pallet. Optional. Must be ≥ 0 if provided. Updates items.units_per_pallet.",                    "120"),
+            ("volume",               "Volume",               "Pack size in litres. Optional. Must be > 0 if provided. Updates items.pack_size_l.",                       "5"),
+            ("moq",                  "MOQ",                  "Minimum order quantity in eaches. Optional — blank keeps existing value. 0 = no minimum.",                "240"),
+            ("item_status",          "Item status",          "Lifecycle status. Optional — blank keeps existing value. 1 = In Design  |  2 = Phase Out  |  3 = Obsolete.", "1"),
         ],
         "sample_rows": [
-            ["101221", "UKP1", 1200, 800, 1200, 200],
-            ["101322", "UKP1",  600, 600,  600,  50],
-            ["101233", "UKP3",  300, 300,  300,   0],
+            ["100000", "UKP1", "#", "ZN", 1200, 800, 200, 120, 5, 240, 1],
+            ["100000", "UKP3", "#", "ZN",  600, 600,   0, 120, 5, 240, 1],
+            ["100001", "UKP1", "#", "PD",    0,   0,  50,  96, 1, 120, 1],
         ],
     },
     "demand_plan": {
-        "title": "Demand Plan (SAP Export)",
+        "title": "Demand Plan (SAP PIR Export)",
         "description": (
-            "PLACEHOLDER TEMPLATE — column names must be confirmed against the actual SAP demand planning report. "
-            "One row per item per warehouse per month. "
-            "Export from SAP transaction MD73 or equivalent demand planning report. "
-            "Covers the full planning horizon (typically 12–18 months forward)."
+            "SAP Planned Independent Requirements (PIR) export — wide format, one row per material per plant. "
+            "Row 1 = field descriptions (amber, ignored by validator). Row 2 = column keys. Row 3+ = data. "
+            "Columns material_id and plant are required. Columns mrp_area, version, req_type, version_active, "
+            "req_plan, req_seg, uom are present in the export but ignored by the validator. "
+            "Month columns follow in M{MM}.{YYYY} format (e.g. M03.2026) — always 12 months, columns J to U. "
+            "Filter to UK plants (UKP1, UKP3) before uploading — non-UK plants will be rejected."
         ),
         "columns": [
-            ("item_code",       "Item Code",       "SAP material number (e.g. 101221). Must match an item in the masterdata.",                  "101221"),
-            ("warehouse_code",  "Warehouse Code",  "Storage location / warehouse (e.g. UKP1, UKP3). Must match a warehouse in the masterdata.", "UKP1"),
-            ("plan_month",      "Plan Month",      "First day of the planning month in DD/MM/YYYY format (e.g. 01/03/2026).",                   "01/03/2026"),
-            ("demand_quantity", "Demand Quantity", "Forecast demand for this item/warehouse/month in eaches (EA). Must be ≥ 0.",                "500"),
+            ("material_id",    "material_id",    "SAP material number. Must match an item in the items masterdata.",                                  "100000"),
+            ("plant",          "plant",          "SAP plant code (UK only: UKP1, UKP3). Must match a warehouse in the masterdata.",                   "UKP1"),
+            ("mrp_area",       "mrp_area",       "SAP MRP area — same as Plant in most cases. Present in export, ignored by validator.",              "UKP1"),
+            ("version",        "version",        "SAP planning version. Present in export, ignored by validator.",                                    "00"),
+            ("req_type",       "req_type",       "SAP requirement type (e.g. VSF = forecast). Present in export, ignored by validator.",              "VSF"),
+            ("version_active", "version_active", "Whether this planning version is active. Present in export, ignored by validator.",                  "Yes"),
+            ("req_plan",       "req_plan",       "SAP requirements plan. Usually blank. Present in export, ignored by validator.",                    ""),
+            ("req_seg",        "req_seg",        "SAP requirements segment. Usually blank. Present in export, ignored by validator.",                  ""),
+            ("uom",            "uom",            "Unit of measure (always EA). Present in export, ignored by validator.",                             "EA"),
+            ("m03.2026",       "M03.2026",       "Demand quantity in eaches for March 2026. 12 monthly columns follow (M{MM}.{YYYY} format).",        500),
+            ("m04.2026",       "M04.2026",       "Demand quantity in eaches for April 2026.",                                                         480),
+            ("m05.2026",       "M05.2026",       "Demand quantity in eaches for May 2026 — continue for all 12 rolling months.",                      520),
         ],
         "sample_rows": [
-            ["101221", "UKP1", "01/03/2026", 500],
-            ["101221", "UKP1", "01/04/2026", 480],
-            ["101322", "UKP3", "01/03/2026", 200],
-        ],
-    },
-
-    # ------------------------------------------------------------------
-    # Item master — SAP export reference template (placeholder)
-    # Served via GET /api/masterdata/item_master/template
-    # ------------------------------------------------------------------
-    "item_master": {
-        "title": "Item Master (SAP Export)",
-        "description": (
-            "PLACEHOLDER TEMPLATE — column names must be confirmed against the actual SAP item master report. "
-            "One row per item. Used to update MOQ, units per pallet, and MRP type on existing items. "
-            "Items not present in the file are left unchanged. "
-            "Export from SAP transaction MM60 or equivalent material master report."
-        ),
-        "columns": [
-            ("item_code",       "Item Code",        "SAP material number (e.g. 101221). Must already exist in the RCCP item masterdata.",                       "101221"),
-            ("moq",             "MOQ",              "Minimum order quantity in eaches. Optional — leave blank to leave unchanged. Must be > 0 if provided.",    "240"),
-            ("units_per_pallet","Units Per Pallet", "Pack units per full pallet. Optional — leave blank to leave unchanged. Must be > 0 if provided.",          "120"),
-            ("mrp_type",        "MRP Type",         "SAP MRP planning type (e.g. PD, VB, ND). Optional — leave blank to leave unchanged.",                     "PD"),
-        ],
-        "sample_rows": [
-            ["101221", 240,  None, "PD"],
-            ["101322", 120, 120,  "PD"],
-            ["101233", 240,  None, "VB"],
+            ["100000", "UKP1", "UKP1", "00", "VSF", "Yes", "", "", "EA", 500, 480, 520],
+            ["100000", "UKP3", "UKP3", "00", "VSF", "Yes", "", "", "EA", 200, 190, 210],
+            ["100001", "UKP1", "UKP1", "00", "VSF", "Yes", "", "", "EA",  60,  55,  70],
         ],
     },
 
@@ -181,22 +145,25 @@ TEMPLATES: dict[str, dict] = {
     "line_pack_capabilities": {
         "title": "Line Pack Capabilities",
         "description": (
-            "Fill speeds and pack size capabilities per production line. "
+            "Fill speeds, pack size capabilities, and OEE targets per production line. "
             "Each row = one line + pack size combination. "
-            "bottles_per_minute and is_active are optional — leave blank to use system defaults. "
+            "bottles_per_minute, is_active, and oee_target are optional — leave blank to use system defaults. "
+            "oee_target is the OEE assumption for this line/pack combination (e.g. 0.65 = 65%). "
+            "If blank, the line-level OEE target is used instead. "
             "Upload replaces ALL existing line pack capability data."
         ),
         "columns": [
-            ("line_code",          "Line Code",          "Production line code (e.g. A101). Must exist in the masterdata.", "A101"),
-            ("pack_size_l",        "Pack Size (L)",       "Pack size in litres (e.g. 1, 5, 60, 200). Must be > 0.",         "1"),
-            ("bottles_per_minute", "Bottles per Minute",  "Fill rate for this line/pack combination. Optional.",            "80"),
-            ("is_active",          "Is Active",           "1 = this capability is active, 0 = disabled. Optional — defaults to 1.", "1"),
+            ("line_code",          "Line Code",          "Production line code (e.g. A101). Must exist in the masterdata.",                                          "A101"),
+            ("pack_size_l",        "Pack Size (L)",       "Pack size in litres (e.g. 1, 5, 60, 200). Must be > 0.",                                                  "1"),
+            ("bottles_per_minute", "Bottles per Minute",  "Fill rate for this line/pack combination. Optional.",                                                     "80"),
+            ("is_active",          "Is Active",           "1 = this capability is active, 0 = disabled. Optional — defaults to 1.",                                  "1"),
+            ("oee_target",         "OEE Target",          "OEE target for this line/pack combination (0–1, e.g. 0.65 = 65%). Optional — leave blank for line default.", "0.65"),
         ],
         "sample_rows": [
-            ["A101", 1,   80,  1],
-            ["A101", 5,   45,  1],
-            ["A202", 1,   95,  1],
-            ["A202", 60,  12,  1],
+            ["A101", 1,   80,  1, 0.65],
+            ["A101", 5,   45,  1, 0.60],
+            ["A202", 1,   95,  1, 0.70],
+            ["A202", 60,  12,  1, 0.75],
         ],
     },
     "line_resource_requirements": {
@@ -208,15 +175,15 @@ TEMPLATES: dict[str, dict] = {
             "Upload replaces ALL existing line resource requirement data."
         ),
         "columns": [
-            ("line_code",          "Line Code",           "Production line code (e.g. A101). Must exist in the masterdata.",        "A101"),
-            ("resource_type_code", "Resource Type Code",  "Role code (e.g. LINE_OP, TEAM_LEAD). Must exist in resource_types.",     "LINE_OP"),
-            ("headcount_required", "Headcount Required",  "Number of people required for this role on this line. Must be > 0.",     "2"),
+            ("line_code",          "Line Code",           "Production line code (e.g. A101). Must exist in the masterdata.",                    "A101"),
+            ("resource_type_code", "Resource Type Code",  "Role code (e.g. LINE_OPERATOR, TEAM_LEADER). Must exist in resource_types.",         "LINE_OPERATOR"),
+            ("headcount_required", "Headcount Required",  "Number of people required for this role on this line. Must be > 0.",                 "3"),
         ],
         "sample_rows": [
-            ["A101", "LINE_OP",    2],
-            ["A101", "TEAM_LEAD",  1],
-            ["A202", "LINE_OP",    3],
-            ["A202", "TEAM_LEAD",  1],
+            ["A101", "LINE_OPERATOR",  3],
+            ["A101", "TEAM_LEADER",    1],
+            ["A202", "LINE_OPERATOR",  4],
+            ["A202", "TEAM_LEADER",    1],
         ],
     },
     "plant_resource_requirements": {
@@ -228,14 +195,14 @@ TEMPLATES: dict[str, dict] = {
             "Upload replaces ALL existing plant resource requirement data."
         ),
         "columns": [
-            ("plant_code",         "Plant Code",          "Manufacturing plant code (e.g. A1, A2). Must exist in the masterdata.",  "A1"),
-            ("resource_type_code", "Resource Type Code",  "Role code for a plant-level role. Must exist in resource_types.",        "FORKLIFT"),
-            ("headcount_required", "Headcount Required",  "Number of people required for this role across the whole plant. Must be > 0.", "2"),
+            ("plant_code",         "Plant Code",          "Manufacturing plant code (e.g. A1, A2). Must exist in the masterdata.",           "A1"),
+            ("resource_type_code", "Resource Type Code",  "Role code for a plant-level role (e.g. FORKLIFT_DRIVER, ROBOT_OPERATOR). Must exist in resource_types.", "FORKLIFT_DRIVER"),
+            ("headcount_required", "Headcount Required",  "Number of people required for this role across the whole plant. Must be > 0.",    "2"),
         ],
         "sample_rows": [
-            ["A1", "FORKLIFT",   2],
-            ["A1", "ROBOT_OP",   1],
-            ["A2", "FORKLIFT",   1],
+            ["A1", "FORKLIFT_DRIVER",   2],
+            ["A1", "ROBOT_OPERATOR",    1],
+            ["A1", "MATERIAL_HANDLER",  1],
         ],
     },
     "warehouse_capacity": {
@@ -259,25 +226,6 @@ TEMPLATES: dict[str, dict] = {
             ["UKP3", "SMALL_PACK",   300],
         ],
     },
-    "item_status": {
-        "title": "Item Status",
-        "description": (
-            "Material lifecycle status for each SKU. "
-            "SAP item master exports do not include material status, so this is uploaded separately. "
-            "Only upload items whose status has changed — or upload a full list to reset all statuses. "
-            "Valid values: 1 = In Design, 2 = Phase Out, 3 = Obsolete. "
-            "Upload updates sku_status on matching items (items not in the file are unchanged)."
-        ),
-        "columns": [
-            ("item_code",  "Item Code",  "SAP material number / item code. Must exist in the items masterdata.", "101221"),
-            ("sku_status", "SKU Status", "1 = In Design  |  2 = Phase Out  |  3 = Obsolete",                    "2"),
-        ],
-        "sample_rows": [
-            ["101221", 1],
-            ["101233", 2],
-            ["101240", 3],
-        ],
-    },
 }
 
 # ---------------------------------------------------------------------------
@@ -286,8 +234,8 @@ TEMPLATES: dict[str, dict] = {
 
 _HEADER_FILL  = PatternFill("solid", fgColor="1E3A5F")   # Dark navy
 _HEADER_FONT  = Font(color="FFFFFF", bold=True, size=10)
-_DESC_FILL    = PatternFill("solid", fgColor="EBF0F7")   # Light blue-grey
-_DESC_FONT    = Font(color="555555", italic=True, size=9)
+_DESC_FILL    = PatternFill("solid", fgColor="FFE066")   # Amber — delete before uploading
+_DESC_FONT    = Font(color="7A5700", italic=True, size=9)
 _SAMPLE_FONT  = Font(color="444444", size=10)
 _THIN_BORDER  = Border(
     bottom=Side(style="thin", color="CCCCCC"),
@@ -309,22 +257,20 @@ def generate_template(file_type: str) -> bytes:
     ws.title = "Data"
 
     cols = spec["columns"]
-    n_cols = len(cols)
 
-    # Row 1: column keys (machine-readable header — this is what the validator reads)
+    # Row 1: field descriptions (amber — validator ignores this row, do not delete)
     for col_idx, (key, label, desc, sample) in enumerate(cols, start=1):
-        cell = ws.cell(row=1, column=col_idx, value=key)
-        cell.font = _HEADER_FONT
-        cell.fill = _HEADER_FILL
-        cell.alignment = _CENTER
-        cell.border = _THIN_BORDER
-
-    # Row 2: descriptions (light grey guidance row)
-    for col_idx, (key, label, desc, sample) in enumerate(cols, start=1):
-        cell = ws.cell(row=2, column=col_idx, value=desc)
+        cell = ws.cell(row=1, column=col_idx, value=desc)
         cell.font = _DESC_FONT
         cell.fill = _DESC_FILL
         cell.alignment = _LEFT
+
+    # Row 2: column keys — machine-readable header the validator reads
+    for col_idx, (key, label, desc, sample) in enumerate(cols, start=1):
+        cell = ws.cell(row=2, column=col_idx, value=key)
+        cell.font = _HEADER_FONT
+        cell.fill = _HEADER_FILL
+        cell.alignment = _CENTER
         cell.border = _THIN_BORDER
 
     # Rows 3+: sample data rows
@@ -337,22 +283,27 @@ def generate_template(file_type: str) -> bytes:
     # Column widths
     col_widths = {
         "line_code": 12, "calendar_date": 16, "plan_date": 16,
-        "record_date": 16, "effective_date": 16,
+        "effective_date": 16,
         "is_working_day": 16, "planned_hours": 16,
         "planned_headcount": 18, "shift_code": 12,
-        "available_hours": 16, "oee_pct": 10,
-        "availability_pct": 16, "performance_pct": 16, "quality_pct": 14,
+        "available_hours": 16, "oee_target": 14,
         "change_type": 18, "item_code": 14,
         "maintenance_hours": 20, "public_holiday_hours": 22,
         "planned_downtime_hours": 24, "other_loss_hours": 18,
         "description": 32, "impact_notes": 36, "notes": 28,
+        # master_stock columns
+        "material": 14, "plant": 10, "abc_indicator": 14, "mrp_type": 12,
+        "unrestrictedstock": 20, "unrestricted_-_sales": 22, "safety_stock": 14,
+        "rounding_value": 16, "volume": 10, "moq": 10, "item_status": 14,
+        # demand_plan columns
+        "material_id": 14, "mrp_area": 12, "version": 10, "req_type": 10,
+        "version_active": 16, "req_plan": 10, "req_seg": 10, "uom": 8,
+        "m03.2026": 12, "m04.2026": 12, "m05.2026": 12,
     }
     for col_idx, (key, *_) in enumerate(cols, start=1):
         ws.column_dimensions[get_column_letter(col_idx)].width = col_widths.get(key, 18)
 
-    ws.row_dimensions[2].height = 48  # Description row taller for readability
-
-    # Freeze panes below header + description rows
+    # Freeze panes below header and description rows
     ws.freeze_panes = "A3"
 
     # --- Instructions sheet ---
@@ -366,8 +317,9 @@ def generate_template(file_type: str) -> bytes:
         ("", None),
         ("HOW TO USE THIS TEMPLATE", Font(bold=True, size=11)),
         ("1. Fill in your data on the 'Data' sheet starting from row 3.", Font(size=10)),
-        ("2. Do NOT modify the column headers in row 1 — the system reads them exactly.", Font(size=10)),
-        ("3. Row 2 (grey) contains column descriptions — you may delete it before uploading, but it's not required.", Font(size=10)),
+        ("2. Do NOT modify rows 1 or 2 — row 1 is field descriptions, row 2 is the column header the system reads.", Font(size=10)),
+        ("3. Row 1 (amber/yellow) is ignored by the validator — leave it in as a reference or delete it if you prefer.", Font(size=10)),
+        ("   WARNING: If you delete row 1, what was row 2 shifts to row 1 and the validator will fail to find column names.", Font(size=10)),
         ("4. Save as .xlsx before uploading.", Font(size=10)),
         ("", None),
         ("COLUMN REFERENCE", Font(bold=True, size=11)),

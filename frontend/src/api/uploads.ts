@@ -15,3 +15,19 @@ export async function uploadFile(
   })
   return data
 }
+
+export async function downloadBatchFile(
+  batchId: number,
+  fileType: string,
+  filename: string
+): Promise<void> {
+  const { data } = await client.get(`/batches/${batchId}/files/${fileType}/download`, {
+    responseType: 'blob',
+  })
+  const url = URL.createObjectURL(data as Blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}

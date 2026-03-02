@@ -3,7 +3,7 @@ import os
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 from app.database import get_connection
 from app.services.auth_service import get_current_user
@@ -20,8 +20,6 @@ MASTERDATA_TEMPLATE_TYPES = frozenset([
     "line_resource_requirements",
     "plant_resource_requirements",
     "warehouse_capacity",
-    "item_status",
-    "item_master",   # placeholder template — SAP column names TBC
 ])
 
 
@@ -36,20 +34,12 @@ def get_masterdata_status(current_user: dict = Depends(get_current_user)):
 
 
 @router.get("/{masterdata_type}/template")
-def download_masterdata_template(
-    masterdata_type: str,
-    current_user: dict = Depends(get_current_user),
-):
-    """Download an Excel template for the given masterdata type."""
+def download_masterdata_template(masterdata_type: str):
+    """Download an Excel template for the given masterdata type. No auth required — templates contain no sensitive data."""
     if masterdata_type not in MASTERDATA_TEMPLATE_TYPES:
         raise HTTPException(
             status_code=404,
-            detail=(
-                f"No template available for '{masterdata_type}'. "
-                "item_master is a SAP export — download it from SAP directly."
-                if masterdata_type == "item_master"
-                else f"Unknown masterdata type '{masterdata_type}'."
-            ),
+            detail=f"No template available for masterdata type '{masterdata_type}'.",
         )
     xlsx_bytes = generate_template(masterdata_type)
     filename = f"rccp_template_{masterdata_type}.xlsx"
@@ -57,6 +47,28 @@ def download_masterdata_template(
         io.BytesIO(xlsx_bytes),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/{masterdata_type}/download")
+def download_masterdata_file(
+    masterdata_type: str,
+    current_user: dict = Depends(get_current_user),
+):
+    """Download the most recently uploaded file for a given masterdata type."""
+    if masterdata_type not in masterdata_service.VALID_MASTERDATA_TYPES:
+        raise HTTPException(status_code=404, detail=f"Unknown masterdata type '{masterdata_type}'")
+    conn = get_connection()
+    try:
+        info = masterdata_service.get_latest_upload_path(conn, masterdata_type)
+    finally:
+        conn.close()
+    if not info:
+        raise HTTPException(status_code=404, detail="No uploaded file found for this type")
+    return FileResponse(
+        path=info["stored_file_path"],
+        filename=info["original_filename"],
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
 

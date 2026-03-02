@@ -23,3 +23,8 @@ export async function validateBatch(batchId: number): Promise<Batch> {
   const { data } = await client.post<Batch>(`/batches/${batchId}/validate`)
   return data
 }
+
+export async function resetBatch(batchId: number): Promise<{ deleted: number }> {
+  const { data } = await client.delete<{ deleted: number }>(`/batches/${batchId}/files`)
+  return data
+}

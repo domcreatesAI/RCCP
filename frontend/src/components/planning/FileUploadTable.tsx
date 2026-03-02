@@ -1,7 +1,8 @@
+import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import FileRow from './FileRow'
 import { MasterdataRow, DISPLAY_ORDER } from './MasterdataPanel'
-import { validateBatch } from '../../api/batches'
+import { validateBatch, resetBatch } from '../../api/batches'
 import type { Batch, FileType } from '../../types'
 
 const REQUIRED_FILES: FileType[] = [
@@ -11,8 +12,6 @@ const REQUIRED_FILES: FileType[] = [
   'headcount_plan',
   'portfolio_changes',
 ]
-
-const OPTIONAL_FILES: FileType[] = ['oee_daily']
 
 interface Props {
   batch: Batch
@@ -25,7 +24,7 @@ export default function FileUploadTable({ batch }: Props) {
 
   const requiredPresent = REQUIRED_FILES.filter((ft) => filesByType[ft]).length
 
-  const colHeaders = ['File', 'Status', 'Ver.', 'Uploaded by', 'Time', 'Actions']
+  const colHeaders = ['File', 'Status', 'Uploaded by', 'Time', 'Actions']
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
@@ -69,7 +68,7 @@ export default function FileUploadTable({ batch }: Props) {
         {/* Masterdata section */}
         <tbody>
           <tr className="bg-gray-50 border-t-2 border-gray-200">
-            <td colSpan={6} className="px-4 py-2">
+            <td colSpan={5} className="px-4 py-2">
               <p className="text-xs font-semibold text-gray-500">Masterdata</p>
               <p className="text-xs text-gray-400">
                 Update each cycle to ensure the capacity model uses current data.
@@ -79,27 +78,6 @@ export default function FileUploadTable({ batch }: Props) {
           </tr>
           {DISPLAY_ORDER.map((mdType) => (
             <MasterdataRow key={mdType} mdType={mdType} />
-          ))}
-        </tbody>
-
-        {/* Optional files section */}
-        <tbody>
-          <tr className="bg-gray-50 border-t-2 border-gray-200">
-            <td colSpan={6} className="px-4 py-2">
-              <p className="text-xs font-semibold text-gray-500">Optional files</p>
-              <p className="text-xs text-gray-400">
-                Missing optional files produce a warning, not a blocker.
-              </p>
-            </td>
-          </tr>
-          {OPTIONAL_FILES.map((ft) => (
-            <FileRow
-              key={ft}
-              batchId={batch.batch_id}
-              fileType={ft}
-              file={filesByType[ft]}
-              optional
-            />
           ))}
         </tbody>
       </table>
@@ -113,6 +91,7 @@ interface ActionBarProps {
 
 export function BatchActionBar({ batch }: ActionBarProps) {
   const queryClient = useQueryClient()
+  const [resetConfirm, setResetConfirm] = useState(false)
 
   const filesByType = Object.fromEntries(
     (batch.files ?? []).map((f) => [f.file_type, f])
@@ -130,6 +109,14 @@ export function BatchActionBar({ batch }: ActionBarProps) {
     },
   })
 
+  const resetMutation = useMutation({
+    mutationFn: () => resetBatch(batch.batch_id),
+    onSuccess: () => {
+      setResetConfirm(false)
+      queryClient.invalidateQueries({ queryKey: ['batch', batch.batch_id] })
+    },
+  })
+
   return (
     <div className="bg-white border border-gray-200 rounded-xl px-4 py-3 flex items-center justify-between">
       <div className="text-sm text-gray-500">
@@ -138,12 +125,41 @@ export function BatchActionBar({ batch }: ActionBarProps) {
         ) : hasBlocked ? (
           <span className="text-red-600">One or more files have BLOCKED issues — resolve before publishing.</span>
         ) : requiredPresent < 5 ? (
-          <span>Upload all 5 required files before publishing.</span>
+          <span>Upload all files before publishing.</span>
         ) : (
           <span className="text-green-600">All required files present — ready to publish.</span>
         )}
       </div>
       <div className="flex items-center gap-2">
+        {/* Reset batch — two-step confirmation */}
+        {hasFiles && batch.status !== 'PUBLISHED' && !resetConfirm && (
+          <button
+            onClick={() => setResetConfirm(true)}
+            className="px-4 py-2 border border-gray-300 text-gray-500 text-sm font-medium rounded-lg hover:bg-red-50 hover:border-red-300 hover:text-red-600 transition-colors"
+          >
+            Reset batch
+          </button>
+        )}
+        {resetConfirm && (
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-red-600">Delete all uploaded files?</span>
+            <button
+              onClick={() => resetMutation.mutate()}
+              disabled={resetMutation.isPending}
+              className="px-3 py-1.5 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
+            >
+              {resetMutation.isPending ? 'Resetting…' : 'Confirm'}
+            </button>
+            <button
+              onClick={() => setResetConfirm(false)}
+              disabled={resetMutation.isPending}
+              className="px-3 py-1.5 border border-gray-300 text-gray-600 text-sm font-medium rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        )}
+
         {hasFiles && batch.status !== 'PUBLISHED' && (
           <button
             onClick={() => validateMutation.mutate()}

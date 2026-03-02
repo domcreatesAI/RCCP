@@ -11,7 +11,6 @@ VALID_FILE_TYPES = {
     "demand_plan",
     "line_capacity_calendar",
     "headcount_plan",
-    "oee_daily",
     "portfolio_changes",
 }
 

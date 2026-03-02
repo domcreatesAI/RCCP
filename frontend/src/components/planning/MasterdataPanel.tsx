@@ -1,7 +1,8 @@
 import { useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { getMasterdataStatus, uploadMasterdata } from '../../api/masterdata'
+import { getMasterdataStatus, uploadMasterdata, downloadMasterdataFile } from '../../api/masterdata'
 import type { MasterdataIssue } from '../../api/masterdata'
+import { useAuth } from '../../contexts/AuthContext'
 
 const MASTERDATA_META: Record<string, { label: string; description: string }> = {
   line_pack_capabilities: {
@@ -20,14 +21,6 @@ const MASTERDATA_META: Record<string, { label: string; description: string }> = 
     label: 'Warehouse capacity',
     description: 'Maximum pallet positions per pack type per warehouse',
   },
-  item_master: {
-    label: 'Item master (SAP)',
-    description: 'MOQ, units per pallet and MRP type per item',
-  },
-  item_status: {
-    label: 'Item status',
-    description: '1 = In Design · 2 = Phase Out · 3 = Obsolete',
-  },
 }
 
 const TEMPLATE_TYPES = new Set([
@@ -35,8 +28,6 @@ const TEMPLATE_TYPES = new Set([
   'line_resource_requirements',
   'plant_resource_requirements',
   'warehouse_capacity',
-  'item_master',
-  'item_status',
 ])
 
 export const DISPLAY_ORDER = [
@@ -44,8 +35,6 @@ export const DISPLAY_ORDER = [
   'line_resource_requirements',
   'plant_resource_requirements',
   'warehouse_capacity',
-  'item_master',
-  'item_status',
 ]
 
 const STATUS_PILL: Record<string, string> = {
@@ -69,9 +58,12 @@ function IssueHint({ issues, severity }: { issues: MasterdataIssue[]; severity: 
 }
 
 export function MasterdataRow({ mdType }: { mdType: string }) {
+  const { user } = useAuth()
   const queryClient = useQueryClient()
   const inputRef = useRef<HTMLInputElement>(null)
   const [lastResult, setLastResult] = useState<{ errors: MasterdataIssue[]; warnings: MasterdataIssue[] } | null>(null)
+  const [lastUploadedBy, setLastUploadedBy] = useState<string | null>(null)
+  const [lastUploadedAt, setLastUploadedAt] = useState<string | null>(null)
 
   const { data: statusList = [] } = useQuery({
     queryKey: ['masterdata-status'],
@@ -85,6 +77,8 @@ export function MasterdataRow({ mdType }: { mdType: string }) {
     mutationFn: (file: File) => uploadMasterdata(mdType, file),
     onSuccess: (result) => {
       setLastResult({ errors: result.errors, warnings: result.warnings })
+      setLastUploadedBy(user?.username ?? null)
+      setLastUploadedAt(new Date().toISOString())
       queryClient.invalidateQueries({ queryKey: ['masterdata-status'] })
     },
     onError: (err: unknown) => {
@@ -98,9 +92,15 @@ export function MasterdataRow({ mdType }: { mdType: string }) {
     const f = e.target.files?.[0]
     if (f) {
       setLastResult(null)
+      setLastUploadedBy(null)
+      setLastUploadedAt(null)
       uploadMutation.mutate(f)
     }
     e.target.value = ''
+  }
+
+  function handleDownload() {
+    downloadMasterdataFile(mdType, status?.last_original_filename ?? `${mdType}.xlsx`)
   }
 
   // Determine status pill
@@ -112,23 +112,27 @@ export function MasterdataRow({ mdType }: { mdType: string }) {
   } else if (uploadMutation.isSuccess && lastResult) {
     if (lastResult.errors.length === 0 && lastResult.warnings.length === 0) {
       pillKey = 'imported'
-      pillLabel = 'Imported'
+      pillLabel = '✓ Valid'
     } else if (lastResult.errors.length === 0) {
       pillKey = 'warnings'
-      pillLabel = 'Imported + warnings'
+      pillLabel = '✓ Valid (warnings)'
     } else {
       pillKey = 'blocked'
       pillLabel = 'Blocked'
     }
   } else if (status?.last_uploaded_at) {
     pillKey = 'imported'
-    pillLabel = 'Imported'
+    pillLabel = '✓ Valid'
   } else {
     pillKey = 'not_uploaded'
     pillLabel = 'Not uploaded'
   }
 
-  const isUploaded = !!status?.last_uploaded_at
+  const hasFile = !!(status?.last_uploaded_at || lastUploadedAt)
+
+  // Uploaded by and time: prefer DB value, fall back to post-mutation state
+  const displayUploadedBy = status?.last_uploaded_by ?? lastUploadedBy
+  const displayUploadedAt = status?.last_uploaded_at ?? lastUploadedAt
 
   return (
     <tr className="border-t border-gray-100 hover:bg-gray-50/50 align-top">
@@ -142,6 +146,19 @@ export function MasterdataRow({ mdType }: { mdType: string }) {
           <div>
             <p className="text-sm font-medium text-gray-900">{meta.label}</p>
             <p className="text-xs text-gray-400">{meta.description}</p>
+            {TEMPLATE_TYPES.has(mdType) && (
+              <a
+                href={`/api/masterdata/${mdType}/template`}
+                download
+                className="mt-0.5 text-xs text-blue-500 hover:text-blue-600 flex items-center gap-0.5 w-fit"
+              >
+                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                Template
+              </a>
+            )}
           </div>
         </div>
       </td>
@@ -159,20 +176,15 @@ export function MasterdataRow({ mdType }: { mdType: string }) {
         )}
       </td>
 
-      {/* Ver. (row count) */}
-      <td className="py-3 px-4 text-sm text-gray-500">
-        {status?.last_row_count != null ? `${status.last_row_count} rows` : '—'}
-      </td>
-
       {/* Uploaded by */}
       <td className="py-3 px-4 text-sm text-gray-500">
-        {status?.last_uploaded_by ?? '—'}
+        {displayUploadedBy ?? '—'}
       </td>
 
       {/* Time */}
       <td className="py-3 px-4 text-sm text-gray-500">
-        {status?.last_uploaded_at
-          ? new Date(status.last_uploaded_at).toLocaleString('en-GB', {
+        {displayUploadedAt
+          ? new Date(displayUploadedAt).toLocaleString('en-GB', {
               day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
             })
           : '—'}
@@ -181,20 +193,6 @@ export function MasterdataRow({ mdType }: { mdType: string }) {
       {/* Actions */}
       <td className="py-3 px-4">
         <div className="flex items-center gap-1.5">
-          {TEMPLATE_TYPES.has(mdType) && (
-            <a
-              href={`/api/masterdata/${mdType}/template`}
-              download
-              title="Download Excel template"
-              className="text-xs px-2.5 py-1.5 rounded-lg font-medium border border-gray-300 text-gray-600 hover:bg-gray-50 transition-colors flex items-center gap-1"
-            >
-              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-              </svg>
-              Template
-            </a>
-          )}
           <input
             ref={inputRef}
             type="file"
@@ -207,8 +205,21 @@ export function MasterdataRow({ mdType }: { mdType: string }) {
             disabled={uploadMutation.isPending}
             className="text-xs px-3 py-1.5 rounded-lg font-medium border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50 transition-colors"
           >
-            {uploadMutation.isPending ? 'Uploading…' : isUploaded ? 'Re-upload' : 'Upload'}
+            {uploadMutation.isPending ? 'Uploading…' : 'Upload'}
           </button>
+          {hasFile && (
+            <button
+              onClick={handleDownload}
+              title="Download last uploaded file"
+              className="text-xs px-2.5 py-1.5 rounded-lg font-medium border border-gray-300 text-gray-600 hover:bg-gray-50 transition-colors flex items-center gap-1"
+            >
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              Download
+            </button>
+          )}
         </div>
       </td>
     </tr>

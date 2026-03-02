@@ -2,13 +2,15 @@
 Masterdata upload service.
 
 Handles validation (synchronous, not persisted) and full-replace import
-for all 5 masterdata file types:
+for all 4 masterdata file types:
 
   line_pack_capabilities      → line_pack_capabilities table
   line_resource_requirements  → line_resource_requirements table
   plant_resource_requirements → plant_resource_requirements table
   warehouse_capacity          → warehouse_capacity table
-  item_master                 → items table (UPDATE moq, units_per_pallet, mrp_type)
+
+Note: item attributes (moq, sku_status, mrp_type, units_per_pallet, pack_size_l) are
+updated via the master_stock batch upload — not via a separate masterdata upload.
 
 Stages run: 2 (structure), 3 (field mapping), 4 (data types), 5 (FK checks), 6 (rules)
 BLOCKED → reject upload, data not imported.
@@ -27,19 +29,22 @@ import pyodbc
 
 MASTERDATA_SCHEMAS: dict = {
     "line_pack_capabilities": {
+        "header_row": 2,  # Row 1 is descriptions (ignored), row 2 is column keys
         "required": ["line_code", "pack_size_l"],
-        "optional": ["bottles_per_minute", "is_active"],
+        "optional": ["bottles_per_minute", "is_active", "oee_target"],
         "types": {
             "line_code":          "str",
             "pack_size_l":        "decimal",
             "bottles_per_minute": "decimal",
             "is_active":          "bit",
+            "oee_target":         "decimal",
         },
         "fk_checks": {
             "line_code": ("dbo.lines", "line_code"),
         },
     },
     "line_resource_requirements": {
+        "header_row": 2,
         "required": ["line_code", "resource_type_code", "headcount_required"],
         "optional": [],
         "types": {
@@ -53,6 +58,7 @@ MASTERDATA_SCHEMAS: dict = {
         },
     },
     "plant_resource_requirements": {
+        "header_row": 2,
         "required": ["plant_code", "resource_type_code", "headcount_required"],
         "optional": [],
         "types": {
@@ -66,6 +72,7 @@ MASTERDATA_SCHEMAS: dict = {
         },
     },
     "warehouse_capacity": {
+        "header_row": 2,
         "required": ["warehouse_code", "pack_type_code", "max_pallet_capacity"],
         "optional": [],
         "types": {
@@ -76,30 +83,6 @@ MASTERDATA_SCHEMAS: dict = {
         "fk_checks": {
             "warehouse_code": ("dbo.warehouses", "warehouse_code"),
             "pack_type_code": ("dbo.pack_types", "pack_type_code"),
-        },
-    },
-    "item_master": {
-        "required": ["item_code"],
-        "optional": ["moq", "units_per_pallet", "mrp_type"],
-        "types": {
-            "item_code":       "str",
-            "moq":             "decimal",
-            "units_per_pallet": "decimal",
-            "mrp_type":        "str",
-        },
-        "fk_checks": {
-            "item_code": ("dbo.items", "item_code"),
-        },
-    },
-    "item_status": {
-        "required": ["item_code", "sku_status"],
-        "optional": [],
-        "types": {
-            "item_code":  "str",
-            "sku_status": "int",
-        },
-        "fk_checks": {
-            "item_code": ("dbo.items", "item_code"),
         },
     },
 }
@@ -132,15 +115,17 @@ def validate_and_import(
     schema = MASTERDATA_SCHEMAS[masterdata_type]
     issues: list[dict] = []
 
+    header_row = schema.get("header_row", 1)
+
     # Stage 2: structure
-    wb = _stage2(stored_file_path, issues)
+    wb = _stage2(stored_file_path, issues, header_row)
     if wb is None:
         return {"success": False, "rows_imported": None,
                 "errors": issues, "warnings": []}
 
     ws = wb.active
-    headers = _get_headers(ws)
-    data_rows = _get_data_rows(ws, headers)
+    headers = _get_headers(ws, header_row)
+    data_rows = _get_data_rows(ws, headers, header_row + 1)
 
     # Stage 3: field mapping
     blocked_cols = _stage3(schema, headers, issues)
@@ -179,17 +164,33 @@ def validate_and_import(
     # All clear — import the data
     rows_imported = _import(conn, masterdata_type, schema, headers, data_rows, uploaded_by)
 
-    # Record upload in audit table
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        INSERT INTO dbo.masterdata_uploads
-            (masterdata_type, original_filename, row_count, uploaded_by)
-        VALUES (?, ?, ?, ?)
-        """,
-        masterdata_type, original_filename, rows_imported, uploaded_by,
-    )
+    # Commit the import immediately — this is the critical data.
     conn.commit()
+
+    # Record upload in audit table (non-critical — data is already committed above).
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            INSERT INTO dbo.masterdata_uploads
+                (masterdata_type, original_filename, row_count, uploaded_by, stored_file_path)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            masterdata_type, original_filename, rows_imported, uploaded_by, stored_file_path,
+        )
+        conn.commit()
+    except Exception as audit_err:
+        # Audit write failed (e.g. stored_file_path column missing — run script 14).
+        # The import data is already committed — do not fail the request.
+        warnings.append({
+            "stage": 6, "stage_name": "BUSINESS_RULE_CHECK",
+            "severity": "WARNING", "field": None, "row": None,
+            "message": (
+                f"Data imported successfully but audit trail could not be written: "
+                f"{str(audit_err)[:200]}. "
+                f"Run db/schema/14_masterdata_stored_path.sql to fix."
+            ),
+        })
 
     return {"success": True, "rows_imported": rows_imported,
             "errors": [], "warnings": warnings}
@@ -210,7 +211,11 @@ def get_status(conn: pyodbc.Connection) -> list[dict]:
             MAX(CASE WHEN uploaded_at = (
                 SELECT MAX(u2.uploaded_at) FROM dbo.masterdata_uploads u2
                 WHERE u2.masterdata_type = u.masterdata_type
-            ) THEN row_count END) AS last_row_count
+            ) THEN row_count END) AS last_row_count,
+            MAX(CASE WHEN uploaded_at = (
+                SELECT MAX(u2.uploaded_at) FROM dbo.masterdata_uploads u2
+                WHERE u2.masterdata_type = u.masterdata_type
+            ) THEN original_filename END) AS last_original_filename
         FROM dbo.masterdata_uploads u
         GROUP BY masterdata_type
         """,
@@ -220,6 +225,7 @@ def get_status(conn: pyodbc.Connection) -> list[dict]:
             "last_uploaded_at": str(r[1]) if r[1] else None,
             "last_uploaded_by": r[2],
             "last_row_count": r[3],
+            "last_original_filename": r[4],
         }
         for r in cursor.fetchall()
     }
@@ -230,16 +236,35 @@ def get_status(conn: pyodbc.Connection) -> list[dict]:
             "last_uploaded_at": uploaded.get(t, {}).get("last_uploaded_at"),
             "last_uploaded_by": uploaded.get(t, {}).get("last_uploaded_by"),
             "last_row_count": uploaded.get(t, {}).get("last_row_count"),
+            "last_original_filename": uploaded.get(t, {}).get("last_original_filename"),
         }
         for t in VALID_MASTERDATA_TYPES
     ]
+
+
+def get_latest_upload_path(conn: pyodbc.Connection, masterdata_type: str) -> dict | None:
+    """Return stored_file_path and original_filename for the most recent successful upload."""
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT TOP 1 stored_file_path, original_filename
+        FROM dbo.masterdata_uploads
+        WHERE masterdata_type = ? AND stored_file_path IS NOT NULL
+        ORDER BY uploaded_at DESC
+        """,
+        masterdata_type,
+    )
+    row = cursor.fetchone()
+    if not row:
+        return None
+    return {"stored_file_path": row[0], "original_filename": row[1]}
 
 
 # ---------------------------------------------------------------------------
 # Validation stages
 # ---------------------------------------------------------------------------
 
-def _stage2(stored_file_path: str, issues: list) -> object | None:
+def _stage2(stored_file_path: str, issues: list, header_row: int = 1) -> object | None:
     try:
         wb = openpyxl.load_workbook(stored_file_path, read_only=True, data_only=True)
     except Exception as exc:
@@ -259,12 +284,12 @@ def _stage2(stored_file_path: str, issues: list) -> object | None:
         })
         return None
 
-    first_row = [cell.value for cell in next(ws.iter_rows(min_row=1, max_row=1), [])]
-    if all(v is None for v in first_row):
+    header_vals = [cell.value for cell in next(ws.iter_rows(min_row=header_row, max_row=header_row), [])]
+    if all(v is None for v in header_vals):
         issues.append({
             "stage": 2, "stage_name": "TEMPLATE_STRUCTURE_CHECK",
             "severity": "BLOCKED", "field": None, "row": None,
-            "message": "Header row (row 1) is empty — expected column names.",
+            "message": f"Header row (row {header_row}) is empty — expected column names.",
         })
         return None
 
@@ -409,40 +434,16 @@ def _stage6(masterdata_type: str, schema: dict, headers: list,
                         "severity": "BLOCKED", "field": col, "row": row_num,
                         "message": f"Row {row_num}: {col} must be > 0, got: {val}.",
                     })
-
-    elif masterdata_type == "item_status":
-        if "sku_status" in header_set:
+        if "oee_target" in header_set:
             for row_num, row_dict in data_rows:
-                val = row_dict.get("sku_status")
-                if val is not None and _is_valid_int(val) and int(float(val)) not in (1, 2, 3):
+                val = row_dict.get("oee_target")
+                if val is not None and _is_valid_decimal(val) and not (0 < float(val) <= 1):
                     issues.append({
                         "stage": 6, "stage_name": "BUSINESS_RULE_CHECK",
-                        "severity": "BLOCKED", "field": "sku_status", "row": row_num,
-                        "message": (
-                            f"Row {row_num}: sku_status must be 1 (In Design), "
-                            f"2 (Phase Out), or 3 (Obsolete). Got: {val}."
-                        ),
+                        "severity": "BLOCKED", "field": "oee_target", "row": row_num,
+                        "message": f"Row {row_num}: oee_target must be between 0 and 1 (e.g. 0.65 = 65%), got: {val}.",
                     })
 
-    elif masterdata_type == "item_master":
-        if "moq" in header_set:
-            for row_num, row_dict in data_rows:
-                val = row_dict.get("moq")
-                if val is not None and _is_valid_decimal(val) and float(val) <= 0:
-                    issues.append({
-                        "stage": 6, "stage_name": "BUSINESS_RULE_CHECK",
-                        "severity": "BLOCKED", "field": "moq", "row": row_num,
-                        "message": f"Row {row_num}: moq must be > 0, got: {val}.",
-                    })
-        if "units_per_pallet" in header_set:
-            for row_num, row_dict in data_rows:
-                val = row_dict.get("units_per_pallet")
-                if val is not None and _is_valid_decimal(val) and float(val) <= 0:
-                    issues.append({
-                        "stage": 6, "stage_name": "BUSINESS_RULE_CHECK",
-                        "severity": "BLOCKED", "field": "units_per_pallet", "row": row_num,
-                        "message": f"Row {row_num}: units_per_pallet must be > 0, got: {val}.",
-                    })
 
 
 # ---------------------------------------------------------------------------
@@ -456,8 +457,6 @@ def _import(conn: pyodbc.Connection, masterdata_type: str, schema: dict,
         "line_resource_requirements":  _import_line_resource_requirements,
         "plant_resource_requirements": _import_plant_resource_requirements,
         "warehouse_capacity":          _import_warehouse_capacity,
-        "item_master":                 _import_item_master,
-        "item_status":                 _import_item_status,
     }
     return handlers[masterdata_type](conn, headers, data_rows, uploaded_by)
 
@@ -470,16 +469,18 @@ def _import_line_pack_capabilities(conn, headers, data_rows, uploaded_by):
     for _, row in data_rows:
         bpm = _get_decimal(row, "bottles_per_minute", header_set)
         is_active = _get_bit(row, "is_active", header_set, default=1)
+        oee_target = _get_decimal(row, "oee_target", header_set)
         cursor.execute(
             """
             INSERT INTO dbo.line_pack_capabilities
-                (line_code, pack_size_l, bottles_per_minute, is_active, updated_by)
-            VALUES (?, ?, ?, ?, ?)
+                (line_code, pack_size_l, bottles_per_minute, is_active, oee_target, updated_by)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
             str(row["line_code"]).strip(),
             float(row["pack_size_l"]),
             bpm,
             is_active,
+            oee_target,
             uploaded_by,
         )
         count += 1
@@ -546,67 +547,22 @@ def _import_warehouse_capacity(conn, headers, data_rows, uploaded_by):
     return count
 
 
-def _import_item_master(conn, headers, data_rows, uploaded_by):
-    header_set = set(headers)
-    cursor = conn.cursor()
-    count = 0
-    for _, row in data_rows:
-        item_code = str(row["item_code"]).strip()
-        moq = _get_decimal(row, "moq", header_set)
-        uop = _get_int(row, "units_per_pallet", header_set)
-        mrp_type = _get_str(row, "mrp_type", header_set)
-
-        cursor.execute(
-            """
-            UPDATE dbo.items
-            SET moq            = ?,
-                units_per_pallet = COALESCE(?, units_per_pallet),
-                mrp_type       = ?
-            WHERE item_code    = ?
-            """,
-            moq,
-            uop,
-            mrp_type,
-            item_code,
-        )
-        if cursor.rowcount > 0:
-            count += 1
-    return count
-
-
-def _import_item_status(conn, headers, data_rows, uploaded_by):
-    cursor = conn.cursor()
-    count = 0
-    for _, row in data_rows:
-        item_code = str(row["item_code"]).strip()
-        sku_status = int(float(row["sku_status"]))
-
-        cursor.execute(
-            "UPDATE dbo.items SET sku_status = ? WHERE item_code = ?",
-            sku_status,
-            item_code,
-        )
-        if cursor.rowcount > 0:
-            count += 1
-    return count
-
-
 # ---------------------------------------------------------------------------
 # Excel helpers
 # ---------------------------------------------------------------------------
 
-def _get_headers(ws) -> list[str]:
+def _get_headers(ws, header_row: int = 1) -> list[str]:
     headers = []
-    for cell in next(ws.iter_rows(min_row=1, max_row=1), []):
+    for cell in next(ws.iter_rows(min_row=header_row, max_row=header_row), []):
         val = cell.value
         if val is not None:
             headers.append(str(val).strip().lower().replace(" ", "_"))
     return headers
 
 
-def _get_data_rows(ws, headers: list[str]) -> list[tuple[int, dict]]:
+def _get_data_rows(ws, headers: list[str], start_row: int = 2) -> list[tuple[int, dict]]:
     rows = []
-    for excel_row in ws.iter_rows(min_row=2):
+    for excel_row in ws.iter_rows(min_row=start_row):
         vals = [cell.value for cell in excel_row]
         if all(v is None or (isinstance(v, str) and v.strip() == "") for v in vals):
             continue

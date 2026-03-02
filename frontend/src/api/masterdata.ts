@@ -5,6 +5,7 @@ export interface MasterdataStatus {
   last_uploaded_at: string | null
   last_uploaded_by: string | null
   last_row_count: number | null
+  last_original_filename: string | null
 }
 
 export interface MasterdataUploadResult {
@@ -26,6 +27,16 @@ export interface MasterdataIssue {
 export async function getMasterdataStatus(): Promise<MasterdataStatus[]> {
   const { data } = await client.get<MasterdataStatus[]>('/masterdata/status')
   return data
+}
+
+export async function downloadMasterdataFile(mdType: string, filename: string): Promise<void> {
+  const { data } = await client.get(`/masterdata/${mdType}/download`, { responseType: 'blob' })
+  const url = URL.createObjectURL(data)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
 }
 
 export async function uploadMasterdata(
