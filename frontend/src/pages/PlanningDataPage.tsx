@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { listBatches, getBatch } from '../api/batches'
+import { listBaselines } from '../api/baselines'
 import BatchSelector from '../components/planning/BatchSelector'
 import BatchHeader from '../components/planning/BatchHeader'
 import FileUploadTable, { BatchActionBar } from '../components/planning/FileUploadTable'
@@ -14,10 +15,14 @@ export default function PlanningDataPage() {
     queryFn: listBatches,
   })
 
-  // Auto-select the most recent batch
+  // Auto-select the active batch (PUBLISHED preferred, then DRAFT, then most recent)
   useEffect(() => {
     if (batches.length > 0 && selectedBatchId === null) {
-      setSelectedBatchId(batches[0].batch_id)
+      const active =
+        batches.find((b) => b.status === 'PUBLISHED') ??
+        batches.find((b) => b.status === 'DRAFT') ??
+        batches[0]
+      setSelectedBatchId(active.batch_id)
     }
   }, [batches, selectedBatchId])
 
@@ -28,6 +33,14 @@ export default function PlanningDataPage() {
     enabled: selectedBatchId !== null,
     refetchInterval: 5000, // poll every 5s while validation might be running
   })
+
+  const { data: baselines = [] } = useQuery({
+    queryKey: ['baselines'],
+    queryFn: listBaselines,
+  })
+  const batchBaseline = selectedBatchId != null
+    ? (baselines.find((b) => b.batch_id === selectedBatchId) ?? null)
+    : null
 
   return (
     <div className="p-6 max-w-7xl mx-auto">
@@ -57,7 +70,7 @@ export default function PlanningDataPage() {
       {batch && (
         <>
           <div className="mb-4">
-            <BatchHeader batch={batch} />
+            <BatchHeader batch={batch} baseline={batchBaseline} />
           </div>
           <FileUploadTable batch={batch} />
         </>

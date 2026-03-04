@@ -17,11 +17,21 @@ BLOCKED → reject upload, data not imported.
 WARNING → data imported, warnings returned in response.
 """
 
+import io
 from datetime import date, datetime
 from decimal import Decimal
 
 import openpyxl
 import pyodbc
+
+from app.services.excel_utils import (
+    get_headers as _get_headers,
+    get_data_rows as _get_data_rows,
+    is_valid_date as _is_valid_date,
+    is_valid_decimal as _is_valid_decimal,
+    is_valid_bit as _is_valid_bit,
+    is_valid_int as _is_valid_int,
+)
 
 # ---------------------------------------------------------------------------
 # Schemas — same pattern as validation_service.FILE_SCHEMAS
@@ -89,6 +99,14 @@ MASTERDATA_SCHEMAS: dict = {
 
 VALID_MASTERDATA_TYPES = frozenset(MASTERDATA_SCHEMAS.keys())
 
+# Maps masterdata type key → underlying DB table (for live row count queries)
+_MASTERDATA_TABLE: dict[str, str] = {
+    "line_pack_capabilities":     "dbo.line_pack_capabilities",
+    "line_resource_requirements":  "dbo.line_resource_requirements",
+    "plant_resource_requirements": "dbo.plant_resource_requirements",
+    "warehouse_capacity":          "dbo.warehouse_capacity",
+}
+
 
 # ---------------------------------------------------------------------------
 # Public entry point
@@ -97,12 +115,12 @@ VALID_MASTERDATA_TYPES = frozenset(MASTERDATA_SCHEMAS.keys())
 def validate_and_import(
     conn: pyodbc.Connection,
     masterdata_type: str,
-    stored_file_path: str,
+    file_content: bytes,
     original_filename: str,
     uploaded_by: str | None,
 ) -> dict:
     """
-    Validate and import a masterdata file.
+    Validate and import a masterdata file from raw bytes (no filesystem dependency).
 
     Returns:
         {
@@ -118,7 +136,7 @@ def validate_and_import(
     header_row = schema.get("header_row", 1)
 
     # Stage 2: structure
-    wb = _stage2(stored_file_path, issues, header_row)
+    wb = _stage2(file_content, issues, header_row)
     if wb is None:
         return {"success": False, "rows_imported": None,
                 "errors": issues, "warnings": []}
@@ -170,25 +188,33 @@ def validate_and_import(
     # Record upload in audit table (non-critical — data is already committed above).
     try:
         cursor = conn.cursor()
+        # Next sequential version number for this masterdata type
+        cursor.execute(
+            "SELECT ISNULL(MAX(version_number), 0) FROM dbo.masterdata_uploads WHERE masterdata_type = ?",
+            masterdata_type,
+        )
+        next_version = cursor.fetchone()[0] + 1
+
         cursor.execute(
             """
             INSERT INTO dbo.masterdata_uploads
-                (masterdata_type, original_filename, row_count, uploaded_by, stored_file_path)
-            VALUES (?, ?, ?, ?, ?)
+                (masterdata_type, original_filename, row_count, uploaded_by,
+                 version_number, file_content)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            masterdata_type, original_filename, rows_imported, uploaded_by, stored_file_path,
+            masterdata_type, original_filename, rows_imported, uploaded_by,
+            next_version, file_content,
         )
         conn.commit()
     except Exception as audit_err:
-        # Audit write failed (e.g. stored_file_path column missing — run script 14).
-        # The import data is already committed — do not fail the request.
+        # Audit write failed — import data is already committed, do not fail the request.
         warnings.append({
             "stage": 6, "stage_name": "BUSINESS_RULE_CHECK",
             "severity": "WARNING", "field": None, "row": None,
             "message": (
                 f"Data imported successfully but audit trail could not be written: "
                 f"{str(audit_err)[:200]}. "
-                f"Run db/schema/14_masterdata_stored_path.sql to fix."
+                f"Run db/schema/17_file_content_versioning.sql to fix."
             ),
         })
 
@@ -199,25 +225,32 @@ def validate_and_import(
 def get_status(conn: pyodbc.Connection) -> list[dict]:
     """Return last-upload info for all masterdata types."""
     cursor = conn.cursor()
+    # ROW_NUMBER() picks the most-recent upload per type without nested aggregates
     cursor.execute(
         """
+        WITH latest AS (
+            SELECT
+                masterdata_type,
+                uploaded_at,
+                uploaded_by,
+                row_count,
+                original_filename,
+                version_number,
+                ROW_NUMBER() OVER (
+                    PARTITION BY masterdata_type
+                    ORDER BY uploaded_at DESC
+                ) AS rn
+            FROM dbo.masterdata_uploads
+        )
         SELECT
             masterdata_type,
-            MAX(uploaded_at) AS last_uploaded_at,
-            MAX(CASE WHEN uploaded_at = (
-                SELECT MAX(u2.uploaded_at) FROM dbo.masterdata_uploads u2
-                WHERE u2.masterdata_type = u.masterdata_type
-            ) THEN uploaded_by END) AS last_uploaded_by,
-            MAX(CASE WHEN uploaded_at = (
-                SELECT MAX(u2.uploaded_at) FROM dbo.masterdata_uploads u2
-                WHERE u2.masterdata_type = u.masterdata_type
-            ) THEN row_count END) AS last_row_count,
-            MAX(CASE WHEN uploaded_at = (
-                SELECT MAX(u2.uploaded_at) FROM dbo.masterdata_uploads u2
-                WHERE u2.masterdata_type = u.masterdata_type
-            ) THEN original_filename END) AS last_original_filename
-        FROM dbo.masterdata_uploads u
-        GROUP BY masterdata_type
+            uploaded_at        AS last_uploaded_at,
+            uploaded_by        AS last_uploaded_by,
+            row_count          AS last_row_count,
+            original_filename  AS last_original_filename,
+            version_number     AS last_version_number
+        FROM latest
+        WHERE rn = 1
         """,
     )
     uploaded = {
@@ -226,9 +259,16 @@ def get_status(conn: pyodbc.Connection) -> list[dict]:
             "last_uploaded_by": r[2],
             "last_row_count": r[3],
             "last_original_filename": r[4],
+            "last_version_number": r[5],
         }
         for r in cursor.fetchall()
     }
+
+    # Live row counts from each underlying table (shows data even when no upload record exists)
+    table_counts: dict[str, int] = {}
+    for t, table in _MASTERDATA_TABLE.items():
+        cursor.execute(f"SELECT COUNT(*) FROM {table}")  # noqa: S608 — table names are hardcoded
+        table_counts[t] = cursor.fetchone()[0]
 
     return [
         {
@@ -237,36 +277,42 @@ def get_status(conn: pyodbc.Connection) -> list[dict]:
             "last_uploaded_by": uploaded.get(t, {}).get("last_uploaded_by"),
             "last_row_count": uploaded.get(t, {}).get("last_row_count"),
             "last_original_filename": uploaded.get(t, {}).get("last_original_filename"),
+            "last_version_number": uploaded.get(t, {}).get("last_version_number"),
+            "table_row_count": table_counts.get(t, 0),
         }
         for t in VALID_MASTERDATA_TYPES
     ]
 
 
-def get_latest_upload_path(conn: pyodbc.Connection, masterdata_type: str) -> dict | None:
-    """Return stored_file_path and original_filename for the most recent successful upload."""
+def get_latest_upload_content(conn: pyodbc.Connection, masterdata_type: str) -> dict | None:
+    """Return file_content bytes, original_filename, and version_number for the most recent upload."""
     cursor = conn.cursor()
     cursor.execute(
         """
-        SELECT TOP 1 stored_file_path, original_filename
+        SELECT TOP 1 file_content, original_filename, version_number
         FROM dbo.masterdata_uploads
-        WHERE masterdata_type = ? AND stored_file_path IS NOT NULL
-        ORDER BY uploaded_at DESC
+        WHERE masterdata_type = ? AND file_content IS NOT NULL
+        ORDER BY version_number DESC, uploaded_at DESC
         """,
         masterdata_type,
     )
     row = cursor.fetchone()
     if not row:
         return None
-    return {"stored_file_path": row[0], "original_filename": row[1]}
+    return {
+        "file_content": bytes(row[0]),
+        "original_filename": row[1],
+        "version_number": row[2],
+    }
 
 
 # ---------------------------------------------------------------------------
 # Validation stages
 # ---------------------------------------------------------------------------
 
-def _stage2(stored_file_path: str, issues: list, header_row: int = 1) -> object | None:
+def _stage2(file_content: bytes, issues: list, header_row: int = 1) -> object | None:
     try:
-        wb = openpyxl.load_workbook(stored_file_path, read_only=True, data_only=True)
+        wb = openpyxl.load_workbook(io.BytesIO(file_content), read_only=True, data_only=True)
     except Exception as exc:
         issues.append({
             "stage": 2, "stage_name": "TEMPLATE_STRUCTURE_CHECK",
@@ -551,27 +597,6 @@ def _import_warehouse_capacity(conn, headers, data_rows, uploaded_by):
 # Excel helpers
 # ---------------------------------------------------------------------------
 
-def _get_headers(ws, header_row: int = 1) -> list[str]:
-    headers = []
-    for cell in next(ws.iter_rows(min_row=header_row, max_row=header_row), []):
-        val = cell.value
-        if val is not None:
-            headers.append(str(val).strip().lower().replace(" ", "_"))
-    return headers
-
-
-def _get_data_rows(ws, headers: list[str], start_row: int = 2) -> list[tuple[int, dict]]:
-    rows = []
-    for excel_row in ws.iter_rows(min_row=start_row):
-        vals = [cell.value for cell in excel_row]
-        if all(v is None or (isinstance(v, str) and v.strip() == "") for v in vals):
-            continue
-        row_num = excel_row[0].row
-        row_dict = {headers[i]: vals[i] for i in range(min(len(headers), len(vals)))}
-        rows.append((row_num, row_dict))
-    return rows
-
-
 # ---------------------------------------------------------------------------
 # Value coercion helpers
 # ---------------------------------------------------------------------------
@@ -603,61 +628,7 @@ def _get_str(row: dict, col: str, header_set: set) -> str | None:
 
 
 def _get_bit(row: dict, col: str, header_set: set, default: int = 1) -> int:
+    from app.services.excel_utils import to_bit
     if col not in header_set:
         return default
-    val = row.get(col)
-    if val is None or (isinstance(val, str) and val.strip() == ""):
-        return default
-    if isinstance(val, bool):
-        return 1 if val else 0
-    try:
-        return 1 if int(float(str(val))) else 0
-    except (ValueError, TypeError):
-        return default
-
-
-# ---------------------------------------------------------------------------
-# Type validators (same logic as validation_service)
-# ---------------------------------------------------------------------------
-
-def _is_valid_date(val) -> bool:
-    if isinstance(val, (date, datetime)):
-        return True
-    s = str(val).strip()
-    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%d-%m-%Y"):
-        try:
-            datetime.strptime(s, fmt)
-            return True
-        except ValueError:
-            continue
-    return False
-
-
-def _is_valid_decimal(val) -> bool:
-    if isinstance(val, (int, float, Decimal)):
-        return True
-    try:
-        float(str(val).strip())
-        return True
-    except (ValueError, TypeError):
-        return False
-
-
-def _is_valid_bit(val) -> bool:
-    if isinstance(val, bool):
-        return True
-    if isinstance(val, int) and val in (0, 1):
-        return True
-    return str(val).strip().lower() in ("0", "1", "yes", "no", "true", "false", "y", "n")
-
-
-def _is_valid_int(val) -> bool:
-    if isinstance(val, bool):
-        return False  # booleans are ints in Python but not meaningful here
-    if isinstance(val, int):
-        return True
-    try:
-        f = float(str(val).strip())
-        return f == int(f)
-    except (ValueError, TypeError):
-        return False
+    return to_bit(row.get(col), default)

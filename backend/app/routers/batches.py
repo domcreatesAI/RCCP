@@ -1,12 +1,13 @@
+import io
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
 from app.database import get_connection
 from app.services.auth_service import get_current_user
-from app.services import batch_service, validation_service
+from app.services import batch_service, validation_service, publish_service
 
 router = APIRouter(prefix="/batches", tags=["batches"])
 
@@ -93,23 +94,53 @@ def validate_batch(batch_id: int, current_user: dict = Depends(get_current_user)
         conn.close()
 
 
+@router.post("/{batch_id}/publish")
+def publish_batch(batch_id: int, current_user: dict = Depends(get_current_user)):
+    """Publish a batch: gate check, import planning data, set status to PUBLISHED."""
+    conn = get_connection()
+    try:
+        result = publish_service.publish_batch(conn, batch_id, current_user["username"])
+        result["files"] = batch_service.get_batch_file_status(conn, batch_id)
+        result["validation_stages"] = batch_service.get_validation_stage_summary(conn, batch_id)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
 @router.get("/{batch_id}/files/{file_type}/download")
 def download_batch_file(
     batch_id: int,
     file_type: str,
     current_user: dict = Depends(get_current_user),
 ):
-    """Download the currently uploaded file for a given file type."""
+    """Download the currently uploaded file for a given file type (from DB; filesystem fallback for pre-migration rows)."""
     conn = get_connection()
     try:
         info = batch_service.get_current_file_for_download(conn, batch_id, file_type)
         if not info:
             raise HTTPException(status_code=404, detail="No uploaded file found for this type")
-        return FileResponse(
-            path=info["stored_file_path"],
-            filename=info["original_filename"],
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        )
+        filename = info["original_filename"] or f"{file_type}.xlsx"
+        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        if info.get("file_content"):
+            return StreamingResponse(
+                io.BytesIO(info["file_content"]),
+                media_type=media_type,
+                headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+            )
+        # Fall back to filesystem for rows uploaded before migration 17
+        if info.get("stored_file_path"):
+            return FileResponse(
+                path=info["stored_file_path"],
+                filename=filename,
+                media_type=media_type,
+            )
+        raise HTTPException(status_code=404, detail="File content not available")
     except HTTPException:
         raise
     except Exception as e:

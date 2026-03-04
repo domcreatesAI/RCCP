@@ -6,6 +6,8 @@ export interface MasterdataStatus {
   last_uploaded_by: string | null
   last_row_count: number | null
   last_original_filename: string | null
+  last_version_number: number | null
+  table_row_count: number
 }
 
 export interface MasterdataUploadResult {

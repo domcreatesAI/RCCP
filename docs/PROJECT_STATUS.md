@@ -2,7 +2,7 @@
 
 > This file is the source of truth for project state.
 > Update it at the end of every working session.
-> Last updated: 2026-03-02 (session 5)
+> Last updated: 2026-03-04 (session 7)
 
 ---
 
@@ -33,7 +33,7 @@ Develop from a local clone — do not develop on Google Drive (npm too slow).
 
 | Phase | Scope | Status |
 |-------|-------|--------|
-| **Phase 1** | Database + Planning Data screen + Upload + Validate + Publish + Baseline | **IN PROGRESS** |
+| **Phase 1** | Database + Planning Data screen + Upload + Validate + Publish + Baseline | **IN PROGRESS — core complete** |
 | Phase 2 | RCCP engine, line risk logic, labour/warehouse-constrained capacity | Not started |
 | Phase 3 | Scenario modelling, OEE simulation, cost of additional capacity | Not started |
 | Phase 4 | Executive summary, 12-month staff forecast, approval workflow | Not started |
@@ -62,14 +62,17 @@ Develop from a local clone — do not develop on Google Drive (npm too slow).
 | 10c | Capacity calendar: `scripts/generate_capacity_calendar.py` → 25,564 rows, UK bank holidays 2026–2030 | **Complete** |
 | 10d | Validation: top 3 issues per file (STRING_AGG, `<\|>` delimiter, stacked display in frontend) | **Complete** |
 | 10e | DB: migrations 12–16 (fix masterdata CK, line_pack OEE col, stored_path col, remove item_status type, remove oee_daily) | **Complete — applied** |
-| 11 | Backend: Publish batch endpoint | **Next** |
-| 12 | Backend: Create baseline endpoint | Not started |
+| 11 | Backend: Publish batch endpoint | **Complete** |
+| 12 | Backend + Frontend: Create baseline (BatchActionBar) | **Complete** |
+| 13 | Backend + Frontend: File content BLOB storage + versioning + masterdata download | **Complete — needs migration 17 on live DB** |
+| 14 | Baseline status banner in BatchHeader (green = done, amber = publish without baseline) | **Complete** |
+| 15 | production_orders as 6th required batch file (COOIS export) — DB + validation + template + publish | **Complete — migrations 18+19 applied** |
 
 ---
 
 ## Database — Deployment State
 
-**Status: Fully deployed — scripts 00–09 + 11 + both seeds deployed and verified. Migrations 12–16 applied.**
+**Status: Fully deployed — scripts 00–09 + 11 + both seeds + migrations 12–19 applied.**
 
 ### How to Deploy (Clean Slate)
 
@@ -100,7 +103,7 @@ All scripts are idempotent — safe to re-run (except 00_reset which drops all t
 | `schema/00_reset_all_tables.sql` | — | Drops all tables. Run before fresh deploy. |
 | `schema/01_masterdata.sql` | app_settings, warehouses, plants, pack_types, labour_pools, lines, items | |
 | `schema/02_workflow.sql` | import_batches, import_batch_files, import_validation_results, plan_versions | |
-| `schema/03_planning_data.sql` | master_stock, demand_plan, line_capacity_calendar, headcount_plan, oee_daily, portfolio_changes | oee_daily removed by migration 16 |
+| `schema/03_planning_data.sql` | master_stock, demand_plan, line_capacity_calendar, headcount_plan, portfolio_changes | oee_daily removed by migration 16 |
 | `schema/04_views.sql` | vw_line_capacity_with_net, vw_batch_file_status, vw_batch_readiness, vw_master_stock | |
 | `schema/05_item_resource_rules.sql` | item_resource_rules | |
 | `schema/06_resource_requirements.sql` | resource_types, line_resource_requirements, plant_resource_requirements | |
@@ -111,7 +114,7 @@ All scripts are idempotent — safe to re-run (except 00_reset which drops all t
 | `seeds/01_app_settings.sql` | Default config values incl. overtime/shift multipliers | |
 | `seeds/02_masterdata_sample.sql` | All masterdata: warehouses, plants, lines, items, resource types, requirements, line pack speeds | |
 
-**Migrations (applied to existing DB, not needed for clean slate after running base scripts + migration 16):**
+**Migrations (applied to existing DB, not needed for clean slate):**
 
 | Script | Changes |
 |--------|---------|
@@ -121,12 +124,15 @@ All scripts are idempotent — safe to re-run (except 00_reset which drops all t
 | `schema/14_masterdata_stored_path.sql` | Adds stored_file_path column to masterdata_uploads |
 | `schema/15_remove_item_status_type.sql` | Removes item_status from masterdata upload type CHECK constraint |
 | `schema/16_remove_oee_daily.sql` | Drops oee_daily table, removes from CK constraint + vw_batch_readiness, deletes app_settings seed row |
+| `schema/17_file_content_versioning.sql` | Adds file_content VARBINARY(MAX) to import_batch_files + masterdata_uploads; version_number to masterdata_uploads |
+| `schema/18_production_orders.sql` | Creates dbo.production_orders table (6th batch file type) |
+| `schema/19_update_batch_readiness_view.sql` | Updates CK_import_batch_files_type + vw_batch_readiness for 6 required files |
 
 ---
 
 ## Backend — State
 
-**Status: Phase 1 workflow complete. Publish + Baseline endpoints still to build.**
+**Status: Phase 1 core complete.**
 
 ### Endpoints
 
@@ -138,10 +144,13 @@ All scripts are idempotent — safe to re-run (except 00_reset which drops all t
 | GET | `/api/batches/{id}` | JWT | Batch detail + file status + top 3 issues per file |
 | POST | `/api/batches/{id}/files` | JWT | Upload file → auto-validates → returns updated status |
 | POST | `/api/batches/{id}/validate` | JWT | Re-run validation on all current files |
-| GET | `/api/templates/{file_type}` | JWT | Download Excel template (.xlsx); all 5 batch file types |
+| GET | `/api/templates/{file_type}` | JWT | Download Excel template (.xlsx); all 6 batch file types |
 | GET | `/api/masterdata/status` | JWT | Last upload info for all 4 masterdata types |
 | POST | `/api/masterdata/{type}` | JWT | Upload + validate (stages 2–6) + full-replace import |
 | GET | `/api/masterdata/{type}/template` | JWT | Download masterdata template; all 4 types |
+| GET | `/api/masterdata/{type}/download` | JWT | Download last uploaded masterdata file |
+| GET | `/api/baselines` | JWT | List all baselines |
+| POST | `/api/baselines` | JWT | Create named baseline from a PUBLISHED batch |
 | GET | `/api/health` | None | DB connection check |
 
 ### Running the backend (Windows)
@@ -166,19 +175,19 @@ copy .env.example .env   (fill in DB_PASSWORD and JWT_SECRET)
 
 ## Frontend — State
 
-**Status: Phase 1 workflow complete. Publish + Baseline UI still to build.**
+**Status: Phase 1 core complete.**
 
 ### What's built
 
 - Login page (username/password → JWT → AuthContext → localStorage)
 - Planning Data page: single-column layout
   - Batch selector dropdown + "New batch" modal
+  - **BatchHeader**: baseline status banner at top (green = baseline exists; amber = published, no baseline yet)
   - **Unified card**: one table with shared columns (File, Status, Ver., Uploaded by, Time, Actions)
-    - Required files section (5 rows): status pill + top 3 inline issues + template button
+    - Required files section (6 rows, order: master_stock, production_orders, demand_plan, line_capacity_calendar, headcount_plan, portfolio_changes)
     - Masterdata section (4 rows): same columns; Ver. = row count from last import
-  - "Re-validate" button + "Publish batch" button in action bar at **page bottom** (separated from table)
-- Template download button on all 5 required file rows + all 4 masterdata rows
-- demand_plan: PIR SAP format — `material_id`, `plant`, 12 rolling month cols (`M03.2026` format)
+  - **BatchActionBar** at page bottom: Re-validate / Reset batch / Publish batch / Create baseline
+- Template download button on all 6 required file rows + all 4 masterdata rows
 - 5-second polling on active batch
 
 ### Running the frontend
@@ -194,7 +203,7 @@ Vite proxies `/api` → `http://localhost:8000`. Backend must be running.
 
 ## Data Model Summary
 
-### Tables (24 total)
+### Tables (25 total)
 
 **Masterdata**
 - `app_settings` — configurable business rules (key-value)
@@ -225,11 +234,12 @@ Vite proxies `/api` → `http://localhost:8000`. Backend must be running.
 
 **Planning Data** (SAP imports, scoped to a batch)
 - `master_stock`, `demand_plan`, `line_capacity_calendar`, `headcount_plan`, `portfolio_changes`
+- `production_orders` — SAP COOIS export; LA (planned) + YPAC (released/firmed); net_quantity computed at import
 
 **Views**
 - `vw_line_capacity_with_net` — adds `net_theoretical_hours`
 - `vw_batch_file_status` — powers the Planning Data screen file panels
-- `vw_batch_readiness` — `can_publish` flag per batch
+- `vw_batch_readiness` — `can_publish` flag per batch (requires 6 files)
 - `vw_line_pack_capabilities` — computed `litres_per_minute` and `effective_mins_per_day`
 - `vw_master_stock` — adds `sales_allocated_ea`, `free_stock_vs_safety_ea`, `total_stock_litres`
 
@@ -240,7 +250,7 @@ Vite proxies `/api` → `http://localhost:8000`. Backend must be running.
 1. `net_theoretical_hours` computed in view, not stored
 2. `litres_per_minute` computed in view, not stored (= `pack_size_l × bottles_per_minute`)
 3. `sales_allocated_ea` computed in view, not stored (= `total_stock_ea - free_stock_ea`)
-4. Files stored on filesystem, paths in DB — not BLOBs
+4. Files stored on filesystem, paths in DB — not BLOBs (except file_content backup added in migration 17)
 5. File re-uploads are versioned — `is_current_version` toggled, old versions kept
 6. `oee_target` is per line (not per pack size) — Phase 3 scenarios override it
 7. Weekly demand derived at query time: `demand_quantity / CEILING(days_in_month / 7.0)`
@@ -248,16 +258,19 @@ Vite proxies `/api` → `http://localhost:8000`. Backend must be running.
 9. Only one active baseline — enforced at application layer
 10. `plan_cycle_date` must be 1st of month — enforced by CHECK constraint
 11. Auth (JWT, roles) moved from Phase 5 to Phase 1 at user request
+12. production_orders: `production_line` nullable — LA orders have line, YPAC may not; no warning issued
+13. production_orders: `net_quantity = MAX(0, order_quantity - delivered_quantity)` computed at import
 
 ---
 
 ## Pending Items / Open Questions
 
 - [x] **DB script 11** — deployed and verified
-- [x] **demand_plan SAP column headers** — PIR format confirmed and implemented. Columns: `material_id`, `plant` + 12 rolling month cols `M03.2026`. Filter PIR export to UK plants before upload.
-- [x] **oee_daily** — removed entirely (never fully implemented). Migration 16 applied.
-- [x] **item_master / item_status** masterdata types — removed. MOQ now populated via `master_stock` upload.
-- [ ] **SAP export column headers** for `master_stock` — stages 3–6 currently return INFO. Once confirmed: update `FILE_SCHEMAS["master_stock"]` in `validation_service.py` + update placeholder template.
+- [x] **demand_plan SAP column headers** — PIR format confirmed and implemented
+- [x] **oee_daily** — removed entirely (migration 16 applied)
+- [x] **production_orders (COOIS)** — added as 6th required batch file (migrations 18+19 applied)
+- [ ] **Migrations 16 + 17** — confirm applied on live DB (16: remove oee_daily; 17: file content versioning)
+- [ ] **SAP export column headers** for `master_stock` — stages 3–6 currently return INFO. Update `FILE_SCHEMAS["master_stock"]` + template once confirmed.
 - [ ] **`standard_hourly_rate`** for all 5 resource types — needed before Phase 3 cost calculations
 - [ ] **`bottles_per_minute`** for lines A202, A302–A308, A401, A501, A502 — confirm with engineering; upload via `line_pack_capabilities` masterdata
 - [ ] **Resource requirements** for Plants A2–A5 — upload via `plant_resource_requirements` masterdata
@@ -268,21 +281,11 @@ Vite proxies `/api` → `http://localhost:8000`. Backend must be running.
 
 ## Next Session Starting Point
 
-**Immediate task:** Run migration 16 on the live DB, then build Publish batch.
+**Phase 1 is functionally complete. Pending:**
+1. Confirm migrations 16 + 17 have been applied on live DB
+2. End-to-end test: upload all 6 files to a DRAFT batch, validate, publish, create baseline
+3. Spot-check production_orders: `SELECT TOP 5 * FROM dbo.production_orders WHERE batch_id = ?`
 
-```bat
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\16_remove_oee_daily.sql
-```
-
-**Remaining Phase 1 tasks (in order):**
-1. **Publish batch** — `POST /api/batches/{id}/publish`
-   - Gate: all 5 batch files validated (no BLOCKED) + all 4 masterdata types have a non-BLOCKED upload
-   - Enforce only one PUBLISHED batch at a time (archive previous)
-   - Update batch status to PUBLISHED, record published_at + published_by
-   - Import batch file data into planning tables (master_stock, demand_plan, etc.)
-   - Frontend: wire up Publish button in BatchActionBar
-2. **Create baseline** — `POST /api/baselines`
-   - Named, immutable snapshot of a published batch
-   - One active baseline at a time
-   - Frontend: "Create baseline" button on published batch
-3. **master_stock SAP column headers** — get from user or SAP export; update `FILE_SCHEMAS["master_stock"]` + template
+**Open items (not blocking Phase 1):**
+- master_stock SAP column headers — update `FILE_SCHEMAS["master_stock"]` + template once confirmed
+- Masterdata data population (resource requirements, warehouse capacity, line speeds for remaining lines)

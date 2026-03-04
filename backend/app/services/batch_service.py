@@ -134,11 +134,11 @@ def get_validation_stage_summary(conn: pyodbc.Connection, batch_id: int) -> list
 
 
 def get_current_file_for_download(conn: pyodbc.Connection, batch_id: int, file_type: str) -> dict | None:
-    """Return stored_file_path and original_filename for the current-version file."""
+    """Return file_content (bytes), original_filename, and stored_file_path for the current-version file."""
     cursor = conn.cursor()
     cursor.execute(
         """
-        SELECT stored_file_path, original_filename
+        SELECT file_content, original_filename, stored_file_path
         FROM dbo.import_batch_files
         WHERE batch_id = ? AND file_type = ? AND is_current_version = 1
         """,
@@ -148,7 +148,11 @@ def get_current_file_for_download(conn: pyodbc.Connection, batch_id: int, file_t
     row = cursor.fetchone()
     if not row:
         return None
-    return {"stored_file_path": row[0], "original_filename": row[1]}
+    return {
+        "file_content": bytes(row[0]) if row[0] else None,
+        "original_filename": row[1],
+        "stored_file_path": row[2],
+    }
 
 
 def reset_batch_files(conn: pyodbc.Connection, batch_id: int) -> int:
@@ -185,8 +189,10 @@ def reset_batch_files(conn: pyodbc.Connection, batch_id: int) -> int:
 
     conn.commit()
 
-    # Best-effort physical file cleanup
+    # Best-effort physical file cleanup (path may be None or already deleted)
     for path in paths:
+        if not path:
+            continue
         try:
             os.remove(path)
         except OSError:

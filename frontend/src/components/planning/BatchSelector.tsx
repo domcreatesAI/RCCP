@@ -11,6 +11,7 @@ interface Props {
 export default function BatchSelector({ selectedId, onSelect }: Props) {
   const queryClient = useQueryClient()
   const [showModal, setShowModal] = useState(false)
+  const [showArchived, setShowArchived] = useState(false)
   const [name, setName] = useState('')
   const [cycleDate, setCycleDate] = useState('')
   const [formError, setFormError] = useState('')
@@ -19,6 +20,13 @@ export default function BatchSelector({ selectedId, onSelect }: Props) {
     queryKey: ['batches'],
     queryFn: listBatches,
   })
+
+  const archivedCount = batches.filter((b) => b.status === 'ARCHIVED').length
+  // Auto-show archived if the selected batch is one of them
+  const selectedIsArchived = batches.find((b) => b.batch_id === selectedId)?.status === 'ARCHIVED'
+  const visibleBatches = (showArchived || selectedIsArchived)
+    ? batches
+    : batches.filter((b) => b.status !== 'ARCHIVED')
 
   const createMutation = useMutation({
     mutationFn: () => createBatch(name, cycleDate),
@@ -47,23 +55,32 @@ export default function BatchSelector({ selectedId, onSelect }: Props) {
     createMutation.mutate()
   }
 
-  const selected = batches.find((b) => b.batch_id === selectedId)
-
   return (
     <>
       <div className="flex items-center gap-3">
-        <select
-          value={selectedId ?? ''}
-          onChange={(e) => onSelect(Number(e.target.value))}
-          className="px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-64"
-        >
-          {batches.length === 0 && <option value="">No batches yet</option>}
-          {batches.map((b) => (
-            <option key={b.batch_id} value={b.batch_id}>
-              {b.batch_name} — {b.plan_cycle_date}
-            </option>
-          ))}
-        </select>
+        <div className="flex flex-col gap-1">
+          <select
+            value={selectedId ?? ''}
+            onChange={(e) => onSelect(Number(e.target.value))}
+            className="px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 min-w-64"
+          >
+            {visibleBatches.length === 0 && <option value="">No batches yet</option>}
+            {visibleBatches.map((b) => (
+              <option key={b.batch_id} value={b.batch_id}>
+                {b.batch_name} — {b.plan_cycle_date}
+              </option>
+            ))}
+          </select>
+          {archivedCount > 0 && !selectedIsArchived && (
+            <button
+              type="button"
+              onClick={() => setShowArchived((v) => !v)}
+              className="text-xs text-gray-400 hover:text-gray-600 text-left"
+            >
+              {showArchived ? 'Hide archived' : `Show archived (${archivedCount})`}
+            </button>
+          )}
+        </div>
 
         <button
           onClick={() => setShowModal(true)}

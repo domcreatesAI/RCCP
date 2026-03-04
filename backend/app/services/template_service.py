@@ -108,6 +108,39 @@ TEMPLATES: dict[str, dict] = {
             ["100001", "UKP1", "#", "PD",    0,   0,  50,  96, 1, 120, 1],
         ],
     },
+    "production_orders": {
+        "title": "Production Orders (SAP COOIS Export)",
+        "description": (
+            "SAP COOIS production order export — planned orders (LA) and released/firmed orders (YPAC). "
+            "Row 1 = field descriptions (amber, ignored by validator). Row 2 = column headers. Row 3+ = data. "
+            "Export directly from SAP COOIS transaction and upload without modification. "
+            "net_quantity is computed at import as MAX(0, order_quantity - delivered_quantity). "
+            "production_line is expected for planned orders (LA); may be blank for released orders (YPAC) — "
+            "blank lines generate a WARNING, not a BLOCKED."
+        ),
+        "columns": [
+            ("order",                      "Order",                      "Unique SAP order number. Required.",                                                                  "5104801"),
+            ("material",                   "Material",                   "SAP material number. Must match an item in the items masterdata. Required.",                         "100556"),
+            ("material_description",       "Material description",       "SKU description from SAP. Optional — stored for reference only.",                                   "MOBIL BRAKE FLUID DOT4 AP C2/3 12x0.5L"),
+            ("order_type",                 "Order Type",                 "LA = MRP planned order. YPAC = firmed or released order. Required.",                                 "LA"),
+            ("mrp_controller",             "MRP controller",             "SAP MRP controller code (e.g. 005 = lubes, 006 = chemicals). Optional.",                            "006"),
+            ("plant",                      "Plant",                      "SAP plant code. Must match a warehouse in the masterdata (e.g. UKP1). Required.",                   "UKP1"),
+            ("order_quantity_(gmein)",     "Order quantity (GMEIN)",     "Total order quantity in eaches. Must be > 0. Required.",                                             "36480"),
+            ("delivered_quantity_(gmein)", "Delivered quantity (GMEIN)", "Quantity already produced/delivered. Must be ≥ 0. net_quantity = MAX(0, order_qty - delivered_qty). Required.", "0"),
+            ("unit_of_measure_(=gmein)",   "Unit of measure (=GMEIN)",   "Unit of measure (typically EA). Optional.",                                                          "EA"),
+            ("basic_start_date",           "Basic start date",           "Date the order is scheduled to start production (DD/MM/YYYY or YYYY-MM-DD). Required.",              "27/03/2026"),
+            ("basic_finish_date",          "Basic finish date",          "Expected completion date. Optional — not stored.",                                                   "30/03/2026"),
+            ("system_status",              "System Status",              "REL = released, CRTD = firmed, blank = MRP proposal. Optional.",                                    ""),
+            ("production_version",         "Production Version",         "SAP production version. Optional — not stored.",                                                    "0001"),
+            ("entered_by",                 "Entered By",                 "SAP user who created the order. Optional — not stored.",                                            ""),
+            ("production_line",            "Production line",            "Production line code (e.g. A304). Populated for LA orders by MRP; may be blank for YPAC. Optional.", "A304"),
+        ],
+        "sample_rows": [
+            ["5104801", "100556", "MOBIL BRAKE FLUID DOT4 AP C2/3 12x0.5L", "LA",   "006", "UKP1", 36480, 0,     "EA", "27/03/2026", "30/03/2026", "",    "0001", "", "A304"],
+            ["5104802", "100557", "MOBIL BRAKE FLUID DOT4 AP C2/3 12x1L",   "LA",   "006", "UKP1", 24000, 0,     "EA", "15/04/2026", "16/04/2026", "",    "0001", "", "A305"],
+            ["5104750", "100558", "MOBIL HYDRAULIC OIL 68 12x0.5L",         "YPAC", "005", "UKP1", 12000, 8000,  "EA", "03/03/2026", "03/03/2026", "REL", "0001", "", ""],
+        ],
+    },
     "demand_plan": {
         "title": "Demand Plan (SAP PIR Export)",
         "description": (
@@ -299,6 +332,12 @@ def generate_template(file_type: str) -> bytes:
         "material_id": 14, "mrp_area": 12, "version": 10, "req_type": 10,
         "version_active": 16, "req_plan": 10, "req_seg": 10, "uom": 8,
         "m03.2026": 12, "m04.2026": 12, "m05.2026": 12,
+        # production_orders columns
+        "order": 12, "material": 14, "material_description": 40,
+        "order_type": 12, "mrp_controller": 16,
+        "order_quantity_(gmein)": 24, "delivered_quantity_(gmein)": 26,
+        "unit_of_measure_(=gmein)": 24, "basic_start_date": 18, "basic_finish_date": 18,
+        "system_status": 14, "production_version": 18, "entered_by": 14, "production_line": 16,
     }
     for col_idx, (key, *_) in enumerate(cols, start=1):
         ws.column_dimensions[get_column_letter(col_idx)].width = col_widths.get(key, 18)

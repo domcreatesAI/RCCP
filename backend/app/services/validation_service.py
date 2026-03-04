@@ -2,7 +2,7 @@
 7-stage validation pipeline for RCCP planning data files.
 
 Stages:
-  1. REQUIRED_FILE_CHECK        — batch-level: all 5 required files present?
+  1. REQUIRED_FILE_CHECK        — batch-level: all 6 required files present?
   2. TEMPLATE_STRUCTURE_CHECK   — file opens as valid Excel with a header row
   3. FIELD_MAPPING_CHECK        — required columns present with correct names
   4. DATA_TYPE_CHECK            — correct types per column
@@ -30,6 +30,15 @@ from decimal import Decimal
 import openpyxl
 import pyodbc
 
+from app.services.excel_utils import (
+    get_headers as _get_headers,
+    get_data_rows as _get_data_rows,
+    is_valid_date as _is_valid_date,
+    is_valid_decimal as _is_valid_decimal,
+    is_valid_bit as _is_valid_bit,
+    is_valid_int as _is_valid_int,
+)
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -40,6 +49,7 @@ REQUIRED_FILE_TYPES = frozenset({
     "line_capacity_calendar",
     "headcount_plan",
     "portfolio_changes",
+    "production_orders",
 })
 
 STAGE_NAMES = {
@@ -231,6 +241,54 @@ FILE_SCHEMAS: dict = {
         "fk_checks": {},
         "min_rows": 0,  # Empty file is valid — no changes this cycle
     },
+    "production_orders": {
+        # SAP COOIS export. Row 1 = field descriptions (ignored), Row 2 = column headers, Row 3+ = data.
+        # Header normalisation: str.strip().lower().replace(" ", "_")
+        # "Order quantity (GMEIN)" → "order_quantity_(gmein)"
+        # "Delivered quantity (GMEIN)" → "delivered_quantity_(gmein)"
+        # "Unit of measure (=GMEIN)" → "unit_of_measure_(=gmein)"
+        # Contains both LA (planned) and YPAC (released/firmed) orders.
+        # net_quantity = MAX(0, order_quantity - delivered_quantity) — computed at import.
+        # production_line is nullable: blank/null is accepted (no warning).
+        "header_row": 2,
+        "data_start_row": 3,
+        "required": [
+            "order",
+            "material",
+            "plant",
+            "order_type",
+            "order_quantity_(gmein)",
+            "delivered_quantity_(gmein)",
+            "basic_start_date",
+        ],
+        "optional": [
+            "material_description",
+            "mrp_controller",
+            "unit_of_measure_(=gmein)",
+            "basic_finish_date",
+            "system_status",
+            "production_line",
+        ],
+        "types": {
+            "order":                       "str",
+            "material":                    "str",
+            "order_type":                  ("enum", ["LA", "YPAC"]),
+            "mrp_controller":              "str",
+            "plant":                       "str",
+            "order_quantity_(gmein)":      "decimal",
+            "delivered_quantity_(gmein)":  "decimal",
+            "unit_of_measure_(=gmein)":    "str",
+            "basic_start_date":            "date",
+            "basic_finish_date":           "date",
+            "system_status":               "str",
+            "production_line":             "str",
+        },
+        "fk_checks": {
+            "material": ("dbo.items",      "item_code"),
+            "plant":    ("dbo.warehouses", "warehouse_code"),
+        },
+        "min_rows": 1,
+    },
 }
 
 
@@ -348,19 +406,19 @@ def _stage1(cursor, conn: pyodbc.Connection, batch_id: int, batch_file_id: int) 
         WHERE batch_id = ? AND is_current_version = 1
           AND file_type IN (
               'master_stock', 'demand_plan', 'line_capacity_calendar',
-              'headcount_plan', 'portfolio_changes'
+              'headcount_plan', 'portfolio_changes', 'production_orders'
           )
         """,
         batch_id,
     )
     count = c2.fetchone()[0]
-    if count >= 5:
+    if count >= 6:
         _write(cursor, batch_file_id, stage_num, stage_name, "PASS",
-               "All 5 required files are present in this batch")
+               "All 6 required files are present in this batch")
     else:
-        missing = 5 - count
+        missing = 6 - count
         _write(cursor, batch_file_id, stage_num, stage_name, "WARNING",
-               f"{count}/5 required files present — {missing} still to upload")
+               f"{count}/6 required files present — {missing} still to upload")
 
 
 def _stage2(cursor, batch_file_id: int, stored_file_path: str, header_row: int = 1):
@@ -586,6 +644,23 @@ def _stage6(cursor, batch_file_id: int, file_type: str,
                                    f"item_status must be blank, 1 (In Design), "
                                    f"2 (Phase Out) or 3 (Obsolete), got: {val}", str(val)))
 
+    elif file_type == "production_orders":
+        # order_quantity must be > 0
+        if "order_quantity_(gmein)" in header_set:
+            for row_num, row_dict in data_rows:
+                val = row_dict.get("order_quantity_(gmein)")
+                if val is not None and _is_valid_decimal(val) and float(val) <= 0:
+                    errors.append((row_num, "order_quantity_(gmein)", "BLOCKED",
+                                   f"Order quantity must be > 0: {val}", str(val)))
+        # delivered_quantity must be >= 0
+        if "delivered_quantity_(gmein)" in header_set:
+            for row_num, row_dict in data_rows:
+                val = row_dict.get("delivered_quantity_(gmein)")
+                if val is not None and _is_valid_decimal(val) and float(val) < 0:
+                    errors.append((row_num, "delivered_quantity_(gmein)", "BLOCKED",
+                                   f"Delivered quantity cannot be negative: {val}", str(val)))
+
+
     # portfolio_changes: no extra rules beyond data type checks
 
     _emit_errors(cursor, batch_file_id, stage_num, stage_name, errors,
@@ -603,7 +678,7 @@ def _stage7(cursor, conn: pyodbc.Connection, batch_id: int, batch_file_id: int) 
         WHERE batch_id = ? AND is_current_version = 1
           AND file_type IN (
               'master_stock', 'demand_plan', 'line_capacity_calendar',
-              'headcount_plan', 'portfolio_changes'
+              'headcount_plan', 'portfolio_changes', 'production_orders'
           )
         """,
         batch_id,
@@ -632,9 +707,9 @@ def _stage7(cursor, conn: pyodbc.Connection, batch_id: int, batch_file_id: int) 
     )
     warning_count = c2.fetchone()[0]
 
-    if required_count < 5:
+    if required_count < 6:
         _write(cursor, batch_file_id, stage_num, stage_name, "WARNING",
-               f"Batch not ready to publish: {required_count}/5 required files uploaded")
+               f"Batch not ready to publish: {required_count}/6 required files uploaded")
     elif blocked_count > 0:
         _write(cursor, batch_file_id, stage_num, stage_name, "BLOCKED",
                f"Batch cannot be published: {blocked_count} BLOCKED issue(s) across all files")
@@ -806,75 +881,3 @@ def _update_items_from_master_stock(cursor, conn: pyodbc.Connection,
                f"Items table could not be updated from master_stock: {str(exc)[:200]}")
 
 
-def _get_headers(ws, header_row: int = 1) -> list[str]:
-    """Read the header row and return normalised column names (lower, underscored)."""
-    headers = []
-    for cell in next(ws.iter_rows(min_row=header_row, max_row=header_row), []):
-        val = cell.value
-        if val is not None:
-            headers.append(str(val).strip().lower().replace(" ", "_"))
-    return headers
-
-
-def _get_data_rows(ws, headers: list[str], start_row: int = 2) -> list[tuple[int, dict]]:
-    """Return [(excel_row_num, {col: val}), ...] skipping blank rows.
-
-    start_row defaults to 2 (immediately after the header).
-    Set to 3 for template files that include a description row at row 2.
-    """
-    rows = []
-    for excel_row in ws.iter_rows(min_row=start_row):
-        vals = [cell.value for cell in excel_row]
-        if all(v is None or (isinstance(v, str) and v.strip() == "") for v in vals):
-            continue
-        row_num = excel_row[0].row
-        row_dict = {headers[i]: vals[i] for i in range(min(len(headers), len(vals)))}
-        rows.append((row_num, row_dict))
-    return rows
-
-
-# ---------------------------------------------------------------------------
-# Type validators
-# ---------------------------------------------------------------------------
-
-def _is_valid_date(val) -> bool:
-    if isinstance(val, (date, datetime)):
-        return True
-    s = str(val).strip()
-    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%m/%d/%Y", "%d-%m-%Y"):
-        try:
-            datetime.strptime(s, fmt)
-            return True
-        except ValueError:
-            continue
-    return False
-
-
-def _is_valid_decimal(val) -> bool:
-    if isinstance(val, (int, float, Decimal)):
-        return True
-    try:
-        float(str(val).strip())
-        return True
-    except (ValueError, TypeError):
-        return False
-
-
-def _is_valid_bit(val) -> bool:
-    if isinstance(val, bool):
-        return True
-    if isinstance(val, int) and val in (0, 1):
-        return True
-    return str(val).strip().lower() in ("0", "1", "yes", "no", "true", "false", "y", "n")
-
-
-def _is_valid_int(val) -> bool:
-    if isinstance(val, bool):
-        return False  # booleans are ints in Python but not meaningful here
-    if isinstance(val, int):
-        return True
-    try:
-        f = float(str(val).strip())
-        return f == int(f)
-    except (ValueError, TypeError):
-        return False

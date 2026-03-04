@@ -43,8 +43,20 @@ export type FileType =
   | 'line_capacity_calendar'
   | 'headcount_plan'
   | 'portfolio_changes'
+  | 'production_orders'
 
 export type ValidationStatus = 'PENDING' | 'PASS' | 'WARNING' | 'BLOCKED'
+
+export interface Baseline {
+  version_id: number
+  batch_id: number
+  version_name: string
+  version_type: string
+  is_active_baseline: boolean
+  created_by: string | null
+  created_at: string
+  locked_at: string
+}
 
 export interface User {
   username: string

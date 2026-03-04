@@ -28,6 +28,8 @@ def upload_file(
         batch = batch_service.get_batch(conn, batch_id)
         if not batch:
             raise HTTPException(status_code=404, detail="Batch not found")
+        if batch["status"] == "PUBLISHED":
+            raise HTTPException(status_code=422, detail="Cannot upload files to a published batch")
 
         file_record = upload_service.save_upload(
             conn,

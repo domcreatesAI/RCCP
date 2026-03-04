@@ -123,6 +123,9 @@ export function MasterdataRow({ mdType }: { mdType: string }) {
   } else if (status?.last_uploaded_at) {
     pillKey = 'imported'
     pillLabel = '✓ Valid'
+  } else if ((status?.table_row_count ?? 0) > 0) {
+    pillKey = 'imported'
+    pillLabel = `${status!.table_row_count} rows`
   } else {
     pillKey = 'not_uploaded'
     pillLabel = 'Not uploaded'
@@ -146,6 +149,16 @@ export function MasterdataRow({ mdType }: { mdType: string }) {
           <div>
             <p className="text-sm font-medium text-gray-900">{meta.label}</p>
             <p className="text-xs text-gray-400">{meta.description}</p>
+            {status?.last_version_number != null ? (
+              <p className="text-xs text-blue-600 font-medium mt-0.5">
+                v{status.last_version_number}
+                {status.last_uploaded_at
+                  ? ` · ${new Date(status.last_uploaded_at).toLocaleString('en-GB', { month: 'short', year: 'numeric' })}`
+                  : ''}
+              </p>
+            ) : !status?.last_uploaded_at && (status?.table_row_count ?? 0) > 0 ? (
+              <p className="text-xs text-gray-400 mt-0.5">{status!.table_row_count} rows in DB — upload to track versions</p>
+            ) : null}
             {TEMPLATE_TYPES.has(mdType) && (
               <a
                 href={`/api/masterdata/${mdType}/template`}

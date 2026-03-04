@@ -12,6 +12,7 @@ VALID_FILE_TYPES = {
     "line_capacity_calendar",
     "headcount_plan",
     "portfolio_changes",
+    "production_orders",
 }
 
 
@@ -38,11 +39,12 @@ def save_upload(
     filename = f"v{version}_{file.filename}"
     dest_path = dest_dir / filename
 
-    # Write file to disk
+    # Write file to disk (filesystem copy is needed by validation + publish pipeline)
     with open(dest_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
 
     file_size = dest_path.stat().st_size
+    file_content = dest_path.read_bytes()  # read back for reliable DB-backed download
 
     # Mark previous versions of this file_type as not current
     cursor.execute(
@@ -55,12 +57,12 @@ def save_upload(
         file_type,
     )
 
-    # Insert the new file record
+    # Insert the new file record (file_content stored but not output — VARBINARY(MAX))
     cursor.execute(
         """
         INSERT INTO dbo.import_batch_files
             (batch_id, file_type, original_filename, stored_file_path,
-             file_size_bytes, upload_version, uploaded_by)
+             file_size_bytes, upload_version, uploaded_by, file_content)
         OUTPUT
             INSERTED.batch_file_id,
             INSERTED.batch_id,
@@ -73,7 +75,7 @@ def save_upload(
             INSERTED.validation_status,
             INSERTED.uploaded_by,
             INSERTED.uploaded_at
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
         batch_id,
         file_type,
@@ -82,6 +84,7 @@ def save_upload(
         file_size,
         version,
         uploaded_by,
+        file_content,
     )
     row = cursor.fetchone()
     conn.commit()

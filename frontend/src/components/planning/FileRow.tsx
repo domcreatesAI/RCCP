@@ -10,6 +10,7 @@ const TEMPLATE_FILE_TYPES = new Set<FileType>([
   'line_capacity_calendar',
   'headcount_plan',
   'portfolio_changes',
+  'production_orders',
 ])
 
 const FILE_META: Record<FileType, { label: string; description: string }> = {
@@ -33,6 +34,10 @@ const FILE_META: Record<FileType, { label: string; description: string }> = {
     label: 'Portfolio changes',
     description: 'New product launches and discontinuations — may have zero rows',
   },
+  production_orders: {
+    label: 'Production orders',
+    description: 'SAP COOIS export — planned (LA) and released/firmed (YPAC) orders',
+  },
 }
 
 const STATUS_PILL: Record<string, string> = {
@@ -47,9 +52,10 @@ interface Props {
   fileType: FileType
   file: BatchFile | undefined
   optional?: boolean
+  isLocked?: boolean
 }
 
-export default function FileRow({ batchId, fileType, file, optional }: Props) {
+export default function FileRow({ batchId, fileType, file, optional, isLocked }: Props) {
   const queryClient = useQueryClient()
   const inputRef = useRef<HTMLInputElement>(null)
   const meta = FILE_META[fileType]
@@ -152,8 +158,9 @@ export default function FileRow({ batchId, fileType, file, optional }: Props) {
           />
           <button
             onClick={() => inputRef.current?.click()}
-            disabled={uploadMutation.isPending}
-            className="text-xs px-3 py-1.5 rounded-lg font-medium border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+            disabled={uploadMutation.isPending || isLocked}
+            title={isLocked ? 'Batch is published — uploads are locked' : undefined}
+            className="text-xs px-3 py-1.5 rounded-lg font-medium border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {uploadMutation.isPending ? 'Uploading…' : 'Upload'}
           </button>

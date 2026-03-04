@@ -38,14 +38,15 @@ RCCP-One/
 │   │   ├── main.py            — FastAPI app, CORS, health endpoint
 │   │   ├── config.py          — env vars
 │   │   ├── database.py        — pyodbc connection factory
-│   │   ├── routers/           — auth.py, batches.py, uploads.py, templates.py, masterdata.py
+│   │   ├── routers/           — auth.py, batches.py, uploads.py, templates.py, masterdata.py, baselines.py
 │   │   └── services/          — auth_service.py, batch_service.py, upload_service.py,
-│   │                             validation_service.py, template_service.py, masterdata_service.py
+│   │                             validation_service.py, template_service.py, masterdata_service.py,
+│   │                             publish_service.py, excel_utils.py
 │   ├── requirements.txt
 │   └── .env.example
 ├── frontend/                  ← React TypeScript (Phase 1 mostly complete)
 │   ├── src/
-│   │   ├── api/               — client.ts, auth.ts, batches.ts, uploads.ts, masterdata.ts
+│   │   ├── api/               — client.ts, auth.ts, batches.ts, uploads.ts, masterdata.ts, baselines.ts
 │   │   ├── components/        — layout/ + planning/ sub-folders
 │   │   ├── contexts/          — AuthContext.tsx
 │   │   ├── pages/             — LoginPage.tsx, PlanningDataPage.tsx
@@ -53,7 +54,7 @@ RCCP-One/
 │   ├── package.json
 │   └── vite.config.ts         — proxies /api → localhost:8000
 ├── db/
-│   ├── schema/                ← SQL schema scripts (00–09, 11–16)
+│   ├── schema/                ← SQL schema scripts (00–09, 11–19)
 │   ├── seeds/                 ← 2 seed scripts (app settings + masterdata)
 │   └── README.md
 └── docs/
@@ -66,7 +67,7 @@ RCCP-One/
 
 | Phase | Scope | Status |
 |-------|-------|--------|
-| **Phase 1** | Database + Planning Data screen + Upload + Validate + Publish + Baseline | **IN PROGRESS** |
+| **Phase 1** | Database + Planning Data screen + Upload + Validate + Publish + Baseline | **IN PROGRESS — core complete, masterdata download remaining** |
 | Phase 2 | RCCP engine, line risk logic, labour/warehouse-constrained capacity calculations | Not started |
 | Phase 3 | Scenario modelling, OEE simulation, cost of additional capacity | Not started |
 | Phase 4 | Executive summary, 12-month staff forecast charts, approval workflow | Not started |
@@ -78,7 +79,7 @@ RCCP-One/
 
 ## Core Workflow (Phase 1)
 
-1. Upload 5 required Excel files (SAP exports) per planning cycle
+1. Upload 6 required Excel files (SAP exports) per planning cycle
 2. Run 7-stage validation pipeline per file
 3. Publish batch (only when no BLOCKED issues)
 4. Create named, immutable baseline from published batch
@@ -90,6 +91,7 @@ RCCP-One/
 | File Type | Required? | Notes |
 |-----------|-----------|-------|
 | `master_stock` | Yes | Renamed from `inventory_snapshots` |
+| `production_orders` | Yes | SAP COOIS export — LA (planned) + YPAC (released/firmed) orders |
 | `demand_plan` | Yes | Monthly per warehouse; weekly derived at query time |
 | `line_capacity_calendar` | Yes | |
 | `headcount_plan` | Yes | |
@@ -189,6 +191,7 @@ Publish is blocked if any file has severity = `BLOCKED`.
 
 **Planning data tables (batch-scoped):**
 - `master_stock`, `demand_plan`, `line_capacity_calendar`, `headcount_plan`, `portfolio_changes`
+- `production_orders` — SAP COOIS export; LA (planned) + YPAC (released/firmed); `net_quantity` computed at import
 
 **Views:**
 - `vw_line_capacity_with_net` — adds `net_theoretical_hours`
@@ -224,22 +227,27 @@ Auth was originally deferred to Phase 5 but is being built in Phase 1.
 
 ---
 
-## Current Deployment State (as of 2026-03-02)
+## Current Deployment State (as of 2026-03-03)
 
 **GitHub repo:** `https://github.com/d0m1n/RCCP-One.git` — source of truth. Clone locally; do not develop on Google Drive (npm is too slow).
 
-**Database: FULLY DEPLOYED** — scripts 00–09 + 11 + both seeds deployed and verified. Migrations 12–16 applied on top.
+**Database: FULLY DEPLOYED** — scripts 00–09 + 11 + both seeds deployed and verified. Migrations 12–19 applied.
 
-**Backend: Phase 1 workflow complete (Publish + Baseline still to build).**
+**Backend: Phase 1 core workflow complete.**
 - Stack: FastAPI + pyodbc + bcrypt + PyJWT
-- All endpoints working including masterdata templates for all 4 types — see PROJECT_STATUS.md for full list
+- Routers: auth, batches (incl. publish), uploads, templates, masterdata, baselines
+- Services: auth, batch, upload, validation, template, masterdata, publish, excel_utils
+- All endpoints working — see PROJECT_STATUS.md for full list
 - demand_plan: PIR format confirmed (SAP wide-format, `material_id`/`plant` key cols, monthly columns `M03.2026`)
+- production_orders: COOIS format (header_row=2, data_start_row=3, LA+YPAC order types, net_quantity computed)
 - Run from `backend/`: `.\venv\Scripts\uvicorn.exe app.main:app --reload`
 
-**Frontend: Phase 1 workflow complete (Publish + Baseline still to build).**
+**Frontend: Phase 1 core workflow complete.**
 - Login → Planning Data page: unified one-card layout (required files + masterdata in one table with shared columns)
-- BatchActionBar (Re-validate / Publish batch) rendered at page bottom, separate from the table
-- Template buttons on all 5 required file rows + all 4 masterdata rows
+- BatchHeader: baseline status banner (green = baseline exists; amber = published, no baseline)
+- BatchActionBar: Re-validate / Reset batch / Publish batch / Create baseline
+- Required files: 6 rows (master_stock, production_orders, demand_plan, line_capacity_calendar, headcount_plan, portfolio_changes)
+- Template buttons on all 6 required file rows + all 4 masterdata rows
 - Run from `frontend/`: `npm run dev` → `http://localhost:5173`
 
 **Capacity calendar pre-filled:** `scripts/generate_capacity_calendar.py` generates `uploads/capacity_calendar_2026_2030.xlsx` — 14 lines × 1,826 days (2026–2030), UK bank holidays hardcoded, DD/MM/YYYY date format.
@@ -276,6 +284,9 @@ sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\13_line_pack_oee.s
 sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\14_masterdata_stored_path.sql
 sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\15_remove_item_status_type.sql
 sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\16_remove_oee_daily.sql
+sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\17_file_content_versioning.sql
+sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\18_production_orders.sql
+sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\19_update_batch_readiness_view.sql
 ```
 
 ---
@@ -290,6 +301,7 @@ sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\16_remove_oee_dail
 - Actual warehouse capacity (pallet positions) per pack type per warehouse
 - `standard_hours_per_unit` in item_resource_rules — all values are placeholders
 - **MOQ** — `items.moq` column exists; populated via `master_stock` upload (moq field maps to items.moq)
+- Confirm migrations 16 + 17 applied on live DB (code is complete, may not have been run)
 
 ---
 

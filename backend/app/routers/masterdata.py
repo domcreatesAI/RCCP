@@ -1,9 +1,7 @@
 import io
-import os
-import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import StreamingResponse
 
 from app.database import get_connection
 from app.services.auth_service import get_current_user
@@ -11,8 +9,6 @@ from app.services import masterdata_service
 from app.services.template_service import generate_template
 
 router = APIRouter(prefix="/masterdata", tags=["masterdata"])
-
-UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "uploads", "masterdata")
 
 # Types that have a downloadable Excel template
 MASTERDATA_TEMPLATE_TYPES = frozenset([
@@ -55,20 +51,21 @@ def download_masterdata_file(
     masterdata_type: str,
     current_user: dict = Depends(get_current_user),
 ):
-    """Download the most recently uploaded file for a given masterdata type."""
+    """Download the most recently uploaded file for a given masterdata type (from DB)."""
     if masterdata_type not in masterdata_service.VALID_MASTERDATA_TYPES:
         raise HTTPException(status_code=404, detail=f"Unknown masterdata type '{masterdata_type}'")
     conn = get_connection()
     try:
-        info = masterdata_service.get_latest_upload_path(conn, masterdata_type)
+        content = masterdata_service.get_latest_upload_content(conn, masterdata_type)
     finally:
         conn.close()
-    if not info:
+    if not content:
         raise HTTPException(status_code=404, detail="No uploaded file found for this type")
-    return FileResponse(
-        path=info["stored_file_path"],
-        filename=info["original_filename"],
+    filename = content["original_filename"] or f"{masterdata_type}.xlsx"
+    return StreamingResponse(
+        io.BytesIO(content["file_content"]),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
@@ -78,7 +75,7 @@ async def upload_masterdata(
     file: UploadFile = File(...),
     current_user: dict = Depends(get_current_user),
 ):
-    """Upload and validate a masterdata file. BLOCKED issues reject the upload."""
+    """Upload and validate a masterdata file. BLOCKED issues reject the upload. File stored in DB — no filesystem write."""
     if masterdata_type not in masterdata_service.VALID_MASTERDATA_TYPES:
         raise HTTPException(
             status_code=404,
@@ -86,22 +83,15 @@ async def upload_masterdata(
                    f"Valid types: {sorted(masterdata_service.VALID_MASTERDATA_TYPES)}",
         )
 
-    os.makedirs(UPLOAD_DIR, exist_ok=True)
-    ext = os.path.splitext(file.filename or "upload.xlsx")[1] or ".xlsx"
-    stored_name = f"{masterdata_type}_{uuid.uuid4().hex}{ext}"
-    stored_path = os.path.join(UPLOAD_DIR, stored_name)
-
-    contents = await file.read()
-    with open(stored_path, "wb") as f:
-        f.write(contents)
+    file_content = await file.read()
 
     conn = get_connection()
     try:
         result = masterdata_service.validate_and_import(
             conn,
             masterdata_type,
-            stored_path,
-            file.filename or stored_name,
+            file_content,
+            file.filename or f"{masterdata_type}.xlsx",
             current_user["username"],
         )
     except Exception as e:
@@ -110,11 +100,6 @@ async def upload_masterdata(
         conn.close()
 
     if not result["success"]:
-        # Clean up the rejected file
-        try:
-            os.remove(stored_path)
-        except OSError:
-            pass
         raise HTTPException(status_code=422, detail=result)
 
     return result
