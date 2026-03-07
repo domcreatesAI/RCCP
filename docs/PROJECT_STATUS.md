@@ -2,7 +2,7 @@
 
 > This file is the source of truth for project state.
 > Update it at the end of every working session.
-> Last updated: 2026-03-04 (session 7)
+> Last updated: 2026-03-07 (session 8)
 
 ---
 
@@ -23,7 +23,7 @@ Develop from a local clone — do not develop on Google Drive (npm too slow).
 |-------|-----------|-------|
 | Database | SQL Server 17 (`localhost\SQLEXPRESS`) | DB: `RCCP_One`, login: `rccp_app` |
 | Backend | Python + FastAPI | pyodbc (sync), bcrypt, PyJWT |
-| Frontend | React 18 + TypeScript | Vite, Tailwind CSS v3, TanStack Query v5 |
+| Frontend | React 18 + TypeScript | Vite, Tailwind CSS v3, TanStack Query v5, React Router v7, lucide-react, sonner |
 | DB Migrations | Python Alembic | Future — scripts are idempotent for now |
 | File storage | Local filesystem (VM) | Base dir: `uploads/` relative to backend root |
 
@@ -67,6 +67,8 @@ Develop from a local clone — do not develop on Google Drive (npm too slow).
 | 13 | Backend + Frontend: File content BLOB storage + versioning + masterdata download | **Complete — needs migration 17 on live DB** |
 | 14 | Baseline status banner in BatchHeader (green = done, amber = publish without baseline) | **Complete** |
 | 15 | production_orders as 6th required batch file (COOIS export) — DB + validation + template + publish | **Complete — migrations 18+19 applied** |
+| 16 | Backend: validation enhancements — `initial_demand` in portfolio_changes, stage 8 CROSS_FILE_CHECK (coverage report), template updates, headcount ≥ 0 | **Complete — migration 20 written, needs deployment** |
+| 17 | Frontend Phase A shell redesign — dark sidebar, lucide icons, frosted topbar, cycle badge, sonner toasts, react-router v7 | **Complete** |
 
 ---
 
@@ -175,7 +177,7 @@ copy .env.example .env   (fill in DB_PASSWORD and JWT_SECRET)
 
 ## Frontend — State
 
-**Status: Phase 1 core complete.**
+**Status: Phase 1 core complete. Phase A shell redesign complete.**
 
 ### What's built
 
@@ -184,11 +186,19 @@ copy .env.example .env   (fill in DB_PASSWORD and JWT_SECRET)
   - Batch selector dropdown + "New batch" modal
   - **BatchHeader**: baseline status banner at top (green = baseline exists; amber = published, no baseline yet)
   - **Unified card**: one table with shared columns (File, Status, Ver., Uploaded by, Time, Actions)
-    - Required files section (6 rows, order: master_stock, production_orders, demand_plan, line_capacity_calendar, headcount_plan, portfolio_changes)
+    - Required files section (6 rows: master_stock, production_orders, demand_plan, line_capacity_calendar, headcount_plan, portfolio_changes)
     - Masterdata section (4 rows): same columns; Ver. = row count from last import
   - **BatchActionBar** at page bottom: Re-validate / Reset batch / Publish batch / Create baseline
 - Template download button on all 6 required file rows + all 4 masterdata rows
 - 5-second polling on active batch
+
+### Phase A shell (complete)
+
+- **Sidebar**: dark navy gradient (`#0F172A→#1E293B`), lucide icons, indigo gradient active state, user avatar with initials + online dot, LogOut icon
+- **AppShell topbar**: frosted glass (`bg-white/80 backdrop-blur-xl`), breadcrumb, live cycle badge (batch name + status from API), bell/help buttons, user avatar
+- **react-router v7**: migrated from `react-router-dom` v6 (same API, renamed package)
+- **sonner**: `<Toaster richColors />` in App.tsx — `toast.success/error()` available everywhere
+- **lucide-react**: replaces all hand-crafted inline SVGs
 
 ### Running the frontend
 
@@ -270,6 +280,10 @@ Vite proxies `/api` → `http://localhost:8000`. Backend must be running.
 - [x] **oee_daily** — removed entirely (migration 16 applied)
 - [x] **production_orders (COOIS)** — added as 6th required batch file (migrations 18+19 applied)
 - [ ] **Migrations 16 + 17** — confirm applied on live DB (16: remove oee_daily; 17: file content versioning)
+- [ ] **Migration 20** — `db/schema/20_validation_enhancements.sql` — adds `initial_demand` to `portfolio_changes`, fixes headcount CHECK constraints to `≥ 0`. **Run before testing validation enhancements.**
+  ```bat
+  sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\20_validation_enhancements.sql
+  ```
 - [ ] **SAP export column headers** for `master_stock` — stages 3–6 currently return INFO. Update `FILE_SCHEMAS["master_stock"]` + template once confirmed.
 - [ ] **`standard_hourly_rate`** for all 5 resource types — needed before Phase 3 cost calculations
 - [ ] **`bottles_per_minute`** for lines A202, A302–A308, A401, A501, A502 — confirm with engineering; upload via `line_pack_capabilities` masterdata
@@ -281,11 +295,25 @@ Vite proxies `/api` → `http://localhost:8000`. Backend must be running.
 
 ## Next Session Starting Point
 
-**Phase 1 is functionally complete. Pending:**
-1. Confirm migrations 16 + 17 have been applied on live DB
-2. End-to-end test: upload all 6 files to a DRAFT batch, validate, publish, create baseline
-3. Spot-check production_orders: `SELECT TOP 5 * FROM dbo.production_orders WHERE batch_id = ?`
+**Phase 1 backend + Phase A frontend shell complete. Next:**
 
-**Open items (not blocking Phase 1):**
+1. **Deploy migration 20** on live DB:
+   ```bat
+   sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\20_validation_enhancements.sql
+   ```
+2. **Confirm migrations 16 + 17** applied on live DB
+3. **Phase B** — Planning Data page redesign:
+   - 3fr/2fr grid layout (files table left, validation accordion panel right)
+   - Richer file rows with better status display
+   - Gradient action bar buttons (indigo publish, emerald baseline)
+   - Coverage report collapsible panel
+4. End-to-end test: upload all 6 files, validate, publish, create baseline
+
+**Open items (not blocking):**
 - master_stock SAP column headers — update `FILE_SCHEMAS["master_stock"]` + template once confirmed
 - Masterdata data population (resource requirements, warehouse capacity, line speeds for remaining lines)
+
+**Figma reference design** is at `RCCP/figma_prototype/` — used for Phase A–D redesign. Key files:
+- `src/app/components/Layout.tsx` — sidebar + topbar reference (Phase A — done)
+- `src/app/components/planning-data/PlanningData.tsx` — Phase B reference (880 lines)
+- Phases C+ use `motion` (animations), Phase D uses dashboard/scenarios/config pages
