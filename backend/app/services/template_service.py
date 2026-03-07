@@ -28,7 +28,7 @@ TEMPLATES: dict[str, dict] = {
             ("calendar_date",           "Calendar Date",           "Date in DD/MM/YYYY format (e.g. 01/03/2026).",                                   "01/03/2026"),
             ("is_working_day",          "Is Working Day",          "1 = working day, 0 = non-working day (weekend, bank holiday).",                  "1"),
             ("planned_hours",           "Planned Hours",           "Total planned production hours for this line on this date (0–24). Required.",    "7.0"),
-            ("maintenance_hours",       "Maintenance Hours",       "Scheduled maintenance time (hours). Optional — leave blank if none.",             "0.5"),
+            ("maintenance_hours",       "Maintenance Hours",       "Scheduled maintenance time (hours). Required. Must be ≥ 0 — enter 0 if none.", "0.5"),
             ("public_holiday_hours",    "Public Holiday Hours",    "Public holiday loss (hours). Optional.",                                          "0"),
             ("planned_downtime_hours",  "Planned Downtime Hours",  "Other planned downtime (hours). Optional.",                                       "0"),
             ("other_loss_hours",        "Other Loss Hours",        "Any other losses not covered above (hours). Optional.",                           "0"),
@@ -51,7 +51,7 @@ TEMPLATES: dict[str, dict] = {
             ("plan_date",         "Plan Date",          "Date in DD/MM/YYYY format (e.g. 01/03/2026).",                                  "01/03/2026"),
             ("planned_headcount", "Planned Headcount",  "Number of operators planned for this line on this date. Required. Must be ≥ 0.", "4"),
             ("shift_code",        "Shift Code",         "Optional shift identifier (e.g. DAY, NIGHT, A, B). Leave blank if not used.",    "DAY"),
-            ("available_hours",   "Available Hours",    "Total labour hours available (headcount × shift hours). Optional.",              "28.0"),
+            ("available_hours",   "Available Hours",    "Total labour hours available (headcount × shift hours). Required. Must be ≥ 0.", "28.0"),
             ("notes",             "Notes",              "Free text notes. Optional.",                                                     ""),
         ],
         "sample_rows": [
@@ -65,19 +65,20 @@ TEMPLATES: dict[str, dict] = {
         "description": (
             "New product launches, discontinuations or other portfolio changes within the planning horizon. "
             "This file is REQUIRED every cycle, but may contain zero data rows if there are no changes. "
-            "Upload an empty file (header row only) when there are no portfolio changes this cycle."
+            "Upload an empty file (header row only) when there are no portfolio changes this cycle. "
+            "initial_demand is required for NEW_LAUNCH rows (must be > 0) — leave blank for all other change types."
         ),
         "columns": [
-            ("change_type",   "Change Type",    "Type of change. Must be one of: NEW_LAUNCH, DISCONTINUE, REFORMULATION, LINE_CHANGE, OTHER.",  "NEW_LAUNCH"),
-            ("effective_date","Effective Date", "Date the change takes effect (DD/MM/YYYY).",                                                   "01/04/2026"),
-            ("item_code",     "Item Code",      "SKU / item code affected. Optional — leave blank for plant-wide or range changes.",             "101221"),
-            ("description",   "Description",    "Brief description of the change. Optional.",                                                   "New 1L SKU launch"),
-            ("impact_notes",  "Impact Notes",   "Notes on capacity or planning impact. Optional.",                                              "Requires A101 line qualification"),
+            ("change_type",    "Change Type",    "Type of change. Must be one of: NEW_LAUNCH, DISCONTINUE, REFORMULATION, LINE_CHANGE, OTHER.",                      "NEW_LAUNCH"),
+            ("effective_date", "Effective Date", "Date the change takes effect (DD/MM/YYYY).",                                                                       "01/04/2026"),
+            ("item_code",      "Item Code",      "SKU / item code affected. Optional — leave blank for plant-wide or range changes.",                                 "101221"),
+            ("description",    "Description",    "Brief description of the change. Optional.",                                                                       "New 1L SKU launch"),
+            ("impact_notes",   "Impact Notes",   "Notes on capacity or planning impact. Optional.",                                                                   "Requires A101 line qualification"),
+            ("initial_demand", "Initial Demand", "Expected initial demand quantity in eaches. Required for NEW_LAUNCH rows (must be > 0). Leave blank for all other change types.", "5000"),
         ],
         "sample_rows": [
-            ["NEW_LAUNCH",    "01/04/2026", "101221", "New 1L SKU launch",          "Requires A101 line qualification"],
-            ["DISCONTINUE",   "01/06/2026", "101233", "4L SKU discontinuation",     "Run out existing stock first"],
-            ["REFORMULATION", "01/05/2026", "",       "Recipe change — all 60L SKUs", "Minor: no line change required"],
+            ["NEW_LAUNCH",  "01/04/2026", "101221", "New 1L SKU launch",      "Requires A101 line qualification", 5000],
+            ["DISCONTINUE", "01/06/2026", "101233", "4L SKU discontinuation", "Run out existing stock first",     ""],
         ],
     },
     "master_stock": {
@@ -85,27 +86,29 @@ TEMPLATES: dict[str, dict] = {
         "description": (
             "Period-opening stock levels by item and warehouse. "
             "One row per item per warehouse. "
-            "MOQ and Item status are optional — leave blank to keep existing values. "
+            "pack_type must match an active pack_type_code in the pack_types masterdata. "
+            "item_status is optional — leave blank to keep existing value. "
             "On a valid upload, items.mrp_type, items.units_per_pallet, items.pack_size_l, "
-            "items.moq and items.sku_status are updated from this file."
+            "items.moq, items.pack_type_code and items.sku_status are updated from this file."
         ),
         "columns": [
-            ("material",             "Material",             "SAP material number. Must match an item in the items masterdata.",                                          "100000"),
-            ("plant",                "Plant",                "Warehouse code (e.g. UKP1, UKP3). Must match a warehouse in the masterdata.",                              "UKP1"),
-            ("abc_indicator",        "ABC Indicator",        "SAP ABC classification. Optional — stored for reference.",                                                 "#"),
-            ("mrp_type",             "MRP Type",             "SAP MRP planning type (e.g. ZN, PD). Optional. Updates items.mrp_type.",                                  "ZN"),
-            ("unrestrictedstock",    "UnrestrictedStock",    "Total unrestricted stock in eaches. Required. Must be ≥ 0.",                                               "1200"),
-            ("unrestricted_-_sales", "Unrestricted - Sales", "Stock available after sales allocations. Required. May be negative (back-orders).",                        "800"),
-            ("safety_stock",         "Safety Stock",         "Minimum target stock level in eaches. Optional. Must be ≥ 0 if provided.",                                "200"),
-            ("rounding_value",       "Rounding value",       "Units per pallet. Optional. Must be ≥ 0 if provided. Updates items.units_per_pallet.",                    "120"),
-            ("volume",               "Volume",               "Pack size in litres. Optional. Must be > 0 if provided. Updates items.pack_size_l.",                       "5"),
-            ("moq",                  "MOQ",                  "Minimum order quantity in eaches. Optional — blank keeps existing value. 0 = no minimum.",                "240"),
+            ("material",             "Material",             "SAP material number. Must match an item in the items masterdata. Required.",                                "100000"),
+            ("plant",                "Plant",                "Warehouse code (e.g. UKP1, UKP3). Must match a warehouse in the masterdata. Required.",                    "UKP1"),
+            ("abc_indicator",        "ABC Indicator",        "SAP ABC classification. Required — use '#' if not applicable.",                                             "#"),
+            ("mrp_type",             "MRP Type",             "SAP MRP planning type (e.g. ZN, PD). Required. Updates items.mrp_type.",                                   "ZN"),
+            ("unrestrictedstock",    "UnrestrictedStock",    "Total unrestricted stock in eaches. Required. Must be ≥ 0.",                                                "1200"),
+            ("unrestricted_-_sales", "Unrestricted - Sales", "Stock available after sales allocations. Required. May be negative (back-orders).",                         "800"),
+            ("safety_stock",         "Safety Stock",         "Minimum target stock level in eaches. Required. Must be ≥ 0.",                                              "200"),
+            ("rounding_value",       "Rounding value",       "Units per pallet. Required. Must be ≥ 0. Updates items.units_per_pallet.",                                  "120"),
+            ("volume",               "Volume",               "Pack size in litres. Required. Must be > 0. Updates items.pack_size_l.",                                    "5"),
+            ("moq",                  "MOQ",                  "Minimum order quantity in eaches. Required. 0 = no minimum. Updates items.moq.",                            "240"),
+            ("pack_type",            "Pack Type",            "Warehouse capacity category. Required. Must match a pack_type_code in the pack_types masterdata (e.g. SMALL_PACK, 60L, BARREL_200L, IBC).", "SMALL_PACK"),
             ("item_status",          "Item status",          "Lifecycle status. Optional — blank keeps existing value. 1 = In Design  |  2 = Phase Out  |  3 = Obsolete.", "1"),
         ],
         "sample_rows": [
-            ["100000", "UKP1", "#", "ZN", 1200, 800, 200, 120, 5, 240, 1],
-            ["100000", "UKP3", "#", "ZN",  600, 600,   0, 120, 5, 240, 1],
-            ["100001", "UKP1", "#", "PD",    0,   0,  50,  96, 1, 120, 1],
+            ["100000", "UKP1", "#", "ZN", 1200, 800, 200, 120, 5, 240, "SMALL_PACK", 1],
+            ["100000", "UKP3", "#", "ZN",  600, 600,   0, 120, 5, 240, "SMALL_PACK", 1],
+            ["100001", "UKP1", "#", "PD",    0,   0,  50,  96, 1, 120, "SMALL_PACK", 1],
         ],
     },
     "production_orders": {
@@ -188,7 +191,7 @@ TEMPLATES: dict[str, dict] = {
         "columns": [
             ("line_code",          "Line Code",          "Production line code (e.g. A101). Must exist in the masterdata.",                                          "A101"),
             ("pack_size_l",        "Pack Size (L)",       "Pack size in litres (e.g. 1, 5, 60, 200). Must be > 0.",                                                  "1"),
-            ("bottles_per_minute", "Bottles per Minute",  "Fill rate for this line/pack combination. Optional.",                                                     "80"),
+            ("bottles_per_minute", "Bottles per Minute",  "Fill rate for this line/pack combination. Required. Must be > 0.",                                     "80"),
             ("is_active",          "Is Active",           "1 = this capability is active, 0 = disabled. Optional — defaults to 1.",                                  "1"),
             ("oee_target",         "OEE Target",          "OEE target for this line/pack combination (0–1, e.g. 0.65 = 65%). Optional — leave blank for line default.", "0.65"),
         ],
@@ -210,13 +213,13 @@ TEMPLATES: dict[str, dict] = {
         "columns": [
             ("line_code",          "Line Code",           "Production line code (e.g. A101). Must exist in the masterdata.",                    "A101"),
             ("resource_type_code", "Resource Type Code",  "Role code (e.g. LINE_OPERATOR, TEAM_LEADER). Must exist in resource_types.",         "LINE_OPERATOR"),
-            ("headcount_required", "Headcount Required",  "Number of people required for this role on this line. Must be > 0.",                 "3"),
+            ("headcount_required", "Headcount Required",  "Number of people required for this role on this line. Must be ≥ 0 (TEAM_LEADER may be 0).", "3"),
         ],
         "sample_rows": [
             ["A101", "LINE_OPERATOR",  3],
             ["A101", "TEAM_LEADER",    1],
             ["A202", "LINE_OPERATOR",  4],
-            ["A202", "TEAM_LEADER",    1],
+            ["A202", "TEAM_LEADER",    0],
         ],
     },
     "plant_resource_requirements": {
@@ -230,7 +233,7 @@ TEMPLATES: dict[str, dict] = {
         "columns": [
             ("plant_code",         "Plant Code",          "Manufacturing plant code (e.g. A1, A2). Must exist in the masterdata.",           "A1"),
             ("resource_type_code", "Resource Type Code",  "Role code for a plant-level role (e.g. FORKLIFT_DRIVER, ROBOT_OPERATOR). Must exist in resource_types.", "FORKLIFT_DRIVER"),
-            ("headcount_required", "Headcount Required",  "Number of people required for this role across the whole plant. Must be > 0.",    "2"),
+            ("headcount_required", "Headcount Required",  "Number of people required for this role across the whole plant. Must be ≥ 0.",   "2"),
         ],
         "sample_rows": [
             ["A1", "FORKLIFT_DRIVER",   2],
@@ -327,7 +330,9 @@ def generate_template(file_type: str) -> bytes:
         # master_stock columns
         "material": 14, "plant": 10, "abc_indicator": 14, "mrp_type": 12,
         "unrestrictedstock": 20, "unrestricted_-_sales": 22, "safety_stock": 14,
-        "rounding_value": 16, "volume": 10, "moq": 10, "item_status": 14,
+        "rounding_value": 16, "volume": 10, "moq": 10, "pack_type": 16, "item_status": 14,
+        # portfolio_changes
+        "initial_demand": 16,
         # demand_plan columns
         "material_id": 14, "mrp_area": 12, "version": 10, "req_type": 10,
         "version_active": 16, "req_plan": 10, "req_seg": 10, "uom": 8,

@@ -231,7 +231,7 @@ def get_batch_file_status(conn: pyodbc.Connection, batch_id: int) -> list:
                     FROM dbo.import_validation_results ivr2
                     WHERE ivr2.batch_file_id = v.batch_file_id
                       AND ivr2.severity <> 'PASS'
-                      AND ivr2.validation_stage BETWEEN 2 AND 6
+                      AND ivr2.validation_stage IN (2,3,4,5,6,8)
                     ORDER BY
                         CASE ivr2.severity
                             WHEN 'BLOCKED' THEN 1
@@ -247,7 +247,7 @@ def get_batch_file_status(conn: pyodbc.Connection, batch_id: int) -> list:
                 FROM dbo.import_validation_results ivr3
                 WHERE ivr3.batch_file_id = v.batch_file_id
                   AND ivr3.severity <> 'PASS'
-                  AND ivr3.validation_stage BETWEEN 2 AND 6
+                  AND ivr3.validation_stage IN (2,3,4,5,6,8)
             ) AS total_issue_count
         FROM dbo.vw_batch_file_status v
         WHERE v.batch_id = ?
@@ -273,3 +273,55 @@ def get_batch_file_status(conn: pyodbc.Connection, batch_id: int) -> list:
         }
         for r in cursor.fetchall()
     ]
+
+
+def get_coverage_report(conn: pyodbc.Connection, batch_id: int) -> dict:
+    """
+    Return stage 8 cross-file check results for a batch, grouped by field_name.
+
+    field_name values:
+      - "sku_coverage"       → SKUs in master_stock not covered by demand_plan or production_orders
+      - "headcount_coverage" → Lines missing headcount rows for dates in line_capacity_calendar
+      - "demand_overlap"     → NEW_LAUNCH portfolio items that also appear in demand_plan
+
+    Returns:
+      {
+        "uncovered_skus":  [...message strings...],
+        "headcount_gaps":  [...message strings...],
+        "demand_overlaps": [...message strings...],
+        "total_findings":  int,
+      }
+    """
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+        SELECT ivr.field_name, ivr.message
+        FROM dbo.import_validation_results ivr
+        JOIN dbo.import_batch_files ibf ON ivr.batch_file_id = ibf.batch_file_id
+        WHERE ibf.batch_id = ?
+          AND ivr.validation_stage = 8
+          AND ivr.severity = 'WARNING'
+        ORDER BY ivr.field_name, ivr.result_id
+        """,
+        batch_id,
+    )
+    rows = cursor.fetchall()
+
+    uncovered_skus: list[str] = []
+    headcount_gaps: list[str] = []
+    demand_overlaps: list[str] = []
+
+    for field_name, message in rows:
+        if field_name == "sku_coverage":
+            uncovered_skus.append(message)
+        elif field_name == "headcount_coverage":
+            headcount_gaps.append(message)
+        elif field_name == "demand_overlap":
+            demand_overlaps.append(message)
+
+    return {
+        "uncovered_skus": uncovered_skus,
+        "headcount_gaps": headcount_gaps,
+        "demand_overlaps": demand_overlaps,
+        "total_findings": len(uncovered_skus) + len(headcount_gaps) + len(demand_overlaps),
+    }

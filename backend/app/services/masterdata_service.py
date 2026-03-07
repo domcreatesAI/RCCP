@@ -9,12 +9,17 @@ for all 4 masterdata file types:
   plant_resource_requirements → plant_resource_requirements table
   warehouse_capacity          → warehouse_capacity table
 
-Note: item attributes (moq, sku_status, mrp_type, units_per_pallet, pack_size_l) are
-updated via the master_stock batch upload — not via a separate masterdata upload.
-
 Stages run: 2 (structure), 3 (field mapping), 4 (data types), 5 (FK checks), 6 (rules)
 BLOCKED → reject upload, data not imported.
 WARNING → data imported, warnings returned in response.
+
+Stage 6 completeness checks:
+  line_resource_requirements:  every active line must have every LINE-scope resource type
+  plant_resource_requirements: every active plant must have every PLANT-scope resource type
+  warehouse_capacity:          must have a row for every active pack_type_code
+
+headcount_required >= 0 for both resource requirement tables (team leaders may be 0).
+bottles_per_minute is now required for line_pack_capabilities.
 """
 
 import io
@@ -34,14 +39,15 @@ from app.services.excel_utils import (
 )
 
 # ---------------------------------------------------------------------------
-# Schemas — same pattern as validation_service.FILE_SCHEMAS
+# Schemas
 # ---------------------------------------------------------------------------
 
 MASTERDATA_SCHEMAS: dict = {
     "line_pack_capabilities": {
-        "header_row": 2,  # Row 1 is descriptions (ignored), row 2 is column keys
-        "required": ["line_code", "pack_size_l"],
-        "optional": ["bottles_per_minute", "is_active", "oee_target"],
+        "header_row": 2,
+        # bottles_per_minute promoted to required
+        "required": ["line_code", "pack_size_l", "bottles_per_minute"],
+        "optional": ["is_active", "oee_target"],
         "types": {
             "line_code":          "str",
             "pack_size_l":        "decimal",
@@ -86,8 +92,8 @@ MASTERDATA_SCHEMAS: dict = {
         "required": ["warehouse_code", "pack_type_code", "max_pallet_capacity"],
         "optional": [],
         "types": {
-            "warehouse_code":     "str",
-            "pack_type_code":     "str",
+            "warehouse_code":      "str",
+            "pack_type_code":      "str",
             "max_pallet_capacity": "decimal",
         },
         "fk_checks": {
@@ -99,7 +105,6 @@ MASTERDATA_SCHEMAS: dict = {
 
 VALID_MASTERDATA_TYPES = frozenset(MASTERDATA_SCHEMAS.keys())
 
-# Maps masterdata type key → underlying DB table (for live row count queries)
 _MASTERDATA_TABLE: dict[str, str] = {
     "line_pack_capabilities":     "dbo.line_pack_capabilities",
     "line_resource_requirements":  "dbo.line_resource_requirements",
@@ -120,14 +125,14 @@ def validate_and_import(
     uploaded_by: str | None,
 ) -> dict:
     """
-    Validate and import a masterdata file from raw bytes (no filesystem dependency).
+    Validate and import a masterdata file from raw bytes.
 
     Returns:
         {
           "success": bool,
           "rows_imported": int | None,
-          "errors": [...],    # BLOCKED issues — non-empty means upload rejected
-          "warnings": [...],  # WARNING issues — present even on success
+          "errors": [...],
+          "warnings": [...],
         }
     """
     schema = MASTERDATA_SCHEMAS[masterdata_type]
@@ -135,7 +140,6 @@ def validate_and_import(
 
     header_row = schema.get("header_row", 1)
 
-    # Stage 2: structure
     wb = _stage2(file_content, issues, header_row)
     if wb is None:
         return {"success": False, "rows_imported": None,
@@ -145,7 +149,6 @@ def validate_and_import(
     headers = _get_headers(ws, header_row)
     data_rows = _get_data_rows(ws, headers, header_row + 1)
 
-    # Stage 3: field mapping
     blocked_cols = _stage3(schema, headers, issues)
     if blocked_cols:
         return {"success": False, "rows_imported": None,
@@ -155,22 +158,16 @@ def validate_and_import(
     if not data_rows:
         issues.append({
             "stage": 3, "stage_name": "FIELD_MAPPING_CHECK",
-            "severity": "BLOCKED",
-            "field": None, "row": None,
+            "severity": "BLOCKED", "field": None, "row": None,
             "message": "File has a header row but no data rows.",
         })
         return {"success": False, "rows_imported": None,
                 "errors": [i for i in issues if i["severity"] == "BLOCKED"],
                 "warnings": [i for i in issues if i["severity"] == "WARNING"]}
 
-    # Stage 4: data types
     _stage4(schema, headers, data_rows, issues)
-
-    # Stage 5: FK / reference checks
     _stage5(conn, schema, headers, data_rows, issues)
-
-    # Stage 6: business rules
-    _stage6(masterdata_type, schema, headers, data_rows, issues)
+    _stage6(conn, masterdata_type, schema, headers, data_rows, issues)
 
     errors = [i for i in issues if i["severity"] == "BLOCKED"]
     warnings = [i for i in issues if i["severity"] == "WARNING"]
@@ -179,16 +176,11 @@ def validate_and_import(
         return {"success": False, "rows_imported": None,
                 "errors": errors, "warnings": warnings}
 
-    # All clear — import the data
     rows_imported = _import(conn, masterdata_type, schema, headers, data_rows, uploaded_by)
-
-    # Commit the import immediately — this is the critical data.
     conn.commit()
 
-    # Record upload in audit table (non-critical — data is already committed above).
     try:
         cursor = conn.cursor()
-        # Next sequential version number for this masterdata type
         cursor.execute(
             "SELECT ISNULL(MAX(version_number), 0) FROM dbo.masterdata_uploads WHERE masterdata_type = ?",
             masterdata_type,
@@ -207,7 +199,6 @@ def validate_and_import(
         )
         conn.commit()
     except Exception as audit_err:
-        # Audit write failed — import data is already committed, do not fail the request.
         warnings.append({
             "stage": 6, "stage_name": "BUSINESS_RULE_CHECK",
             "severity": "WARNING", "field": None, "row": None,
@@ -225,7 +216,6 @@ def validate_and_import(
 def get_status(conn: pyodbc.Connection) -> list[dict]:
     """Return last-upload info for all masterdata types."""
     cursor = conn.cursor()
-    # ROW_NUMBER() picks the most-recent upload per type without nested aggregates
     cursor.execute(
         """
         WITH latest AS (
@@ -264,10 +254,9 @@ def get_status(conn: pyodbc.Connection) -> list[dict]:
         for r in cursor.fetchall()
     }
 
-    # Live row counts from each underlying table (shows data even when no upload record exists)
     table_counts: dict[str, int] = {}
     for t, table in _MASTERDATA_TABLE.items():
-        cursor.execute(f"SELECT COUNT(*) FROM {table}")  # noqa: S608 — table names are hardcoded
+        cursor.execute(f"SELECT COUNT(*) FROM {table}")  # noqa: S608
         table_counts[t] = cursor.fetchone()[0]
 
     return [
@@ -285,7 +274,6 @@ def get_status(conn: pyodbc.Connection) -> list[dict]:
 
 
 def get_latest_upload_content(conn: pyodbc.Connection, masterdata_type: str) -> dict | None:
-    """Return file_content bytes, original_filename, and version_number for the most recent upload."""
     cursor = conn.cursor()
     cursor.execute(
         """
@@ -343,7 +331,6 @@ def _stage2(file_content: bytes, issues: list, header_row: int = 1) -> object | 
 
 
 def _stage3(schema: dict, headers: list, issues: list) -> list:
-    """Returns list of blocked column names."""
     header_set = set(headers)
     blocked = [c for c in schema["required"] if c not in header_set]
     for col in blocked:
@@ -427,7 +414,7 @@ def _stage5(conn: pyodbc.Connection, schema: dict, headers: list,
         if col not in header_set:
             continue
         c2 = conn.cursor()
-        c2.execute(f"SELECT {pk_col} FROM {table}")  # noqa: S608 — constants only
+        c2.execute(f"SELECT {pk_col} FROM {table}")  # noqa: S608
         valid_values = {str(r[0]).strip() for r in c2.fetchall()}
 
         for row_num, row_dict in data_rows:
@@ -442,22 +429,96 @@ def _stage5(conn: pyodbc.Connection, schema: dict, headers: list,
                 })
 
 
-def _stage6(masterdata_type: str, schema: dict, headers: list,
-            data_rows: list, issues: list) -> None:
+def _stage6(conn: pyodbc.Connection, masterdata_type: str, schema: dict,
+            headers: list, data_rows: list, issues: list) -> None:
     header_set = set(headers)
 
-    if masterdata_type in ("line_resource_requirements", "plant_resource_requirements"):
+    if masterdata_type == "line_resource_requirements":
+        # Value rule: headcount_required >= 0 (team leaders may be 0)
         if "headcount_required" in header_set:
             for row_num, row_dict in data_rows:
                 val = row_dict.get("headcount_required")
-                if val is not None and _is_valid_decimal(val) and float(val) <= 0:
+                if val is not None and _is_valid_decimal(val) and float(val) < 0:
                     issues.append({
                         "stage": 6, "stage_name": "BUSINESS_RULE_CHECK",
                         "severity": "BLOCKED", "field": "headcount_required", "row": row_num,
-                        "message": f"Row {row_num}: headcount_required must be > 0, got: {val}.",
+                        "message": f"Row {row_num}: headcount_required cannot be negative, got: {val}.",
                     })
 
+        # Completeness: every active line must have every LINE-scope resource type
+        c = conn.cursor()
+        c.execute("SELECT line_code FROM dbo.lines WHERE is_active = 1")
+        active_lines = {str(r[0]).strip() for r in c.fetchall()}
+
+        c.execute("SELECT resource_type_code FROM dbo.resource_types WHERE scope = 'LINE' AND is_active = 1")
+        required_types = {str(r[0]).strip() for r in c.fetchall()}
+
+        if active_lines and required_types:
+            uploaded_pairs = {
+                (str(row.get("line_code", "")).strip(),
+                 str(row.get("resource_type_code", "")).strip())
+                for _, row in data_rows
+                if row.get("line_code") and row.get("resource_type_code")
+            }
+            for line in sorted(active_lines):
+                for rtype in sorted(required_types):
+                    if (line, rtype) not in uploaded_pairs:
+                        issues.append({
+                            "stage": 6, "stage_name": "BUSINESS_RULE_CHECK",
+                            "severity": "BLOCKED",
+                            "field": "line_code",
+                            "row": None,
+                            "message": (
+                                f"Missing row for line '{line}' + resource type '{rtype}'. "
+                                f"Every active line must have a headcount_required entry "
+                                f"for every LINE-scope resource type."
+                            ),
+                        })
+
+    elif masterdata_type == "plant_resource_requirements":
+        # Value rule: headcount_required >= 0
+        if "headcount_required" in header_set:
+            for row_num, row_dict in data_rows:
+                val = row_dict.get("headcount_required")
+                if val is not None and _is_valid_decimal(val) and float(val) < 0:
+                    issues.append({
+                        "stage": 6, "stage_name": "BUSINESS_RULE_CHECK",
+                        "severity": "BLOCKED", "field": "headcount_required", "row": row_num,
+                        "message": f"Row {row_num}: headcount_required cannot be negative, got: {val}.",
+                    })
+
+        # Completeness: every active plant must have every PLANT-scope resource type
+        c = conn.cursor()
+        c.execute("SELECT plant_code FROM dbo.plants WHERE is_active = 1")
+        active_plants = {str(r[0]).strip() for r in c.fetchall()}
+
+        c.execute("SELECT resource_type_code FROM dbo.resource_types WHERE scope = 'PLANT' AND is_active = 1")
+        required_types = {str(r[0]).strip() for r in c.fetchall()}
+
+        if active_plants and required_types:
+            uploaded_pairs = {
+                (str(row.get("plant_code", "")).strip(),
+                 str(row.get("resource_type_code", "")).strip())
+                for _, row in data_rows
+                if row.get("plant_code") and row.get("resource_type_code")
+            }
+            for plant in sorted(active_plants):
+                for rtype in sorted(required_types):
+                    if (plant, rtype) not in uploaded_pairs:
+                        issues.append({
+                            "stage": 6, "stage_name": "BUSINESS_RULE_CHECK",
+                            "severity": "BLOCKED",
+                            "field": "plant_code",
+                            "row": None,
+                            "message": (
+                                f"Missing row for plant '{plant}' + resource type '{rtype}'. "
+                                f"Every active plant must have a headcount_required entry "
+                                f"for every PLANT-scope resource type."
+                            ),
+                        })
+
     elif masterdata_type == "warehouse_capacity":
+        # Value rule: max_pallet_capacity > 0
         if "max_pallet_capacity" in header_set:
             for row_num, row_dict in data_rows:
                 val = row_dict.get("max_pallet_capacity")
@@ -468,7 +529,29 @@ def _stage6(masterdata_type: str, schema: dict, headers: list,
                         "message": f"Row {row_num}: max_pallet_capacity must be > 0, got: {val}.",
                     })
 
+        # Completeness: must have a row for every active pack_type_code
+        c = conn.cursor()
+        c.execute("SELECT pack_type_code FROM dbo.pack_types WHERE is_active = 1")
+        required_pack_types = {str(r[0]).strip() for r in c.fetchall()}
+
+        uploaded_pack_types = {
+            str(row.get("pack_type_code", "")).strip()
+            for _, row in data_rows
+            if row.get("pack_type_code")
+        }
+        missing_types = required_pack_types - uploaded_pack_types
+        for pt in sorted(missing_types):
+            issues.append({
+                "stage": 6, "stage_name": "BUSINESS_RULE_CHECK",
+                "severity": "BLOCKED", "field": "pack_type_code", "row": None,
+                "message": (
+                    f"Pack type '{pt}' is active in the system but has no row in this upload. "
+                    f"Every active pack type must have a max_pallet_capacity entry."
+                ),
+            })
+
     elif masterdata_type == "line_pack_capabilities":
+        # Value rules: pack_size_l and bottles_per_minute must be > 0
         for col in ("pack_size_l", "bottles_per_minute"):
             if col not in header_set:
                 continue
@@ -489,7 +572,6 @@ def _stage6(masterdata_type: str, schema: dict, headers: list,
                         "severity": "BLOCKED", "field": "oee_target", "row": row_num,
                         "message": f"Row {row_num}: oee_target must be between 0 and 1 (e.g. 0.65 = 65%), got: {val}.",
                     })
-
 
 
 # ---------------------------------------------------------------------------
@@ -592,10 +674,6 @@ def _import_warehouse_capacity(conn, headers, data_rows, uploaded_by):
         count += 1
     return count
 
-
-# ---------------------------------------------------------------------------
-# Excel helpers
-# ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
 # Value coercion helpers

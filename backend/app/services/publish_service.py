@@ -378,16 +378,18 @@ def _import_portfolio_changes(conn, batch_id, headers, data_rows, plan_cycle_dat
         item_code = _str(row.get("item_code")) if "item_code" in header_set else None
         description = _str(row.get("description")) if "description" in header_set else None
         impact_notes = _str(row.get("impact_notes")) if "impact_notes" in header_set else None
+        # initial_demand: only meaningful for NEW_LAUNCH rows; stored as-is for all rows
+        initial_demand = _dec(row.get("initial_demand")) if "initial_demand" in header_set else None
 
         cursor.execute(
             """
             INSERT INTO dbo.portfolio_changes
                 (batch_id, item_code, change_type, effective_date,
-                 description, impact_notes, source_row_number)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+                 description, impact_notes, initial_demand, source_row_number)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             batch_id, item_code, change_type, effective_dt,
-            description, impact_notes, row_num,
+            description, impact_notes, initial_demand, row_num,
         )
 
 

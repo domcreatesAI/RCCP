@@ -1,5 +1,5 @@
 """
-7-stage validation pipeline for RCCP planning data files.
+7-stage validation pipeline for RCCP planning data files, plus stage 8 cross-file checks.
 
 Stages:
   1. REQUIRED_FILE_CHECK        — batch-level: all 6 required files present?
@@ -9,18 +9,30 @@ Stages:
   5. REFERENCE_CHECK            — FK values exist in masterdata tables
   6. BUSINESS_RULE_CHECK        — domain-specific business rules
   7. BATCH_READINESS            — overall batch can-publish status
+  8. CROSS_FILE_CHECK           — cross-file consistency (WARNING only, never blocks publish)
 
-master_stock: Uploadable template (row 1 = descriptions, row 2 = headers, row 3+ = data).
-  Plain numbers — no SAP UoM suffix. 11 columns including MOQ and Item status.
-  On PASS/WARNING, items.mrp_type, items.units_per_pallet, items.pack_size_l,
-  items.moq and items.sku_status are updated (COALESCE — blank values keep existing).
+master_stock: required columns: material, plant, unrestrictedstock, unrestricted_-_sales,
+  abc_indicator, mrp_type, safety_stock, rounding_value, volume, moq, pack_type.
+  item_status optional (blank keeps existing).
+  On PASS/WARNING (no BLOCKED in stages 3-6), items table updated via COALESCE for:
+  mrp_type, units_per_pallet (rounding_value), pack_size_l (volume), moq, sku_status (item_status),
+  pack_type_code (pack_type).
 
-demand_plan: wide-format SAP PIR export (material_id × month). Stages 3–6 fully implemented.
+demand_plan: wide-format SAP PIR export (material_id x month). Stages 3-6 fully implemented.
   Row 1 = descriptions (ignored), Row 2 = headers, Row 3+ = data.
-  Fixed columns: material_id, plant (ignored: mrp_area, version, req_type, version_active, req_plan, req_seg, uom).
-  Month columns: M{MM}.{YYYY} format (e.g. M03.2026). Non-UK plants must be filtered out before upload.
 
-Template files (line_capacity_calendar, headcount_plan, portfolio_changes): all stages run fully.
+production_orders: SAP COOIS export. mrp_controller is now required.
+
+line_capacity_calendar: maintenance_hours is now required.
+
+headcount_plan: available_hours is now required (>= 0).
+
+portfolio_changes: initial_demand is required column; must be > 0 for NEW_LAUNCH rows.
+
+Stage 8 cross-file checks (WARNING only):
+  master_stock:      SKUs not present in demand_plan or production_orders
+  headcount_plan:    (line, date) pairs in line_capacity_calendar missing from headcount_plan
+  portfolio_changes: NEW_LAUNCH items with initial_demand that also appear in demand_plan
 """
 
 import re
@@ -37,6 +49,7 @@ from app.services.excel_utils import (
     is_valid_decimal as _is_valid_decimal,
     is_valid_bit as _is_valid_bit,
     is_valid_int as _is_valid_int,
+    to_date as _to_date,
 )
 
 # ---------------------------------------------------------------------------
@@ -60,28 +73,20 @@ STAGE_NAMES = {
     5: "REFERENCE_CHECK",
     6: "BUSINESS_RULE_CHECK",
     7: "BATCH_READINESS",
+    8: "CROSS_FILE_CHECK",
 }
 
 # ---------------------------------------------------------------------------
 # File schemas
 # ---------------------------------------------------------------------------
-# Each template file has:
-#   required  — columns that MUST be present (missing = BLOCKED)
-#   optional  — columns that MAY be present (missing = WARNING)
-#   types     — {col: type_spec}
-#     type_spec: 'str' | 'date' | 'decimal' | 'bit' | ('enum', [values])
-#   fk_checks — {col: (table, pk_col)} for reference checks
-#   min_rows  — minimum data rows required (0 = empty file is valid)
 
-# Matches normalized month column headers (after _get_headers lowercasing/underscore):
-#   01/2026  01.2026  2026/01  2026.01  jan_2026  jan-2026  2026-01
 _MONTH_HEADER_RE = re.compile(
     r'^('
-    r'\d{2}[./]\d{4}'           # 01/2026 or 01.2026
-    r'|\d{4}[./]\d{2}'          # 2026/01 or 2026.01
-    r'|[a-z]{3}[_\-]\d{4}'     # jan_2026 or jan-2026
-    r'|\d{4}-\d{2}'             # 2026-01
-    r'|m\d{2}\.\d{4}'           # m03.2026 (SAP PIR format — normalised from M03.2026)
+    r'\d{2}[./]\d{4}'
+    r'|\d{4}[./]\d{2}'
+    r'|[a-z]{3}[_\-]\d{4}'
+    r'|\d{4}-\d{2}'
+    r'|m\d{2}\.\d{4}'
     r')$'
 )
 
@@ -91,32 +96,15 @@ def _detect_month_columns(headers: list) -> list:
 
 
 def month_col_to_date(col: str) -> date | None:
-    """Convert a normalised month column header to the first day of that month.
-
-    Handles the SAP PIR format after _get_headers normalisation:
-      m03.2026  →  date(2026, 3, 1)       (SAP PIR: M03.2026)
-      03.2026   →  date(2026, 3, 1)       (MM.YYYY)
-      03/2026   →  date(2026, 3, 1)       (MM/YYYY)
-      2026.03   →  date(2026, 3, 1)       (YYYY.MM)
-      2026/03   →  date(2026, 3, 1)       (YYYY/MM)
-      2026-03   →  date(2026, 3, 1)       (YYYY-MM)
-      jan_2026  →  date(2026, 1, 1)       (Mon_YYYY)
-      jan-2026  →  date(2026, 1, 1)       (Mon-YYYY)
-
-    Returns None if the header cannot be parsed.
-    """
+    """Convert a normalised month column header to the first day of that month."""
     import calendar as _cal
     h = col.strip()
-
-    # m03.2026 or 03.2026 or 03/2026 — month.year or month/year
     if re.match(r'^m?\d{2}[./]\d{4}$', h):
         parts = re.split(r'[./]', h.lstrip('m'))
         mm, yyyy = int(parts[0]), int(parts[1])
-    # 2026.03 or 2026/03 or 2026-03 — year.month
     elif re.match(r'^\d{4}[./-]\d{2}$', h):
         parts = re.split(r'[./-]', h)
         yyyy, mm = int(parts[0]), int(parts[1])
-    # jan_2026 or jan-2026
     elif re.match(r'^[a-z]{3}[_\-]\d{4}$', h):
         mon_abbr, yr = re.split(r'[_\-]', h)
         month_map = {m.lower(): i for i, m in enumerate(_cal.month_abbr) if m}
@@ -126,7 +114,6 @@ def month_col_to_date(col: str) -> date | None:
             return None
     else:
         return None
-
     try:
         return date(yyyy, mm, 1)
     except ValueError:
@@ -135,16 +122,15 @@ def month_col_to_date(col: str) -> date | None:
 
 FILE_SCHEMAS: dict = {
     "master_stock": {
-        # Uploadable template. Row 1 = descriptions (ignored), Row 2 = column headers, Row 3+ = data.
-        # Plain numbers — no SAP UoM suffix.
-        # MOQ and item_status are optional: blank = keep existing items table value.
         "header_row": 2,
         "data_start_row": 3,
-        "required": ["material", "plant", "unrestrictedstock", "unrestricted_-_sales"],
-        "optional": [
+        # All fields required except item_status (blank keeps existing items table value)
+        "required": [
+            "material", "plant", "unrestrictedstock", "unrestricted_-_sales",
             "abc_indicator", "mrp_type", "safety_stock", "rounding_value",
-            "volume", "moq", "item_status",
+            "volume", "moq", "pack_type",
         ],
+        "optional": ["item_status"],
         "types": {
             "material":             "str",
             "plant":                "str",
@@ -157,26 +143,24 @@ FILE_SCHEMAS: dict = {
             "abc_indicator":        "str",
             "moq":                  "decimal",
             "item_status":          "int",
+            "pack_type":            "str",
         },
         "fk_checks": {
-            "material": ("dbo.items",      "item_code"),
-            "plant":    ("dbo.warehouses", "warehouse_code"),
+            "material":  ("dbo.items",      "item_code"),
+            "plant":     ("dbo.warehouses", "warehouse_code"),
+            "pack_type": ("dbo.pack_types", "pack_type_code"),
         },
         "min_rows": 1,
     },
     "demand_plan": {
         "is_sap": False,
-        "header_row": 2,        # Row 1 = descriptions (ignored), Row 2 = column keys
+        "header_row": 2,
         "data_start_row": 3,
-        # Column names (row 2 keys — must match exactly after _get_headers normalisation):
-        # Ignored SAP columns (mrp_area, version, req_type, version_active, req_plan, req_seg, uom)
-        # are simply passed over — do not add to optional or they would generate WARNINGs.
         "required": ["material_id", "plant"],
         "optional": [],
         "types": {
             "material_id": "str",
             "plant":       "str",
-            # Month columns are dynamic — validated separately via wide_format logic
         },
         "fk_checks": {
             "material_id": ("dbo.items",      "item_code"),
@@ -187,13 +171,11 @@ FILE_SCHEMAS: dict = {
     },
     "line_capacity_calendar": {
         "is_sap": False,
-        "header_row": 2,       # Row 1 is descriptions (ignored), row 2 is column keys
+        "header_row": 2,
         "data_start_row": 3,
-        "required": ["line_code", "calendar_date", "is_working_day", "planned_hours"],
-        "optional": [
-            "maintenance_hours", "public_holiday_hours",
-            "planned_downtime_hours", "other_loss_hours", "notes",
-        ],
+        # maintenance_hours promoted to required
+        "required": ["line_code", "calendar_date", "is_working_day", "planned_hours", "maintenance_hours"],
+        "optional": ["public_holiday_hours", "planned_downtime_hours", "other_loss_hours", "notes"],
         "types": {
             "line_code":               "str",
             "calendar_date":           "date",
@@ -212,14 +194,15 @@ FILE_SCHEMAS: dict = {
         "is_sap": False,
         "header_row": 2,
         "data_start_row": 3,
-        "required": ["line_code", "plan_date", "planned_headcount"],
-        "optional": ["shift_code", "available_hours", "notes"],
+        # available_hours promoted to required
+        "required": ["line_code", "plan_date", "planned_headcount", "available_hours"],
+        "optional": ["shift_code", "notes"],
         "types": {
             "line_code":         "str",
             "plan_date":         "date",
             "planned_headcount": "decimal",
-            "shift_code":        "str",
             "available_hours":   "decimal",
+            "shift_code":        "str",
             "notes":             "str",
         },
         "fk_checks": {"line_code": ("dbo.lines", "line_code")},
@@ -229,41 +212,36 @@ FILE_SCHEMAS: dict = {
         "is_sap": False,
         "header_row": 2,
         "data_start_row": 3,
-        "required": ["change_type", "effective_date"],
+        # initial_demand required column; value required only when change_type = NEW_LAUNCH (stage 6)
+        "required": ["change_type", "effective_date", "initial_demand"],
         "optional": ["item_code", "description", "impact_notes"],
         "types": {
-            "change_type":   ("enum", ["NEW_LAUNCH", "DISCONTINUE", "REFORMULATION", "LINE_CHANGE", "OTHER"]),
+            "change_type":    ("enum", ["NEW_LAUNCH", "DISCONTINUE", "REFORMULATION", "LINE_CHANGE", "OTHER"]),
             "effective_date": "date",
-            "item_code":     "str",
-            "description":   "str",
-            "impact_notes":  "str",
+            "item_code":      "str",
+            "description":    "str",
+            "impact_notes":   "str",
+            "initial_demand": "decimal",
         },
         "fk_checks": {},
-        "min_rows": 0,  # Empty file is valid — no changes this cycle
+        "min_rows": 0,  # Empty file valid — no changes this cycle
     },
     "production_orders": {
-        # SAP COOIS export. Row 1 = field descriptions (ignored), Row 2 = column headers, Row 3+ = data.
-        # Header normalisation: str.strip().lower().replace(" ", "_")
-        # "Order quantity (GMEIN)" → "order_quantity_(gmein)"
-        # "Delivered quantity (GMEIN)" → "delivered_quantity_(gmein)"
-        # "Unit of measure (=GMEIN)" → "unit_of_measure_(=gmein)"
-        # Contains both LA (planned) and YPAC (released/firmed) orders.
-        # net_quantity = MAX(0, order_quantity - delivered_quantity) — computed at import.
-        # production_line is nullable: blank/null is accepted (no warning).
         "header_row": 2,
         "data_start_row": 3,
+        # mrp_controller promoted to required
         "required": [
             "order",
             "material",
             "plant",
             "order_type",
+            "mrp_controller",
             "order_quantity_(gmein)",
             "delivered_quantity_(gmein)",
             "basic_start_date",
         ],
         "optional": [
             "material_description",
-            "mrp_controller",
             "unit_of_measure_(=gmein)",
             "basic_finish_date",
             "system_status",
@@ -303,7 +281,7 @@ def run_validation(
     file_type: str,
     stored_file_path: str,
 ) -> None:
-    """Run all 7 stages for one file. Writes results to import_validation_results
+    """Run all 8 stages for one file. Writes results to import_validation_results
     and updates validation_status on import_batch_files. Commits when done."""
 
     cursor = conn.cursor()
@@ -320,16 +298,14 @@ def run_validation(
     # --- Stage 1: batch-level required file check ---
     _stage1(cursor, conn, batch_id, batch_file_id)
 
-    # --- Stage 2: structure check (open file, verify header row) ---
+    # --- Stage 2: structure check ---
     wb = _stage2(cursor, batch_file_id, stored_file_path, schema.get("header_row", 1))
 
     if wb is None:
-        # File couldn't be opened — skip remaining content stages
         for n in range(3, 7):
             _write(cursor, batch_file_id, n, STAGE_NAMES[n], "INFO",
                    "Stage skipped — file could not be opened (Stage 2 blocked)")
     elif is_sap:
-        # SAP file — column mapping not yet confirmed
         for n in range(3, 7):
             _write(cursor, batch_file_id, n, STAGE_NAMES[n], "INFO",
                    "SAP export — column mapping not yet confirmed. "
@@ -339,7 +315,6 @@ def run_validation(
         headers = _get_headers(ws, schema.get("header_row", 1))
         data_rows = _get_data_rows(ws, headers, schema.get("data_start_row", 2))
 
-        # SAP UoM stripping: cells like "0 EA" or "5.000 ERR" → bare float
         sap_uom_cols = set(schema.get("sap_uom_cols", []))
         if sap_uom_cols:
             data_rows = [
@@ -347,7 +322,6 @@ def run_validation(
                 for rn, rd in data_rows
             ]
 
-        # Stage 3: field mapping
         blocked_cols = _stage3(cursor, batch_file_id, schema, headers)
 
         if blocked_cols:
@@ -355,7 +329,6 @@ def run_validation(
                 _write(cursor, batch_file_id, n, STAGE_NAMES[n], "INFO",
                        "Stage skipped — required columns missing (Stage 3 blocked)")
         elif not data_rows and schema.get("min_rows", 1) == 0:
-            # Empty file — valid for portfolio_changes
             for n in range(4, 7):
                 _write(cursor, batch_file_id, n, STAGE_NAMES[n], "PASS",
                        "No data rows — empty file is valid for this file type")
@@ -369,8 +342,6 @@ def run_validation(
             _stage5(cursor, conn, batch_file_id, schema, headers, data_rows)
             _stage6(cursor, batch_file_id, file_type, schema, headers, data_rows)
 
-            # master_stock side-effect: update items.mrp_type, units_per_pallet, pack_size_l
-            # Only runs when no BLOCKED issues from stages 3–6.
             if file_type == "master_stock":
                 chk = conn.cursor()
                 chk.execute(
@@ -386,7 +357,11 @@ def run_validation(
     # --- Stage 7: batch readiness (always runs) ---
     _stage7(cursor, conn, batch_id, batch_file_id)
 
-    # Update validation_status on the file record
+    # --- Stage 8: cross-file checks (only for participating file types, only when file opened) ---
+    if file_type in ("master_stock", "headcount_plan", "portfolio_changes") and wb is not None:
+        _stage8(cursor, conn, batch_id, batch_file_id, file_type, stored_file_path)
+
+    # Update validation_status on the file record (stages 2-6 only; stage 8 is WARNING-only)
     _update_file_status(cursor, batch_file_id)
 
     conn.commit()
@@ -469,14 +444,13 @@ def _stage3(cursor, batch_file_id: int, schema: dict, headers: list) -> list:
                f"Optional column '{col}' not found — will be treated as NULL",
                field_name=col)
 
-    # Wide-format: check that at least one month column is present
     if schema.get("wide_format") and not blocked_cols:
         month_cols = _detect_month_columns(headers)
         if not month_cols:
             _write(cursor, batch_file_id, stage_num, stage_name, "BLOCKED",
                    "No month columns detected. Expected columns like 'M03.2026', '01/2026', 'Jan-2026' or '2026-01' "
                    "alongside MaterialID and Plant.")
-            blocked_cols.append("__month_columns__")  # sentinel to block stages 4–6
+            blocked_cols.append("__month_columns__")
         else:
             sample = ", ".join(month_cols[:3]) + ("…" if len(month_cols) > 3 else "")
             _write(cursor, batch_file_id, stage_num, stage_name, "PASS",
@@ -526,14 +500,13 @@ def _stage4(cursor, batch_file_id: int, schema: dict, headers: list, data_rows: 
                                    f"'{val}' not in allowed values: {', '.join(allowed)}",
                                    str(val)))
 
-    # Wide-format: validate dynamic month column values as decimals ≥ 0
     if schema.get("wide_format"):
         month_cols = _detect_month_columns(headers)
         for col in month_cols:
             for row_num, row_dict in data_rows:
                 val = row_dict.get(col)
                 if val is None or (isinstance(val, str) and val.strip() == ""):
-                    continue  # blank month cell treated as zero — allowed
+                    continue
                 if not _is_valid_decimal(val):
                     errors.append((row_num, col, "BLOCKED",
                                    f"Expected a number in month column '{col}', got: '{val}'",
@@ -560,7 +533,7 @@ def _stage5(cursor, conn: pyodbc.Connection, batch_file_id: int,
         for row_num, row_dict in data_rows:
             val = row_dict.get(col)
             if val is None or (isinstance(val, str) and val.strip() == ""):
-                continue  # Nulls handled by stage 4
+                continue
             if str(val).strip() not in valid_values:
                 errors.append((row_num, col, "BLOCKED",
                                f"'{val}' not found in {table} ({pk_col})", str(val)))
@@ -617,8 +590,6 @@ def _stage6(cursor, batch_file_id: int, file_type: str,
                                    f"Demand quantity cannot be negative: {val}", str(val)))
 
     elif file_type == "master_stock":
-        # unrestrictedstock, safety_stock, rounding_value cannot be negative.
-        # unrestricted_-_sales CAN be negative (back-order: sales orders exceed available stock).
         for col in ("unrestrictedstock", "safety_stock", "rounding_value"):
             if col not in header_set:
                 continue
@@ -627,14 +598,12 @@ def _stage6(cursor, batch_file_id: int, file_type: str,
                 if val is not None and _is_valid_decimal(val) and float(val) < 0:
                     errors.append((row_num, col, "BLOCKED",
                                    f"{col} cannot be negative: {val}", str(val)))
-        # moq cannot be negative (0 is valid — means no minimum order quantity)
         if "moq" in header_set:
             for row_num, row_dict in data_rows:
                 val = row_dict.get("moq")
                 if val is not None and _is_valid_decimal(val) and float(val) < 0:
                     errors.append((row_num, "moq", "BLOCKED",
                                    f"moq cannot be negative: {val}", str(val)))
-        # item_status must be blank or 1 (In Design) / 2 (Phase Out) / 3 (Obsolete)
         if "item_status" in header_set:
             for row_num, row_dict in data_rows:
                 val = row_dict.get("item_status")
@@ -644,24 +613,37 @@ def _stage6(cursor, batch_file_id: int, file_type: str,
                                    f"item_status must be blank, 1 (In Design), "
                                    f"2 (Phase Out) or 3 (Obsolete), got: {val}", str(val)))
 
+    elif file_type == "portfolio_changes":
+        # initial_demand must be a positive number on NEW_LAUNCH rows
+        if "initial_demand" in header_set:
+            for row_num, row_dict in data_rows:
+                ct = str(row_dict.get("change_type", "")).strip().upper()
+                if ct != "NEW_LAUNCH":
+                    continue
+                val = row_dict.get("initial_demand")
+                is_empty = val is None or (isinstance(val, str) and val.strip() == "")
+                if is_empty:
+                    errors.append((row_num, "initial_demand", "BLOCKED",
+                                   "NEW_LAUNCH row requires initial_demand — value is blank",
+                                   None))
+                elif _is_valid_decimal(val) and float(val) <= 0:
+                    errors.append((row_num, "initial_demand", "BLOCKED",
+                                   f"NEW_LAUNCH initial_demand must be > 0, got: {val}",
+                                   str(val)))
+
     elif file_type == "production_orders":
-        # order_quantity must be > 0
         if "order_quantity_(gmein)" in header_set:
             for row_num, row_dict in data_rows:
                 val = row_dict.get("order_quantity_(gmein)")
                 if val is not None and _is_valid_decimal(val) and float(val) <= 0:
                     errors.append((row_num, "order_quantity_(gmein)", "BLOCKED",
                                    f"Order quantity must be > 0: {val}", str(val)))
-        # delivered_quantity must be >= 0
         if "delivered_quantity_(gmein)" in header_set:
             for row_num, row_dict in data_rows:
                 val = row_dict.get("delivered_quantity_(gmein)")
                 if val is not None and _is_valid_decimal(val) and float(val) < 0:
                     errors.append((row_num, "delivered_quantity_(gmein)", "BLOCKED",
                                    f"Delivered quantity cannot be negative: {val}", str(val)))
-
-
-    # portfolio_changes: no extra rules beyond data type checks
 
     _emit_errors(cursor, batch_file_id, stage_num, stage_name, errors,
                  pass_msg="All business rules passed")
@@ -722,6 +704,213 @@ def _stage7(cursor, conn: pyodbc.Connection, batch_id: int, batch_file_id: int) 
 
 
 # ---------------------------------------------------------------------------
+# Stage 8: Cross-file checks
+# ---------------------------------------------------------------------------
+
+def _stage8(cursor, conn: pyodbc.Connection, batch_id: int, batch_file_id: int,
+            file_type: str, stored_file_path: str) -> None:
+    """Run cross-file consistency checks. WARNING severity only — never blocks publish."""
+    if file_type == "master_stock":
+        _stage8_sku_coverage(cursor, conn, batch_id, batch_file_id, stored_file_path)
+    elif file_type == "headcount_plan":
+        _stage8_headcount_coverage(cursor, conn, batch_id, batch_file_id, stored_file_path)
+    elif file_type == "portfolio_changes":
+        _stage8_demand_overlap(cursor, conn, batch_id, batch_file_id, stored_file_path)
+
+
+def _get_sibling_path(conn: pyodbc.Connection, batch_id: int, file_type: str) -> str | None:
+    """Return stored_file_path for the current-version file of the given type in this batch."""
+    c = conn.cursor()
+    c.execute(
+        """SELECT stored_file_path FROM dbo.import_batch_files
+           WHERE batch_id = ? AND file_type = ? AND is_current_version = 1""",
+        batch_id, file_type,
+    )
+    row = c.fetchone()
+    return row[0] if row else None
+
+
+def _read_file_column(stored_path: str, file_type: str, column_name: str) -> set:
+    """Open a sibling file and return all non-blank values from a single column as a set."""
+    schema = FILE_SCHEMAS[file_type]
+    try:
+        wb = openpyxl.load_workbook(stored_path, read_only=True, data_only=True)
+        ws = wb.active
+        headers = _get_headers(ws, schema["header_row"])
+        rows = _get_data_rows(ws, headers, schema["data_start_row"])
+        return {
+            str(row.get(column_name, "")).strip()
+            for _, row in rows
+            if row.get(column_name) is not None and str(row.get(column_name, "")).strip()
+        }
+    except Exception:
+        return set()
+
+
+def _stage8_sku_coverage(cursor, conn, batch_id, batch_file_id, stored_file_path):
+    """Warn about SKUs in master_stock that have no demand in demand_plan or production_orders."""
+    stage_num, stage_name = 8, STAGE_NAMES[8]
+
+    ms_items = _read_file_column(stored_file_path, "master_stock", "material")
+    if not ms_items:
+        return
+
+    dp_path = _get_sibling_path(conn, batch_id, "demand_plan")
+    po_path = _get_sibling_path(conn, batch_id, "production_orders")
+
+    if not dp_path and not po_path:
+        _write(cursor, batch_file_id, stage_num, stage_name, "INFO",
+               "demand_plan and production_orders not yet uploaded — "
+               "SKU coverage check pending. Run Re-validate when all files are uploaded.")
+        return
+
+    demand_items = _read_file_column(dp_path, "demand_plan", "material_id") if dp_path else set()
+    po_items = _read_file_column(po_path, "production_orders", "material") if po_path else set()
+
+    covered = demand_items | po_items
+    uncovered = sorted(ms_items - covered)
+
+    if not uncovered:
+        _write(cursor, batch_file_id, stage_num, stage_name, "PASS",
+               f"All {len(ms_items)} SKUs in master_stock are covered by demand_plan or production_orders")
+        return
+
+    for item_code in uncovered[:50]:
+        _write(cursor, batch_file_id, stage_num, stage_name, "WARNING",
+               f"SKU '{item_code}' is in master_stock but has no demand in demand_plan "
+               f"or open orders in production_orders",
+               field_name="sku_coverage", sample_value=item_code)
+    if len(uncovered) > 50:
+        _write(cursor, batch_file_id, stage_num, stage_name, "WARNING",
+               f"{len(uncovered) - 50} more uncovered SKUs not shown — "
+               f"review the coverage report for the full list",
+               field_name="sku_coverage")
+
+
+def _stage8_headcount_coverage(cursor, conn, batch_id, batch_file_id, stored_file_path):
+    """Warn about (line, date) pairs in line_capacity_calendar missing from headcount_plan."""
+    stage_num, stage_name = 8, STAGE_NAMES[8]
+
+    lcc_path = _get_sibling_path(conn, batch_id, "line_capacity_calendar")
+    if not lcc_path:
+        _write(cursor, batch_file_id, stage_num, stage_name, "INFO",
+               "line_capacity_calendar not yet uploaded — "
+               "headcount coverage check pending. Run Re-validate when all files are uploaded.")
+        return
+
+    # Collect (line_code, date) from line_capacity_calendar
+    lcc_schema = FILE_SCHEMAS["line_capacity_calendar"]
+    calendar_pairs: set[tuple] = set()
+    try:
+        wb = openpyxl.load_workbook(lcc_path, read_only=True, data_only=True)
+        ws = wb.active
+        headers = _get_headers(ws, lcc_schema["header_row"])
+        rows = _get_data_rows(ws, headers, lcc_schema["data_start_row"])
+        for _, row in rows:
+            lc = str(row.get("line_code", "")).strip()
+            dt = _to_date(row.get("calendar_date"))
+            if lc and dt:
+                calendar_pairs.add((lc, dt))
+    except Exception:
+        _write(cursor, batch_file_id, stage_num, stage_name, "WARNING",
+               "Could not read line_capacity_calendar — headcount coverage check skipped",
+               field_name="headcount_coverage")
+        return
+
+    if not calendar_pairs:
+        return
+
+    # Collect (line_code, date) from headcount_plan
+    hc_schema = FILE_SCHEMAS["headcount_plan"]
+    hc_pairs: set[tuple] = set()
+    try:
+        wb2 = openpyxl.load_workbook(stored_file_path, read_only=True, data_only=True)
+        ws2 = wb2.active
+        headers2 = _get_headers(ws2, hc_schema["header_row"])
+        rows2 = _get_data_rows(ws2, headers2, hc_schema["data_start_row"])
+        for _, row in rows2:
+            lc = str(row.get("line_code", "")).strip()
+            dt = _to_date(row.get("plan_date"))
+            if lc and dt:
+                hc_pairs.add((lc, dt))
+    except Exception:
+        return
+
+    missing_pairs = calendar_pairs - hc_pairs
+    if not missing_pairs:
+        _write(cursor, batch_file_id, stage_num, stage_name, "PASS",
+               f"headcount_plan covers all {len(calendar_pairs)} line-date combinations "
+               f"in line_capacity_calendar")
+        return
+
+    # Summarise by line — avoids thousands of individual result rows
+    from collections import defaultdict
+    missing_by_line: dict[str, int] = defaultdict(int)
+    for lc, _ in missing_pairs:
+        missing_by_line[lc] += 1
+
+    for lc in sorted(missing_by_line.keys())[:50]:
+        count = missing_by_line[lc]
+        _write(cursor, batch_file_id, stage_num, stage_name, "WARNING",
+               f"Line '{lc}': missing planned_headcount for {count} date(s) "
+               f"that exist in line_capacity_calendar",
+               field_name="headcount_coverage", sample_value=lc)
+
+
+def _stage8_demand_overlap(cursor, conn, batch_id, batch_file_id, stored_file_path):
+    """Warn when NEW_LAUNCH items with initial_demand also appear in demand_plan."""
+    stage_num, stage_name = 8, STAGE_NAMES[8]
+
+    dp_path = _get_sibling_path(conn, batch_id, "demand_plan")
+    if not dp_path:
+        _write(cursor, batch_file_id, stage_num, stage_name, "INFO",
+               "demand_plan not yet uploaded — "
+               "demand overlap check pending. Run Re-validate when all files are uploaded.")
+        return
+
+    demand_items = _read_file_column(dp_path, "demand_plan", "material_id")
+
+    # Read NEW_LAUNCH rows with initial_demand > 0 from portfolio_changes
+    pc_schema = FILE_SCHEMAS["portfolio_changes"]
+    try:
+        wb = openpyxl.load_workbook(stored_file_path, read_only=True, data_only=True)
+        ws = wb.active
+        headers = _get_headers(ws, pc_schema["header_row"])
+        rows = _get_data_rows(ws, headers, pc_schema["data_start_row"])
+    except Exception:
+        return
+
+    overlapping: list[str] = []
+    for _, row in rows:
+        ct = str(row.get("change_type", "")).strip().upper()
+        if ct != "NEW_LAUNCH":
+            continue
+        item_code = str(row.get("item_code", "")).strip()
+        if not item_code:
+            continue
+        val = row.get("initial_demand")
+        has_demand = (
+            val is not None
+            and str(val).strip() != ""
+            and _is_valid_decimal(val)
+            and float(val) > 0
+        )
+        if has_demand and item_code in demand_items:
+            overlapping.append(item_code)
+
+    if not overlapping:
+        _write(cursor, batch_file_id, stage_num, stage_name, "PASS",
+               "No demand overlap — NEW_LAUNCH initial_demand items are not present in demand_plan")
+        return
+
+    for item_code in overlapping[:50]:
+        _write(cursor, batch_file_id, stage_num, stage_name, "WARNING",
+               f"NEW_LAUNCH item '{item_code}' has initial_demand AND appears in demand_plan "
+               f"— risk of double-counting demand in capacity calculations",
+               field_name="demand_overlap", sample_value=item_code)
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -745,7 +934,6 @@ def _write(cursor, batch_file_id: int, stage_num: int, stage_name: str,
 
 def _emit_errors(cursor, batch_file_id: int, stage_num: int, stage_name: str,
                  errors: list, *, pass_msg: str) -> None:
-    """Write up to 20 errors or a single PASS result."""
     if not errors:
         _write(cursor, batch_file_id, stage_num, stage_name, "PASS", pass_msg)
         return
@@ -758,14 +946,8 @@ def _emit_errors(cursor, batch_file_id: int, stage_num: int, stage_name: str,
 
 
 def _update_file_status(cursor, batch_file_id: int) -> None:
-    """Set validation_status on import_batch_files to the worst per-file severity.
-
-    Only considers stages 1–6. Stage 7 (BATCH_READINESS) is batch-level context,
-    not a per-file issue, so it is excluded from the per-file status.
-
-    INFO is not a valid validation_status value (DB CHECK constraint) — files
-    whose worst stage-1-to-6 result is INFO are stored as PASS.
-    """
+    """Set validation_status to worst severity from stages 2–6 only.
+    Stage 7 (batch-level) and stage 8 (cross-file WARNINGs) do not affect per-file status."""
     cursor.execute(
         """
         UPDATE dbo.import_batch_files
@@ -789,12 +971,7 @@ def _update_file_status(cursor, batch_file_id: int) -> None:
 
 
 def _strip_sap_uom(val):
-    """Strip SAP unit-of-measure suffix from cells like '0 EA' or '5.000 ERR'.
-
-    SAP MB52 exports write numeric values as '<number> <UoM>' strings.
-    Returns the numeric value as a float when the pattern matches,
-    or the original value unchanged otherwise.
-    """
+    """Strip SAP unit-of-measure suffix from cells like '0 EA' or '5.000 ERR'."""
     if not isinstance(val, str):
         return val
     parts = val.strip().split()
@@ -809,16 +986,15 @@ def _strip_sap_uom(val):
 def _update_items_from_master_stock(cursor, conn: pyodbc.Connection,
                                     batch_file_id: int,
                                     headers: list, data_rows: list) -> None:
-    """Update items.mrp_type, items.units_per_pallet, items.pack_size_l from master_stock data.
+    """Update items table from master_stock data (COALESCE — blank values keep existing).
 
-    Called after successful (no-BLOCKED) master_stock validation.
-    Takes the first non-null value per item_code across all warehouse rows.
-    Wrapped in try/except so a failure here does not affect the validation result.
+    Updates: mrp_type, units_per_pallet (rounding_value), pack_size_l (volume),
+             moq, sku_status (item_status), pack_type_code (pack_type).
     """
     try:
         header_set = set(headers)
-        # Collect per-item values (first non-null wins across all warehouse rows)
         item_attrs: dict[str, dict] = {}
+
         for _, row in data_rows:
             material = row.get("material")
             if not material:
@@ -827,7 +1003,7 @@ def _update_items_from_master_stock(cursor, conn: pyodbc.Connection,
             if item_code not in item_attrs:
                 item_attrs[item_code] = {
                     "mrp_type": None, "units_per_pallet": None, "pack_size_l": None,
-                    "moq": None, "sku_status": None,
+                    "moq": None, "sku_status": None, "pack_type_code": None,
                 }
             attrs = item_attrs[item_code]
 
@@ -846,17 +1022,20 @@ def _update_items_from_master_stock(cursor, conn: pyodbc.Connection,
                 if v is not None and _is_valid_decimal(v) and float(v) > 0:
                     attrs["pack_size_l"] = float(v)
 
-            # moq: 0 is valid (no minimum order quantity)
             if attrs["moq"] is None and "moq" in header_set:
                 v = row.get("moq")
                 if v is not None and _is_valid_decimal(v) and float(v) >= 0:
                     attrs["moq"] = float(v)
 
-            # sku_status: from item_status column → items.sku_status
             if attrs["sku_status"] is None and "item_status" in header_set:
                 v = row.get("item_status")
                 if v is not None and _is_valid_int(v) and int(float(v)) in (1, 2, 3):
                     attrs["sku_status"] = int(float(v))
+
+            if attrs["pack_type_code"] is None and "pack_type" in header_set:
+                v = row.get("pack_type")
+                if v is not None and str(v).strip():
+                    attrs["pack_type_code"] = str(v).strip()
 
         upd = conn.cursor()
         for item_code, attrs in item_attrs.items():
@@ -866,18 +1045,17 @@ def _update_items_from_master_stock(cursor, conn: pyodbc.Connection,
                        units_per_pallet = COALESCE(?, units_per_pallet),
                        pack_size_l      = COALESCE(?, pack_size_l),
                        moq              = COALESCE(?, moq),
-                       sku_status       = COALESCE(?, sku_status)
+                       sku_status       = COALESCE(?, sku_status),
+                       pack_type_code   = COALESCE(?, pack_type_code)
                    WHERE item_code = ?""",
                 attrs["mrp_type"],
                 attrs["units_per_pallet"],
                 attrs["pack_size_l"],
                 attrs["moq"],
                 attrs["sku_status"],
+                attrs["pack_type_code"],
                 item_code,
             )
     except Exception as exc:
-        # Non-critical: write a WARNING result so the user is informed
         _write(cursor, batch_file_id, 6, STAGE_NAMES[6], "WARNING",
                f"Items table could not be updated from master_stock: {str(exc)[:200]}")
-
-

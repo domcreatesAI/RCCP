@@ -149,6 +149,26 @@ def download_batch_file(
         conn.close()
 
 
+@router.get("/{batch_id}/coverage-report")
+def get_coverage_report(batch_id: int, current_user: dict = Depends(get_current_user)):
+    """
+    Return stage 8 cross-file check findings for a batch, grouped by category.
+    Results are WARNING-only and do not affect publish eligibility.
+    """
+    conn = get_connection()
+    try:
+        batch = batch_service.get_batch(conn, batch_id)
+        if not batch:
+            raise HTTPException(status_code=404, detail="Batch not found")
+        return batch_service.get_coverage_report(conn, batch_id)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
 @router.delete("/{batch_id}/files")
 def reset_batch_files(
     batch_id: int,
