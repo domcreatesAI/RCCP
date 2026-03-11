@@ -2,7 +2,7 @@
 
 > This file is the source of truth for project state.
 > Update it at the end of every working session.
-> Last updated: 2026-03-07 (session 8)
+> Last updated: 2026-03-11 (session 9)
 
 ---
 
@@ -69,12 +69,13 @@ Develop from a local clone — do not develop on Google Drive (npm too slow).
 | 15 | production_orders as 6th required batch file (COOIS export) — DB + validation + template + publish | **Complete — migrations 18+19 applied** |
 | 16 | Backend: validation enhancements — `initial_demand` in portfolio_changes, stage 8 CROSS_FILE_CHECK (coverage report), template updates, headcount ≥ 0 | **Complete — migration 20 written, needs deployment** |
 | 17 | Frontend Phase A shell redesign — dark sidebar, lucide icons, frosted topbar, cycle badge, sonner toasts, react-router v7 | **Complete** |
+| 18 | Validation pipeline fixes (overflow, stage 7 cascade, production_orders material hard BLOCKED); Phase B UI (lifecycle stepper, layout polish); migration 24 (system_status VARCHAR(50)); **first full end-to-end test PASSED** | **Complete** |
 
 ---
 
 ## Database — Deployment State
 
-**Status: Fully deployed — scripts 00–09 + 11 + both seeds + migrations 12–19 applied.**
+**Status: Fully deployed — scripts 00–09 + 11 + both seeds + migrations 12–19 + migration 24 applied.**
 
 ### How to Deploy (Clean Slate)
 
@@ -129,6 +130,7 @@ All scripts are idempotent — safe to re-run (except 00_reset which drops all t
 | `schema/17_file_content_versioning.sql` | Adds file_content VARBINARY(MAX) to import_batch_files + masterdata_uploads; version_number to masterdata_uploads |
 | `schema/18_production_orders.sql` | Creates dbo.production_orders table (6th batch file type) |
 | `schema/19_update_batch_readiness_view.sql` | Updates CK_import_batch_files_type + vw_batch_readiness for 6 required files |
+| `schema/24_widen_system_status.sql` | Widens `production_orders.system_status` VARCHAR(10) → VARCHAR(50); SAP compound status values (e.g. 'REL PRT MANC') exceed 10 chars |
 
 ---
 
@@ -279,6 +281,7 @@ Vite proxies `/api` → `http://localhost:8000`. Backend must be running.
 - [x] **demand_plan SAP column headers** — PIR format confirmed and implemented
 - [x] **oee_daily** — removed entirely (migration 16 applied)
 - [x] **production_orders (COOIS)** — added as 6th required batch file (migrations 18+19 applied)
+- [x] **Migration 24** — applied (system_status VARCHAR(50))
 - [ ] **Migrations 16 + 17** — confirm applied on live DB (16: remove oee_daily; 17: file content versioning)
 - [ ] **Migration 20** — `db/schema/20_validation_enhancements.sql` — adds `initial_demand` to `portfolio_changes`, fixes headcount CHECK constraints to `≥ 0`. **Run before testing validation enhancements.**
   ```bat
@@ -295,25 +298,25 @@ Vite proxies `/api` → `http://localhost:8000`. Backend must be running.
 
 ## Next Session Starting Point
 
-**Phase 1 backend + Phase A frontend shell complete. Next:**
+**Phase 1 fully complete and end-to-end tested. Ready for Phase 2 planning.**
 
-1. **Deploy migration 20** on live DB:
+### Phase 1 remaining clean-up (do before Phase 2)
+1. **Confirm migrations 16 + 17** applied on live DB (16: remove oee_daily; 17: file content versioning)
+2. **Deploy migration 20** on live DB:
    ```bat
    sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\20_validation_enhancements.sql
    ```
-2. **Confirm migrations 16 + 17** applied on live DB
-3. **Phase B** — Planning Data page redesign:
-   - 3fr/2fr grid layout (files table left, validation accordion panel right)
-   - Richer file rows with better status display
-   - Gradient action bar buttons (indigo publish, emerald baseline)
-   - Coverage report collapsible panel
-4. End-to-end test: upload all 6 files, validate, publish, create baseline
+3. **master_stock SAP column headers** — update `FILE_SCHEMAS["master_stock"]` + template once confirmed
 
-**Open items (not blocking):**
-- master_stock SAP column headers — update `FILE_SCHEMAS["master_stock"]` + template once confirmed
-- Masterdata data population (resource requirements, warehouse capacity, line speeds for remaining lines)
+### Phase 2 — RCCP Engine (not started, needs explicit approval)
+- Line capacity utilisation calculation (net_theoretical_hours vs production_orders run time)
+- Capacity risk flagging per line per week
+- Labour constraint check (headcount_plan vs line_resource_requirements + plant_resource_requirements)
+- Warehouse constraint check (master_stock pallets vs warehouse_capacity)
 
-**Figma reference design** is at `RCCP/figma_prototype/` — used for Phase A–D redesign. Key files:
-- `src/app/components/Layout.tsx` — sidebar + topbar reference (Phase A — done)
-- `src/app/components/planning-data/PlanningData.tsx` — Phase B reference (880 lines)
-- Phases C+ use `motion` (animations), Phase D uses dashboard/scenarios/config pages
+**Open items (not blocking Phase 2 start):**
+- `standard_hourly_rate` for all 5 resource types
+- `bottles_per_minute` for lines A202, A302–A308, A401, A501, A502
+- Resource requirements for Plants A2–A5
+- Warehouse capacity (pallet positions) per pack type per warehouse
+- `standard_hours_per_unit` in item_resource_rules — all placeholder values

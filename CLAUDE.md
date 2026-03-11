@@ -227,27 +227,29 @@ Auth was originally deferred to Phase 5 but is being built in Phase 1.
 
 ---
 
-## Current Deployment State (as of 2026-03-03)
+## Current Deployment State (as of 2026-03-11)
 
 **GitHub repo:** `https://github.com/d0m1n/RCCP-One.git` — source of truth. Clone locally; do not develop on Google Drive (npm is too slow).
 
-**Database: FULLY DEPLOYED** — scripts 00–09 + 11 + both seeds deployed and verified. Migrations 12–19 applied.
+**Database: FULLY DEPLOYED** — scripts 00–09 + 11 + both seeds deployed and verified. Migrations 12–19 + 24 applied.
 
-**Backend: Phase 1 core workflow complete.**
+**Backend: Phase 1 complete and end-to-end tested.**
 - Stack: FastAPI + pyodbc + bcrypt + PyJWT
 - Routers: auth, batches (incl. publish), uploads, templates, masterdata, baselines
 - Services: auth, batch, upload, validation, template, masterdata, publish, excel_utils
 - All endpoints working — see PROJECT_STATUS.md for full list
 - demand_plan: PIR format confirmed (SAP wide-format, `material_id`/`plant` key cols, monthly columns `M03.2026`)
 - production_orders: COOIS format (header_row=2, data_start_row=3, LA+YPAC order types, net_quantity computed)
+- Validation: `blocked_fk_checks` on production_orders.material (hard BLOCKED if SKU not in dbo.items); summary-format FK checks (one entry per unique missing value, not per row)
 - Run from `backend/`: `.\venv\Scripts\uvicorn.exe app.main:app --reload`
 
-**Frontend: Phase 1 core workflow complete.**
-- Login → Planning Data page: unified one-card layout (required files + masterdata in one table with shared columns)
-- BatchHeader: baseline status banner (green = baseline exists; amber = published, no baseline)
+**Frontend: Phase 1 complete and end-to-end tested.**
+- Login → Planning Data page: 3fr/1fr grid (files table + validation panel)
+- Lifecycle stepper: Draft → Validated → Published → Archived; each step turns green when complete
+- Unified file table: File (name + description) | Status (centered) | Ver. | Uploaded by | Time | Actions
 - BatchActionBar: Re-validate / Reset batch / Publish batch / Create baseline
 - Required files: 6 rows (master_stock, production_orders, demand_plan, line_capacity_calendar, headcount_plan, portfolio_changes)
-- Template buttons on all 6 required file rows + all 4 masterdata rows
+- Template buttons on all 6 required file rows + all 5 masterdata rows
 - Run from `frontend/`: `npm run dev` → `http://localhost:5173`
 
 **Capacity calendar pre-filled:** `scripts/generate_capacity_calendar.py` generates `uploads/capacity_calendar_2026_2030.xlsx` — 14 lines × 1,826 days (2026–2030), UK bank holidays hardcoded, DD/MM/YYYY date format.
@@ -287,6 +289,7 @@ sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\16_remove_oee_dail
 sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\17_file_content_versioning.sql
 sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\18_production_orders.sql
 sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\19_update_batch_readiness_view.sql
+sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\24_widen_system_status.sql
 ```
 
 ---
