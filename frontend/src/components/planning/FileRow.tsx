@@ -35,6 +35,26 @@ const FILE_META: Record<FileType, { label: string; description: string }> = {
   },
 }
 
+function IssueList({ issues, total, colour }: { issues: string[]; total: number; colour: string }) {
+  const [expanded, setExpanded] = useState(false)
+  const shown = expanded ? issues : issues.slice(0, 1)
+  const hidden = total - shown.length
+  const toggleLabel = expanded ? 'show less' : (total > issues.length ? `+${total - 1} more` : `+${issues.length - 1} more`)
+  return (
+    <div className="mt-1 space-y-0.5 max-w-[280px]">
+      {shown.map((msg, i) => (
+        <p key={i} className={`text-xs ${colour} leading-tight ${expanded ? '' : 'line-clamp-2'}`}>{msg}</p>
+      ))}
+      {(issues.length > 1 || total > 1) && (
+        <button onClick={() => setExpanded(e => !e)}
+          className="text-xs text-gray-400 hover:text-gray-600 underline mt-0.5">
+          {expanded ? 'show less' : `+${total - 1} more`}
+        </button>
+      )}
+    </div>
+  )
+}
+
 function StatusCell({ file, fileType }: { file: BatchFile | undefined; fileType: FileType }) {
   if (!file) {
     return (
@@ -57,17 +77,9 @@ function StatusCell({ file, fileType }: { file: BatchFile | undefined; fileType:
   if (status === 'PASS') {
     const isEmptyValid = fileType === 'portfolio_changes' && (file.total_issue_count ?? 0) === 0
     return (
-      <div>
-        {isEmptyValid ? (
-          <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700">
-            <CheckCircle2 className="w-3.5 h-3.5" /> Empty — valid
-          </span>
-        ) : (
-          <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700">
-            <CheckCircle2 className="w-3.5 h-3.5" /> Validated
-          </span>
-        )}
-      </div>
+      <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700">
+        <CheckCircle2 className="w-3.5 h-3.5" /> {isEmptyValid ? 'Empty — valid' : 'Validated'}
+      </span>
     )
   }
 
@@ -78,14 +90,7 @@ function StatusCell({ file, fileType }: { file: BatchFile | undefined; fileType:
           <AlertTriangle className="w-3.5 h-3.5" /> Warning
         </span>
         {(file.top_issues?.length ?? 0) > 0 && (
-          <div className="mt-1 space-y-0.5 max-w-[240px]">
-            {file.top_issues!.map((msg, i) => (
-              <p key={i} className="text-xs text-gray-500 leading-tight line-clamp-2">{msg}</p>
-            ))}
-            {(file.total_issue_count ?? 0) > (file.top_issues!.length) && (
-              <p className="text-xs text-gray-400">+{(file.total_issue_count ?? 0) - file.top_issues!.length} more</p>
-            )}
-          </div>
+          <IssueList issues={file.top_issues!} total={file.total_issue_count ?? file.top_issues!.length} colour="text-gray-500" />
         )}
       </div>
     )
@@ -98,14 +103,7 @@ function StatusCell({ file, fileType }: { file: BatchFile | undefined; fileType:
         <XCircle className="w-3.5 h-3.5" /> Blocked
       </span>
       {(file.top_issues?.length ?? 0) > 0 && (
-        <div className="mt-1 space-y-0.5 max-w-[240px]">
-          {file.top_issues!.map((msg, i) => (
-            <p key={i} className="text-xs text-gray-500 leading-tight line-clamp-2">{msg}</p>
-          ))}
-          {(file.total_issue_count ?? 0) > (file.top_issues!.length) && (
-            <p className="text-xs text-gray-400">+{(file.total_issue_count ?? 0) - file.top_issues!.length} more</p>
-          )}
-        </div>
+        <IssueList issues={file.top_issues!} total={file.total_issue_count ?? file.top_issues!.length} colour="text-red-600" />
       )}
     </div>
   )

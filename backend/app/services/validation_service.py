@@ -340,7 +340,7 @@ def run_validation(
         else:
             _stage4(cursor, batch_file_id, schema, headers, data_rows)
             _stage5(cursor, conn, batch_file_id, schema, headers, data_rows)
-            _stage6(cursor, batch_file_id, file_type, schema, headers, data_rows)
+            _stage6(cursor, conn, batch_file_id, file_type, schema, headers, data_rows)
 
 
     # --- Stage 7: batch readiness (always runs) ---
@@ -544,28 +544,30 @@ def _stage5(cursor, conn: pyodbc.Connection, batch_file_id: int,
                                f"'{val}' not found in {table} ({pk_col})", str(val)))
 
     # Soft FK checks — WARNING if value not found (file still imports)
+    # Emits a single summary WARNING to avoid hitting the 20-row overflow cap.
     for col, (table, pk_col) in schema.get("warning_fk_checks", {}).items():
         if col not in header_set:
             continue
         c2 = conn.cursor()
         c2.execute(f"SELECT {pk_col} FROM {table}")  # noqa: S608
         valid_values = {str(r[0]).strip() for r in c2.fetchall()}
-        missing = {
+        missing = sorted(
             str(row_dict.get(col)).strip()
             for _, row_dict in data_rows
             if row_dict.get(col) and str(row_dict.get(col)).strip() not in valid_values
-        }
-        for val in sorted(missing):
+        )
+        if missing:
+            sample = f"'{missing[0]}'"
             errors.append((None, col, "WARNING",
-                           f"'{val}' not found in {table} ({pk_col}) — "
-                           f"SKU masterdata missing, RCCP engine cannot process this material",
-                           val))
+                           f"{len(missing)} material(s) not found in {table} ({pk_col}) "
+                           f"(e.g. {sample}) — upload sku_masterdata to fix",
+                           None))
 
     _emit_errors(cursor, batch_file_id, stage_num, stage_name, errors,
                  pass_msg="All reference checks passed")
 
 
-def _stage6(cursor, batch_file_id: int, file_type: str,
+def _stage6(cursor, conn: pyodbc.Connection, batch_file_id: int, file_type: str,
             schema: dict, headers: list, data_rows: list) -> None:
     stage_num, stage_name = 6, STAGE_NAMES[6]
     header_set = set(headers)
@@ -635,7 +637,8 @@ def _stage6(cursor, batch_file_id: int, file_type: str,
             }
             if materials_in_file:
                 placeholders = ",".join("?" * len(materials_in_file))
-                cursor.execute(
+                c_read = conn.cursor()
+                c_read.execute(
                     f"""
                     SELECT item_code,
                            CASE WHEN pack_size_l      IS NULL THEN 1 ELSE 0 END,
@@ -647,16 +650,20 @@ def _stage6(cursor, batch_file_id: int, file_type: str,
                     """,  # noqa: S608
                     *materials_in_file,
                 )
-                for row in cursor.fetchall():
-                    item_code, no_size, no_type, no_pallet = row
-                    missing_attrs = []
-                    if no_size:   missing_attrs.append("pack_size_l")
-                    if no_type:   missing_attrs.append("pack_type_code")
-                    if no_pallet: missing_attrs.append("units_per_pallet")
+                incomplete_rows = c_read.fetchall()
+                if incomplete_rows:
+                    # Single summary WARNING — per-item errors would hit the 20-row cap
+                    # and generate a false BLOCKED overflow message.
+                    ex_code, ex_no_size, ex_no_type, ex_no_pallet = incomplete_rows[0]
+                    ex_attrs = []
+                    if ex_no_size:   ex_attrs.append("pack_size_l")
+                    if ex_no_type:   ex_attrs.append("pack_type_code")
+                    if ex_no_pallet: ex_attrs.append("units_per_pallet")
+                    sample = f"'{ex_code}': {', '.join(ex_attrs)}" if ex_attrs else f"'{ex_code}'"
                     errors.append((None, "material", "WARNING",
-                                   f"'{item_code}' is missing SKU attributes: "
-                                   f"{', '.join(missing_attrs)} — upload sku_masterdata to fix",
-                                   item_code))
+                                   f"{len(incomplete_rows)} material(s) in dbo.items are missing "
+                                   f"SKU attributes (e.g. {sample}) — upload sku_masterdata to fix",
+                                   None))
 
     elif file_type == "portfolio_changes":
         # initial_demand must be a positive number on NEW_LAUNCH rows
@@ -734,6 +741,7 @@ def _stage7(cursor, conn: pyodbc.Connection, batch_id: int, batch_file_id: int) 
         JOIN dbo.import_batch_files ibf ON ivr.batch_file_id = ibf.batch_file_id
         WHERE ibf.batch_id = ? AND ibf.is_current_version = 1
           AND ivr.severity = 'BLOCKED'
+          AND ivr.validation_stage BETWEEN 2 AND 6
         """,
         batch_id,
     )
@@ -745,6 +753,7 @@ def _stage7(cursor, conn: pyodbc.Connection, batch_id: int, batch_file_id: int) 
         JOIN dbo.import_batch_files ibf ON ivr.batch_file_id = ibf.batch_file_id
         WHERE ibf.batch_id = ? AND ibf.is_current_version = 1
           AND ivr.severity = 'WARNING'
+          AND ivr.validation_stage BETWEEN 2 AND 6
         """,
         batch_id,
     )
