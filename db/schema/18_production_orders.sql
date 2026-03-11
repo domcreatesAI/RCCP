@@ -26,7 +26,7 @@ CREATE TABLE dbo.production_orders (
     net_quantity         DECIMAL(18, 3) NOT NULL,    -- max(0, order_qty - delivered_qty)
     uom                  VARCHAR(10)    NULL,
     basic_start_date     DATE           NOT NULL,
-    system_status        VARCHAR(10)    NULL,        -- REL | CRTD | NULL (blank = MRP proposal)
+    system_status        VARCHAR(50)    NULL,        -- SAP compound status e.g. 'REL PRT MANC' — widened from VARCHAR(10)
     production_line      VARCHAR(20)    NULL,        -- nullable: LA orders have line, YPAC may not
     source_row_number    INT            NOT NULL,
 

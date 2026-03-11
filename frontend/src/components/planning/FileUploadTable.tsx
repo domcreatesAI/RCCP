@@ -41,7 +41,7 @@ export default function FileUploadTable({ batch }: Props) {
           <thead>
             <tr style={{ borderBottom: '1px solid #F1F5F9' }}>
               {['File', 'Status', 'Ver.', 'Uploaded by', 'Time', 'Actions'].map((h) => (
-                <th key={h} className="text-left pb-2 text-xs font-semibold text-gray-500 whitespace-nowrap pr-3">{h}</th>
+                <th key={h} className={`pb-2 text-xs font-semibold text-gray-500 whitespace-nowrap pr-3 ${h === 'Status' ? 'text-center' : 'text-left'}`}>{h}</th>
               ))}
             </tr>
           </thead>

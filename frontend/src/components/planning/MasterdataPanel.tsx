@@ -148,7 +148,7 @@ export function MasterdataRow({ mdType, index = 0 }: { mdType: string; index?: n
       </td>
 
       {/* Status */}
-      <td className="py-2.5 pr-3" style={{ minWidth: 140 }}>
+      <td className="py-2.5 pr-3 text-center" style={{ width: '1%', whiteSpace: 'nowrap' }}>
         {uploadMutation.isPending ? (
           <span className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600">
             <Upload className="w-3.5 h-3.5 animate-pulse" /> Uploading…
@@ -198,7 +198,7 @@ export function MasterdataRow({ mdType, index = 0 }: { mdType: string; index?: n
       </td>
 
       {/* Actions */}
-      <td className="py-2.5">
+      <td className="py-2.5" style={{ width: '1%', whiteSpace: 'nowrap' }}>
         <div className="flex items-center gap-1">
           <input
             ref={inputRef}
@@ -229,10 +229,10 @@ export function MasterdataRow({ mdType, index = 0 }: { mdType: string; index?: n
           <button
             onClick={() => inputRef.current?.click()}
             disabled={uploadMutation.isPending}
-            className="flex items-center gap-0.5 px-2 py-1 rounded-lg text-xs font-semibold transition-colors disabled:opacity-40"
+            className="flex items-center gap-0.5 px-2 py-1 rounded-lg text-xs font-semibold transition-colors disabled:opacity-40 whitespace-nowrap"
             style={{ backgroundColor: '#F5F3FF', color: '#7C3AED', border: '1px solid #DDD6FE' }}>
             <Upload className="w-3 h-3" />
-            {uploadMutation.isPending ? 'Uploading…' : hasOnRecord ? 'Re-upload' : 'Upload'}
+            {uploadMutation.isPending ? 'Uploading…' : 'Upload'}
           </button>
         </div>
       </td>

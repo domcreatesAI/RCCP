@@ -177,15 +177,39 @@ export default function BatchSelector({ selectedId, onSelect, activeBatch, basel
     batches.filter((b) => b.status === 'ARCHIVED')
   )
 
+  // Derive "validated" state from file statuses when batch is still DRAFT
+  const REQUIRED_FILE_TYPES = ['master_stock', 'demand_plan', 'line_capacity_calendar', 'headcount_plan', 'portfolio_changes', 'production_orders']
+  const filesByType = Object.fromEntries((activeBatch?.files ?? []).map((f) => [f.file_type, f]))
+  const allValidated =
+    activeBatch?.status === 'DRAFT' &&
+    REQUIRED_FILE_TYPES.every((ft) => {
+      const f = filesByType[ft]
+      return f?.validation_status != null && f.validation_status !== 'BLOCKED'
+    })
+
   // Lifecycle stepper
-  const currentStatusIdx = activeBatch
-    ? STATUS_ORDER.indexOf(activeBatch.status === 'VALIDATING' ? 'VALIDATED' : activeBatch.status)
-    : 0
-  const lifecycleIdx = LIFECYCLE.findIndex((s) => {
-    if (!activeBatch) return false
-    if (activeBatch.status === 'VALIDATING') return s.key === 'VALIDATED'
-    return s.key === activeBatch.status
-  })
+  // lifecycleIdx = the "next action" step (shown as indigo).
+  // Completed steps (i < lifecycleIdx) show green.
+  const lifecycleIdx = (() => {
+    if (!activeBatch) return 0
+    switch (activeBatch.status) {
+      case 'DRAFT':
+        // All files validated → PUBLISHED is next; otherwise stay on VALIDATED as next
+        return allValidated
+          ? LIFECYCLE.findIndex((s) => s.key === 'PUBLISHED')
+          : LIFECYCLE.findIndex((s) => s.key === 'VALIDATED')
+      case 'VALIDATING':
+        return LIFECYCLE.findIndex((s) => s.key === 'VALIDATED')
+      case 'PUBLISHED':
+        // Published is done → ARCHIVED is next (all prior steps green)
+        return LIFECYCLE.findIndex((s) => s.key === 'ARCHIVED')
+      case 'ARCHIVED':
+        // Everything done — point past the end so all steps are green
+        return LIFECYCLE.length
+      default:
+        return LIFECYCLE.findIndex((s) => s.key === activeBatch.status)
+    }
+  })()
 
   const cycleDisplay = activeBatch
     ? new Date(activeBatch.plan_cycle_date + 'T00:00:00').toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })

@@ -173,7 +173,7 @@ export default function FileRow({ batchId, fileType, file, isLocked, index = 0 }
       </td>
 
       {/* Status */}
-      <td className="py-2.5 pr-3" style={{ minWidth: 140 }}>
+      <td className="py-2.5 pr-3 text-center" style={{ width: '1%', whiteSpace: 'nowrap' }}>
         <StatusCell file={file} fileType={fileType} />
       </td>
 
@@ -195,7 +195,7 @@ export default function FileRow({ batchId, fileType, file, isLocked, index = 0 }
       </td>
 
       {/* Actions */}
-      <td className="py-2.5">
+      <td className="py-2.5" style={{ width: '1%', whiteSpace: 'nowrap' }}>
         <div className="flex items-center gap-1">
           <input
             ref={inputRef}
@@ -226,7 +226,7 @@ export default function FileRow({ batchId, fileType, file, isLocked, index = 0 }
           <button
             onClick={() => inputRef.current?.click()}
             disabled={isLocked || uploading}
-            className="flex items-center gap-0.5 px-2 py-1 rounded-lg text-xs font-semibold transition-colors disabled:opacity-40"
+            className="flex items-center gap-0.5 px-2 py-1 rounded-lg text-xs font-semibold transition-colors disabled:opacity-40 whitespace-nowrap"
             style={isPresent || isLocked
               ? { backgroundColor: '#F8FAFC', color: '#64748B', border: '1px solid #E2E8F0' }
               : { backgroundColor: '#EEF2FF', color: '#4F46E5', border: '1px solid #C7D2FE' }
@@ -234,7 +234,7 @@ export default function FileRow({ batchId, fileType, file, isLocked, index = 0 }
             {uploading
             ? <Loader2 className="w-3 h-3 animate-spin" />
             : <Upload className="w-3 h-3" />}
-            {uploading ? 'Uploading…' : isPresent || isLocked ? 'Re-upload' : 'Upload'}
+            {uploading ? 'Uploading…' : 'Upload'}
           </button>
         </div>
       </td>

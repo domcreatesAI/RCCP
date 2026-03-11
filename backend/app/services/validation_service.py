@@ -261,8 +261,9 @@ FILE_SCHEMAS: dict = {
         "fk_checks": {
             "plant": ("dbo.warehouses", "warehouse_code"),
         },
-        # Soft FK — material should exist in dbo.items (sku_masterdata), WARNING not BLOCKED.
-        "warning_fk_checks": {
+        # Hard FK — material MUST exist in dbo.items (sku_masterdata). BLOCKED if any missing.
+        # Summary format (one BLOCKED per unique missing value) avoids per-row overflow.
+        "blocked_fk_checks": {
             "material": ("dbo.items", "item_code"),
         },
         "min_rows": 1,
@@ -561,6 +562,25 @@ def _stage5(cursor, conn: pyodbc.Connection, batch_file_id: int,
             errors.append((None, col, "WARNING",
                            f"{len(missing)} material(s) not found in {table} ({pk_col}) "
                            f"(e.g. {sample}) — upload sku_masterdata to fix",
+                           None))
+
+    # Hard FK summary checks — BLOCKED severity, one entry per unique missing value.
+    for col, (table, pk_col) in schema.get("blocked_fk_checks", {}).items():
+        if col not in header_set:
+            continue
+        c2 = conn.cursor()
+        c2.execute(f"SELECT {pk_col} FROM {table}")  # noqa: S608
+        valid_values = {str(r[0]).strip() for r in c2.fetchall()}
+        missing = sorted(
+            str(row_dict.get(col)).strip()
+            for _, row_dict in data_rows
+            if row_dict.get(col) and str(row_dict.get(col)).strip() not in valid_values
+        )
+        if missing:
+            sample = f"'{missing[0]}'"
+            errors.append((None, col, "BLOCKED",
+                           f"{len(missing)} material(s) not found in {table} ({pk_col}) "
+                           f"(e.g. {sample}) — upload sku_masterdata before validating production_orders",
                            None))
 
     _emit_errors(cursor, batch_file_id, stage_num, stage_name, errors,

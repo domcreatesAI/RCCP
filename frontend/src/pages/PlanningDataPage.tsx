@@ -80,7 +80,7 @@ export default function PlanningDataPage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.15 }}
             className="grid gap-4"
-            style={{ gridTemplateColumns: '3fr 2fr' }}>
+            style={{ gridTemplateColumns: '3fr 1fr' }}>
             <FileUploadTable batch={batch} />
             <ValidationPanel batch={batch} />
           </motion.div>
