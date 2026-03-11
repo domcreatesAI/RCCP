@@ -48,8 +48,8 @@ function StatusCell({ file, fileType }: { file: BatchFile | undefined; fileType:
 
   if (!status || status === 'PENDING') {
     return (
-      <span className="inline-flex items-center gap-1 text-xs font-semibold text-gray-500">
-        <Clock className="w-3.5 h-3.5" /> Pending
+      <span className="inline-flex items-center gap-1 text-xs font-semibold text-gray-400">
+        <Clock className="w-3.5 h-3.5" /> Uploaded
       </span>
     )
   }
