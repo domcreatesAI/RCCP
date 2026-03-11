@@ -1,9 +1,9 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'motion/react'
 import {
   FileSpreadsheet, CheckCircle2, XCircle, AlertTriangle, Clock,
-  Download, Upload,
+  Download, Upload, Loader2,
 } from 'lucide-react'
 import { uploadFile, downloadBatchFile } from '../../api/uploads'
 import type { BatchFile, FileType, ValidationStatus } from '../../types'
@@ -64,7 +64,7 @@ function StatusCell({ file, fileType }: { file: BatchFile | undefined; fileType:
           </span>
         ) : (
           <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700">
-            <CheckCircle2 className="w-3.5 h-3.5" /> Uploaded
+            <CheckCircle2 className="w-3.5 h-3.5" /> Validated
           </span>
         )}
       </div>
@@ -122,15 +122,19 @@ interface Props {
 export default function FileRow({ batchId, fileType, file, isLocked, index = 0 }: Props) {
   const queryClient = useQueryClient()
   const inputRef = useRef<HTMLInputElement>(null)
+  const [uploading, setUploading] = useState(false)
   const meta = FILE_META[fileType]
   const hasFile = !!file
   const isPresent = hasFile && (file.validation_status !== null)
 
   const uploadMutation = useMutation({
     mutationFn: (f: File) => uploadFile(batchId, fileType, f),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['batch', batchId] })
+    onMutate: () => setUploading(true),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['batch', batchId] })
+      setUploading(false)
     },
+    onError: () => setUploading(false),
   })
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -149,7 +153,7 @@ export default function FileRow({ batchId, fileType, file, isLocked, index = 0 }
       animate={{ opacity: 1, x: 0 }}
       transition={{ delay: index * 0.05 }}
       className="border-b last:border-0 transition-colors hover:bg-gray-50/60"
-      style={{ borderColor: '#F1F5F9' }}>
+      style={{ borderColor: '#F1F5F9', opacity: uploading ? 0.6 : 1 }}>
 
       {/* File name + description */}
       <td className="py-2.5 pr-3" style={{ minWidth: 200 }}>
@@ -223,14 +227,16 @@ export default function FileRow({ batchId, fileType, file, isLocked, index = 0 }
           {/* Upload / Re-upload */}
           <button
             onClick={() => inputRef.current?.click()}
-            disabled={isLocked || uploadMutation.isPending}
+            disabled={isLocked || uploading}
             className="flex items-center gap-0.5 px-2 py-1 rounded-lg text-xs font-semibold transition-colors disabled:opacity-40"
             style={isPresent || isLocked
               ? { backgroundColor: '#F8FAFC', color: '#64748B', border: '1px solid #E2E8F0' }
               : { backgroundColor: '#EEF2FF', color: '#4F46E5', border: '1px solid #C7D2FE' }
             }>
-            <Upload className="w-3 h-3" />
-            {uploadMutation.isPending ? 'Uploading…' : isPresent || isLocked ? 'Re-upload' : 'Upload'}
+            {uploading
+            ? <Loader2 className="w-3 h-3 animate-spin" />
+            : <Upload className="w-3 h-3" />}
+            {uploading ? 'Uploading…' : isPresent || isLocked ? 'Re-upload' : 'Upload'}
           </button>
         </div>
       </td>

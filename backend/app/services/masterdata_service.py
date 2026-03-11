@@ -8,7 +8,7 @@ for all masterdata file types:
   line_resource_requirements  → line_resource_requirements table (full replace)
   plant_resource_requirements → plant_resource_requirements table (full replace)
   warehouse_capacity          → warehouse_capacity table (full replace)
-  sku_masterdata              → dbo.items (MERGE/upsert by item_code — never deletes)
+  sku_masterdata              → dbo.items (MERGE by item_code, soft-deactivates rows not in upload)
 
 Stages run: 2 (structure), 3 (field mapping), 4 (data types), 5 (FK checks), 6 (rules)
 BLOCKED → reject upload, data not imported.
@@ -139,6 +139,18 @@ MASTERDATA_SCHEMAS: dict = {
             "pack_type_code": ("dbo.pack_types", "pack_type_code"),
         },
     },
+    "pack_types": {
+        "header_row": 2,
+        "required": ["pack_type_code", "pack_type_name"],
+        "optional": ["notes", "is_active"],
+        "types": {
+            "pack_type_code": "str",
+            "pack_type_name": "str",
+            "notes":          "str",
+            "is_active":      "bit",
+        },
+        "fk_checks": {},
+    },
 }
 
 VALID_MASTERDATA_TYPES = frozenset(MASTERDATA_SCHEMAS.keys())
@@ -148,6 +160,7 @@ _MASTERDATA_TABLE: dict[str, str] = {
     "line_resource_requirements":  "dbo.line_resource_requirements",
     "plant_resource_requirements": "dbo.plant_resource_requirements",
     "warehouse_capacity":          "dbo.warehouse_capacity",
+    "pack_types":                  "dbo.pack_types",
     # sku_masterdata upserts into dbo.items — no dedicated table to count rows from
     # (table_row_count for sku_masterdata is derived from dbo.items directly in get_status)
 }
@@ -629,6 +642,7 @@ def _import(conn: pyodbc.Connection, masterdata_type: str, schema: dict,
         "line_resource_requirements":  _import_line_resource_requirements,
         "plant_resource_requirements": _import_plant_resource_requirements,
         "warehouse_capacity":          _import_warehouse_capacity,
+        "pack_types":                  _import_pack_types,
         "sku_masterdata":              _import_sku_masterdata,
     }
     return handlers[masterdata_type](conn, headers, data_rows, uploaded_by)
@@ -720,24 +734,68 @@ def _import_warehouse_capacity(conn, headers, data_rows, uploaded_by):
     return count
 
 
-def _import_sku_masterdata(conn, headers, data_rows, uploaded_by):
-    """MERGE sku_masterdata rows into dbo.items.
+def _import_pack_types(conn, headers, data_rows, uploaded_by):
+    """MERGE pack types into dbo.pack_types by pack_type_code.
 
-    Uses MERGE (upsert) by item_code:
-      - WHEN MATCHED: update all non-null attribute columns (COALESCE keeps existing values
-        when a cell is blank — allows partial uploads that only update specific fields).
-      - WHEN NOT MATCHED: insert a new item row.
-
-    Never deletes rows from dbo.items — removals must be done manually.
+    Uses upsert rather than full replace because pack_type_code is referenced
+    as FK in dbo.items, dbo.warehouse_capacity etc. — deleting codes would
+    break those constraints.
     """
     header_set = set(headers)
     cursor = conn.cursor()
     count = 0
+    for _, row in data_rows:
+        pack_type_code = _get_str(row, "pack_type_code", header_set)
+        if not pack_type_code:
+            continue
+        pack_type_name = _get_str(row, "pack_type_name", header_set)
+        notes          = _get_str(row, "notes",          header_set)
+        is_active      = _get_bit(row, "is_active",      header_set, default=1)
+        cursor.execute(
+            """
+            MERGE dbo.pack_types AS target
+            USING (SELECT ? AS pack_type_code) AS source
+            ON target.pack_type_code = source.pack_type_code
+            WHEN MATCHED THEN
+                UPDATE SET
+                    pack_type_name = COALESCE(?, target.pack_type_name),
+                    notes          = COALESCE(?, target.notes),
+                    is_active      = ?
+            WHEN NOT MATCHED THEN
+                INSERT (pack_type_code, pack_type_name, notes, is_active)
+                VALUES (?, ?, ?, ?);
+            """,
+            pack_type_code,
+            pack_type_name, notes, is_active,
+            pack_type_code, pack_type_name, notes, is_active,
+        )
+        count += 1
+    return count
+
+
+def _import_sku_masterdata(conn, headers, data_rows, uploaded_by):
+    """Upsert sku_masterdata into dbo.items, then soft-deactivate stale rows.
+
+    For each row in the file:
+      - WHEN MATCHED: update all non-null attribute columns and set is_active = 1.
+      - WHEN NOT MATCHED: insert a new active item row.
+
+    After processing all rows, any item_code that was NOT in the upload has
+    is_active set to 0 (soft delete). The row stays in the DB so that FK
+    references from master_stock and demand_plan (ON DELETE NO ACTION) are not
+    broken, but it will no longer appear as an active SKU.
+    """
+    header_set = set(headers)
+    cursor = conn.cursor()
+    count = 0
+    uploaded_codes: list[str] = []
 
     for _, row in data_rows:
         item_code = _get_str(row, "item_code", header_set)
         if not item_code:
             continue
+
+        uploaded_codes.append(item_code)
 
         item_description     = _get_str(row, "item_description",     header_set)
         abc_indicator        = _get_str(row, "abc_indicator",        header_set)
@@ -783,20 +841,21 @@ def _import_sku_masterdata(conn, headers, data_rows, uploaded_by):
                     secondary_line_code  = COALESCE(?, target.secondary_line_code),
                     tertiary_line_code   = COALESCE(?, target.tertiary_line_code),
                     quaternary_line_code = COALESCE(?, target.quaternary_line_code),
-                    unit_cost            = COALESCE(?, target.unit_cost)
+                    unit_cost            = COALESCE(?, target.unit_cost),
+                    is_active            = 1
 
             WHEN NOT MATCHED THEN
                 INSERT (
                     item_code, item_description, abc_indicator, mrp_type,
                     pack_size_l, moq, pack_type_code, sku_status, units_per_pallet,
                     plant_code, primary_line_code, secondary_line_code,
-                    tertiary_line_code, quaternary_line_code, unit_cost
+                    tertiary_line_code, quaternary_line_code, unit_cost, is_active
                 )
                 VALUES (
                     ?, ?, ?, ?,
                     ?, ?, ?, ?, ?,
                     ?, ?, ?,
-                    ?, ?, ?
+                    ?, ?, ?, 1
                 );
             """,
             # MERGE key
@@ -813,6 +872,15 @@ def _import_sku_masterdata(conn, headers, data_rows, uploaded_by):
             tertiary_line_code, quaternary_line_code, unit_cost,
         )
         count += 1
+
+    # Soft-deactivate any item not present in this upload.
+    # Hard DELETE would fail due to ON DELETE NO ACTION FKs on master_stock / demand_plan.
+    if uploaded_codes:
+        placeholders = ",".join("?" * len(uploaded_codes))
+        cursor.execute(
+            f"UPDATE dbo.items SET is_active = 0 WHERE item_code NOT IN ({placeholders})",  # noqa: S608
+            *uploaded_codes,
+        )
 
     return count
 

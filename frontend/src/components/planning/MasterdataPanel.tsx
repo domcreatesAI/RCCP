@@ -27,10 +27,15 @@ const MASTERDATA_META: Record<string, { label: string; description: string }> = 
     label: 'warehouse_capacity',
     description: 'Max pallet positions per pack type per warehouse (UKP1, UKP3, UKP4, UKP5).',
   },
+  pack_types: {
+    label: 'pack_types',
+    description: 'Pack type categories (SMALL_PACK, 60L, BARREL_200L, IBC). Referenced by warehouse_capacity and SKU masterdata. Upload before warehouse_capacity.',
+  },
 }
 
 export const DISPLAY_ORDER = [
   'sku_masterdata',
+  'pack_types',
   'line_pack_capabilities',
   'line_resource_requirements',
   'plant_resource_requirements',
@@ -38,14 +43,27 @@ export const DISPLAY_ORDER = [
 ]
 
 function IssueHint({ issues, severity }: { issues: MasterdataIssue[]; severity: 'BLOCKED' | 'WARNING' }) {
+  const [expanded, setExpanded] = useState(false)
   if (issues.length === 0) return null
   const colour = severity === 'BLOCKED' ? 'text-red-600' : 'text-amber-600'
+  const shown = expanded ? issues : issues.slice(0, 1)
+  const toggleLabel = expanded
+    ? 'show less'
+    : issues.length > 1
+      ? `+${issues.length - 1} more`
+      : 'show more'
   return (
-    <div className="mt-1 max-w-[240px]">
-      <p className={`text-xs ${colour} leading-tight line-clamp-2`}>{issues[0].message}</p>
-      {issues.length > 1 && (
-        <p className="text-xs text-gray-400">+{issues.length - 1} more</p>
-      )}
+    <div className="mt-1 max-w-[280px]">
+      {shown.map((issue, i) => (
+        <p key={i} className={`text-xs ${colour} leading-tight ${expanded ? '' : 'line-clamp-2'}`}>
+          {issue.message}
+        </p>
+      ))}
+      <button
+        onClick={() => setExpanded(e => !e)}
+        className="text-xs text-gray-400 hover:text-gray-600 underline mt-0.5">
+        {toggleLabel}
+      </button>
     </div>
   )
 }

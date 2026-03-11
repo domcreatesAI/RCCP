@@ -137,7 +137,10 @@ export function BatchActionBar({ batch }: ActionBarProps) {
       toast.success('Validation complete')
       queryClient.invalidateQueries({ queryKey: ['batch', batch.batch_id] })
     },
-    onError: () => toast.error('Validation failed'),
+    onError: (err: unknown) => {
+      const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+      toast.error(detail ? `Validation failed: ${detail}` : 'Validation failed — check backend logs')
+    },
   })
 
   const resetMutation = useMutation({

@@ -17,6 +17,7 @@ MASTERDATA_TEMPLATE_TYPES = frozenset([
     "line_resource_requirements",
     "plant_resource_requirements",
     "warehouse_capacity",
+    "pack_types",
 ])
 
 

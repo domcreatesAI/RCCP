@@ -141,8 +141,11 @@ FILE_SCHEMAS: dict = {
         "fk_checks": {
             "plant": ("dbo.warehouses", "warehouse_code"),
         },
-        # No material FK check — master_stock IS the reference for SKUs in a batch.
-        # Other files are checked against master_stock in stage 8 (cross-file).
+        # Soft FK — material should exist in dbo.items (sku_masterdata), but WARNING not BLOCKED
+        # because master_stock may contain materials not yet loaded into sku_masterdata.
+        "warning_fk_checks": {
+            "material": ("dbo.items", "item_code"),
+        },
         "min_rows": 1,
     },
     "demand_plan": {
@@ -205,9 +208,10 @@ FILE_SCHEMAS: dict = {
         "is_sap": False,
         "header_row": 2,
         "data_start_row": 3,
-        # initial_demand required column; value required only when change_type = NEW_LAUNCH (stage 6)
+        # Required columns must be present in the header even if there are 0 data rows.
+        # Stage 6 validates NEW_LAUNCH row content when data rows exist.
         "required": ["change_type", "effective_date", "initial_demand"],
-        "optional": ["item_code", "description", "impact_notes"],
+        "optional": [],
         "types": {
             "change_type":    ("enum", ["NEW_LAUNCH", "DISCONTINUE", "REFORMULATION", "LINE_CHANGE", "OTHER"]),
             "effective_date": "date",
@@ -257,7 +261,10 @@ FILE_SCHEMAS: dict = {
         "fk_checks": {
             "plant": ("dbo.warehouses", "warehouse_code"),
         },
-        # No material FK check — validated against master_stock in stage 8 (cross-file).
+        # Soft FK — material should exist in dbo.items (sku_masterdata), WARNING not BLOCKED.
+        "warning_fk_checks": {
+            "material": ("dbo.items", "item_code"),
+        },
         "min_rows": 1,
     },
 }
@@ -346,9 +353,19 @@ def run_validation(
         try:
             _stage8(cursor, conn, batch_id, batch_file_id, file_type, stored_file_path)
         except Exception as exc:
-            # Stage 8 is advisory only — never let it prevent the commit or hide a real status
-            _write(cursor, batch_file_id, 8, STAGE_NAMES[8], "WARNING",
-                   f"Cross-file check could not complete: {str(exc)[:300]}")
+            # Stage 8 is advisory only — log but don't let it block the commit.
+            # Use a fresh cursor so a failed stage 8 INSERT doesn't poison the transaction.
+            try:
+                c_err = conn.cursor()
+                c_err.execute(
+                    """INSERT INTO dbo.import_validation_results
+                           (batch_file_id, validation_stage, stage_name, severity, message)
+                       VALUES (?, 8, 'CROSS_FILE_CHECK', 'WARNING', ?)""",
+                    batch_file_id,
+                    f"Cross-file check could not complete: {str(exc)[:300]}",
+                )
+            except Exception:
+                pass  # If even the fallback write fails, silently skip — don't block commit
 
     # Update validation_status on the file record (stages 2-6 only; stage 8 is WARNING-only)
     _update_file_status(cursor, batch_file_id)
@@ -508,17 +525,16 @@ def _stage4(cursor, batch_file_id: int, schema: dict, headers: list, data_rows: 
 def _stage5(cursor, conn: pyodbc.Connection, batch_file_id: int,
             schema: dict, headers: list, data_rows: list) -> None:
     stage_num, stage_name = 5, STAGE_NAMES[5]
-    fk_checks = schema.get("fk_checks", {})
     header_set = set(headers)
     errors: list[tuple] = []
 
-    for col, (table, pk_col) in fk_checks.items():
+    # Hard FK checks — BLOCKED if value not found
+    for col, (table, pk_col) in schema.get("fk_checks", {}).items():
         if col not in header_set:
             continue
         c2 = conn.cursor()
-        c2.execute(f"SELECT {pk_col} FROM {table}")  # noqa: S608 — table/col from trusted constants
+        c2.execute(f"SELECT {pk_col} FROM {table}")  # noqa: S608
         valid_values = {str(r[0]).strip() for r in c2.fetchall()}
-
         for row_num, row_dict in data_rows:
             val = row_dict.get(col)
             if val is None or (isinstance(val, str) and val.strip() == ""):
@@ -526,6 +542,24 @@ def _stage5(cursor, conn: pyodbc.Connection, batch_file_id: int,
             if str(val).strip() not in valid_values:
                 errors.append((row_num, col, "BLOCKED",
                                f"'{val}' not found in {table} ({pk_col})", str(val)))
+
+    # Soft FK checks — WARNING if value not found (file still imports)
+    for col, (table, pk_col) in schema.get("warning_fk_checks", {}).items():
+        if col not in header_set:
+            continue
+        c2 = conn.cursor()
+        c2.execute(f"SELECT {pk_col} FROM {table}")  # noqa: S608
+        valid_values = {str(r[0]).strip() for r in c2.fetchall()}
+        missing = {
+            str(row_dict.get(col)).strip()
+            for _, row_dict in data_rows
+            if row_dict.get(col) and str(row_dict.get(col)).strip() not in valid_values
+        }
+        for val in sorted(missing):
+            errors.append((None, col, "WARNING",
+                           f"'{val}' not found in {table} ({pk_col}) — "
+                           f"SKU masterdata missing, RCCP engine cannot process this material",
+                           val))
 
     _emit_errors(cursor, batch_file_id, stage_num, stage_name, errors,
                  pass_msg="All reference checks passed")
@@ -589,6 +623,40 @@ def _stage6(cursor, batch_file_id: int, file_type: str,
                 if val is not None and _is_valid_decimal(val) and float(val) < 0:
                     errors.append((row_num, col, "BLOCKED",
                                    f"{col} cannot be negative: {val}", str(val)))
+
+        # SKU attribute completeness: for materials that exist in dbo.items,
+        # warn if pack_size_l / pack_type_code / units_per_pallet are null —
+        # the RCCP engine cannot calculate capacity or warehouse usage without them.
+        if "material" in header_set:
+            materials_in_file = {
+                str(row_dict.get("material", "")).strip()
+                for _, row_dict in data_rows
+                if row_dict.get("material")
+            }
+            if materials_in_file:
+                placeholders = ",".join("?" * len(materials_in_file))
+                cursor.execute(
+                    f"""
+                    SELECT item_code,
+                           CASE WHEN pack_size_l      IS NULL THEN 1 ELSE 0 END,
+                           CASE WHEN pack_type_code   IS NULL THEN 1 ELSE 0 END,
+                           CASE WHEN units_per_pallet IS NULL THEN 1 ELSE 0 END
+                    FROM dbo.items
+                    WHERE item_code IN ({placeholders})
+                      AND (pack_size_l IS NULL OR pack_type_code IS NULL OR units_per_pallet IS NULL)
+                    """,  # noqa: S608
+                    *materials_in_file,
+                )
+                for row in cursor.fetchall():
+                    item_code, no_size, no_type, no_pallet = row
+                    missing_attrs = []
+                    if no_size:   missing_attrs.append("pack_size_l")
+                    if no_type:   missing_attrs.append("pack_type_code")
+                    if no_pallet: missing_attrs.append("units_per_pallet")
+                    errors.append((None, "material", "WARNING",
+                                   f"'{item_code}' is missing SKU attributes: "
+                                   f"{', '.join(missing_attrs)} — upload sku_masterdata to fix",
+                                   item_code))
 
     elif file_type == "portfolio_changes":
         # initial_demand must be a positive number on NEW_LAUNCH rows

@@ -288,6 +288,27 @@ TEMPLATES: dict[str, dict] = {
             ["UKP3", "SMALL_PACK",   300],
         ],
     },
+    "pack_types": {
+        "title": "Pack Types",
+        "description": (
+            "Reference list of pack type categories used for warehouse capacity planning. "
+            "Each row defines one pack type (e.g. SMALL_PACK, 60L, BARREL_200L, IBC). "
+            "Uploaded via MERGE — existing codes are updated, new codes are added. "
+            "Codes referenced by other data (items, warehouse_capacity) cannot be removed by upload."
+        ),
+        "columns": [
+            ("pack_type_code", "Pack Type Code", "Unique identifier for this pack type (e.g. SMALL_PACK, 60L, BARREL_200L, IBC). Required.", "SMALL_PACK"),
+            ("pack_type_name", "Pack Type Name", "Human-readable name for this pack type. Required.",                                          "Small Pack (1L, 2L, 5L)"),
+            ("notes",          "Notes",          "Optional notes about this pack type.",                                                       ""),
+            ("is_active",      "Is Active",      "1 = active (used in validation), 0 = inactive. Defaults to 1 if omitted.",                  "1"),
+        ],
+        "sample_rows": [
+            ["SMALL_PACK",  "Small Pack (1L, 2L, 5L)", "",  1],
+            ["60L",         "60 Litre Drum",           "",  1],
+            ["BARREL_200L", "200 Litre Barrel",        "",  1],
+            ["IBC",         "IBC",                     "",  1],
+        ],
+    },
 }
 
 # ---------------------------------------------------------------------------
