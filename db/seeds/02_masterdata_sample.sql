@@ -67,16 +67,16 @@ GO
 -- =============================================================================
 -- PLANTS
 -- Manufacturing areas within UKP1 (Gravesend).
--- A1–A5 are physical filling halls, each containing one or more filling lines.
+-- P1–P5 are physical filling halls, each containing one or more filling lines.
 -- All linked to warehouse_code = UKP1 (all manufacturing is at Gravesend).
 -- =============================================================================
 MERGE dbo.plants AS target
 USING (VALUES
-    ('A1', 'Plant A1', 'UKP1', 1),
-    ('A2', 'Plant A2', 'UKP1', 1),
-    ('A3', 'Plant A3', 'UKP1', 1),
-    ('A4', 'Plant A4', 'UKP1', 1),
-    ('A5', 'Plant A5', 'UKP1', 1)
+    ('P1', 'Plant 1', 'UKP1', 1),
+    ('P2', 'Plant 2', 'UKP1', 1),
+    ('P3', 'Plant 3', 'UKP1', 1),
+    ('P4', 'Plant 4', 'UKP1', 1),
+    ('P5', 'Plant 5', 'UKP1', 1)
 ) AS source (plant_code, plant_name, warehouse_code, is_active)
 ON target.plant_code = source.plant_code
 WHEN NOT MATCHED THEN
@@ -96,14 +96,14 @@ GO
 -- physical ceiling on simultaneous line runs (space/equipment constraint).
 -- Headcount requirements per line are in line_resource_requirements below.
 --
--- NOTE: Plant A4 (line A401) uses a dedicated crew — no shared pool.
+-- NOTE: Plant P4 (line A401) uses a dedicated crew — no shared pool.
 -- =============================================================================
 MERGE dbo.labour_pools AS target
 USING (VALUES
-    ('POOL-A1', 'Plant A1 Filling Crew', 'A1', 3, 'Lines A101, A102, A103'),
-    ('POOL-A2', 'Plant A2 Filling Crew', 'A2', 2, 'Lines A201, A202'),
-    ('POOL-A3', 'Plant A3 Filling Crew', 'A3', 6, 'Lines A302–A305, A307, A308 (A306 not in use)'),
-    ('POOL-A5', 'Plant A5 Filling Crew', 'A5', 2, 'Lines A501, A502')
+    ('POOL-A1', 'Plant 1 Filling Crew', 'P1', 3, 'Lines A101, A102, A103'),
+    ('POOL-A2', 'Plant 2 Filling Crew', 'P2', 2, 'Lines A201, A202'),
+    ('POOL-A3', 'Plant 3 Filling Crew', 'P3', 6, 'Lines A302–A305, A307, A308 (A306 not in use)'),
+    ('POOL-A5', 'Plant 5 Filling Crew', 'P5', 2, 'Lines A501, A502')
 ) AS source (pool_code, pool_name, plant_code, max_concurrent_lines, notes)
 ON target.pool_code = source.pool_code
 WHEN NOT MATCHED THEN
@@ -133,20 +133,20 @@ GO
 -- =============================================================================
 MERGE dbo.lines AS target
 USING (VALUES
-    ('A101', 'Line A101', 'A1', 'POOL-A1', 0.55, 420, 1),
-    ('A102', 'Line A102', 'A1', 'POOL-A1', 0.55, 420, 1),
-    ('A103', 'Line A103', 'A1', 'POOL-A1', 0.55, 420, 1),
-    ('A201', 'Line A201', 'A2', 'POOL-A2', 0.55, 420, 1),
-    ('A202', 'Line A202', 'A2', 'POOL-A2', 0.55, 420, 1),
-    ('A302', 'Line A302', 'A3', 'POOL-A3', 0.55, 420, 1),
-    ('A303', 'Line A303', 'A3', 'POOL-A3', 0.55, 420, 1),
-    ('A304', 'Line A304', 'A3', 'POOL-A3', 0.55, 420, 1),
-    ('A305', 'Line A305', 'A3', 'POOL-A3', 0.55, 420, 1),
-    ('A307', 'Line A307', 'A3', 'POOL-A3', 0.55, 420, 1),
-    ('A308', 'Line A308', 'A3', 'POOL-A3', 0.55, 420, 1),
-    ('A401', 'Line A401', 'A4', NULL,       0.55, 420, 1),
-    ('A501', 'Line A501', 'A5', 'POOL-A5', 0.55, 420, 1),
-    ('A502', 'Line A502', 'A5', 'POOL-A5', 0.55, 420, 1)
+    ('A101', 'Line A101', 'P1', 'POOL-A1', 0.55, 420, 1),
+    ('A102', 'Line A102', 'P1', 'POOL-A1', 0.55, 420, 1),
+    ('A103', 'Line A103', 'P1', 'POOL-A1', 0.55, 420, 1),
+    ('A201', 'Line A201', 'P2', 'POOL-A2', 0.55, 420, 1),
+    ('A202', 'Line A202', 'P2', 'POOL-A2', 0.55, 420, 1),
+    ('A302', 'Line A302', 'P3', 'POOL-A3', 0.55, 420, 1),
+    ('A303', 'Line A303', 'P3', 'POOL-A3', 0.55, 420, 1),
+    ('A304', 'Line A304', 'P3', 'POOL-A3', 0.55, 420, 1),
+    ('A305', 'Line A305', 'P3', 'POOL-A3', 0.55, 420, 1),
+    ('A307', 'Line A307', 'P3', 'POOL-A3', 0.55, 420, 1),
+    ('A308', 'Line A308', 'P3', 'POOL-A3', 0.55, 420, 1),
+    ('A401', 'Line A401', 'P4', NULL,       0.55, 420, 1),
+    ('A501', 'Line A501', 'P5', 'POOL-A5', 0.55, 420, 1),
+    ('A502', 'Line A502', 'P5', 'POOL-A5', 0.55, 420, 1)
 ) AS source (line_code, line_name, plant_code, labour_pool_code, oee_target, available_mins_per_day, is_active)
 ON target.line_code = source.line_code
 WHEN NOT MATCHED THEN
@@ -181,13 +181,13 @@ GO
 MERGE dbo.items AS target
 USING (VALUES
     --  item_code  description                         item_type       item_group  plant  pack_size_l  pack_type     units_per_pallet  sku_status  is_active
-    ('101233', 'X-FLOW TYPE G 5W40 4x4L',      'FINISHED_GOOD', '4L',  'A1', 4.0000, 'SMALL_PACK', NULL, NULL, 1),  -- units_per_pallet TBC
-    ('101322', 'COMMA XTECH 5W30 4x5L',         'FINISHED_GOOD', '5L',  'A1', 5.0000, 'SMALL_PACK', 120,  NULL, 1),
-    ('101108', 'COMMA PROLIFE 5W30 4x5L',        'FINISHED_GOOD', '5L',  'A1', 5.0000, 'SMALL_PACK', 120,  NULL, 1),
-    ('101218', 'X-FLOW TYPE F 5W30 4X5L',        'FINISHED_GOOD', '5L',  'A1', 5.0000, 'SMALL_PACK', 120,  NULL, 1),
-    ('101221', 'X-FLOW TYPE FE 0W30 12x1L',      'FINISHED_GOOD', '1L',  'A1', 1.0000, 'SMALL_PACK', NULL, NULL, 1),  -- units_per_pallet TBC
-    ('500014', '5W-30 ADVANCED',                 'SEMI_FINISHED', NULL,  'A1', NULL,   NULL,         NULL, NULL, 1),  -- blending base, no pack
-    ('500027', 'SYNER-Z 5W30',                   'SEMI_FINISHED', NULL,  'A1', NULL,   NULL,         NULL, NULL, 1)   -- blending base, no pack
+    ('101233', 'X-FLOW TYPE G 5W40 4x4L',      'FINISHED_GOOD', '4L',  'P1', 4.0000, 'SMALL_PACK', NULL, NULL, 1),  -- units_per_pallet TBC
+    ('101322', 'COMMA XTECH 5W30 4x5L',         'FINISHED_GOOD', '5L',  'P1', 5.0000, 'SMALL_PACK', 120,  NULL, 1),
+    ('101108', 'COMMA PROLIFE 5W30 4x5L',        'FINISHED_GOOD', '5L',  'P1', 5.0000, 'SMALL_PACK', 120,  NULL, 1),
+    ('101218', 'X-FLOW TYPE F 5W30 4X5L',        'FINISHED_GOOD', '5L',  'P1', 5.0000, 'SMALL_PACK', 120,  NULL, 1),
+    ('101221', 'X-FLOW TYPE FE 0W30 12x1L',      'FINISHED_GOOD', '1L',  'P1', 1.0000, 'SMALL_PACK', NULL, NULL, 1),  -- units_per_pallet TBC
+    ('500014', '5W-30 ADVANCED',                 'SEMI_FINISHED', NULL,  'P1', NULL,   NULL,         NULL, NULL, 1),  -- blending base, no pack
+    ('500027', 'SYNER-Z 5W30',                   'SEMI_FINISHED', NULL,  'P1', NULL,   NULL,         NULL, NULL, 1)   -- blending base, no pack
 ) AS source (item_code, item_description, item_type, item_group_code, plant_code,
              pack_size_l, pack_type_code, units_per_pallet, sku_status, is_active)
 ON target.item_code = source.item_code
@@ -213,13 +213,13 @@ PRINT 'Items seeded.';
 GO
 
 -- =============================================================================
--- ITEM RESOURCE RULES — PLANT A1 ONLY
+-- ITEM RESOURCE RULES — PLANT P1 ONLY
 --
 -- *** IMPORTANT: standard_hours_per_unit values are PLACEHOLDERS ***
 -- Replace with actual run rates from manufacturing engineering before
 -- any RCCP calculations are performed.
 --
--- Rules for Plants A2–A5 to be added via Config & Masterdata (Phase 5)
+-- Rules for Plants P2–P5 to be added via Config & Masterdata (Phase 5)
 -- or via a future seed script once run rates are confirmed.
 -- =============================================================================
 MERGE dbo.item_resource_rules AS target
@@ -242,7 +242,7 @@ WHEN NOT MATCHED THEN
 -- No WHEN MATCHED — rule edits go through the versioned publish workflow
 -- (archive old rule, insert new with version + 1).
 
-PRINT 'Item resource rules seeded (Plant A1 only — PLACEHOLDERS).';
+PRINT 'Item resource rules seeded (Plant P1 only — PLACEHOLDERS).';
 GO
 
 -- =============================================================================
@@ -277,10 +277,10 @@ PRINT 'Resource types seeded.';
 GO
 
 -- =============================================================================
--- LINE RESOURCE REQUIREMENTS — PLANT A1 ONLY
+-- LINE RESOURCE REQUIREMENTS — PLANT P1 ONLY
 -- Headcount needed per role to run each line.
 -- Data from the resource matrix provided (Feb 2026).
--- Plants A2–A5 to be added when data is confirmed.
+-- Plants P2–P5 to be added when data is confirmed.
 -- =============================================================================
 MERGE dbo.line_resource_requirements AS target
 USING (VALUES
@@ -300,21 +300,21 @@ WHEN MATCHED THEN
     UPDATE SET headcount_required = source.headcount_required,
                updated_at         = GETUTCDATE();
 
-PRINT 'Line resource requirements seeded (Plant A1 only).';
+PRINT 'Line resource requirements seeded (Plant P1 only).';
 GO
 
 -- =============================================================================
--- PLANT RESOURCE REQUIREMENTS — PLANT A1 ONLY
+-- PLANT RESOURCE REQUIREMENTS — PLANT P1 ONLY
 -- Shared headcount needed at plant level (regardless of how many lines run).
 -- Data from the resource matrix provided (Feb 2026).
--- Plants A2–A5 to be added when data is confirmed.
+-- Plants P2–P5 to be added when data is confirmed.
 -- =============================================================================
 MERGE dbo.plant_resource_requirements AS target
 USING (VALUES
     -- plant  resource_type        headcount
-    ('A1', 'ROBOT_OPERATOR',   1),
-    ('A1', 'FORKLIFT_DRIVER',  2),
-    ('A1', 'MATERIAL_HANDLER', 1)
+    ('P1', 'ROBOT_OPERATOR',   1),
+    ('P1', 'FORKLIFT_DRIVER',  2),
+    ('P1', 'MATERIAL_HANDLER', 1)
 ) AS source (plant_code, resource_type_code, headcount_required)
 ON target.plant_code = source.plant_code AND target.resource_type_code = source.resource_type_code
 WHEN NOT MATCHED THEN
@@ -324,7 +324,7 @@ WHEN MATCHED THEN
     UPDATE SET headcount_required = source.headcount_required,
                updated_at         = GETUTCDATE();
 
-PRINT 'Plant resource requirements seeded (Plant A1 only).';
+PRINT 'Plant resource requirements seeded (Plant P1 only).';
 GO
 
 -- =============================================================================
@@ -430,22 +430,22 @@ PRINT '';
 PRINT '=== Masterdata seed complete ===';
 PRINT '  Warehouses:                   4 (UKP1, UKP3, UKP4, UKP5)';
 PRINT '  Pack types:                   4 (Small Pack, 60L, Barrel 200L, IBC)';
-PRINT '  Plants:                       5 (A1–A5, all linked to UKP1)';
+PRINT '  Plants:                       5 (P1–P5, all linked to UKP1)';
 PRINT '  Labour pools:                 4 (POOL-A1, A2, A3, A5)';
 PRINT '  Lines:                       14 (A101–A103, A201–A202, A302–A308, A401, A501–A502)';
 PRINT '  Items:                        7 (5 finished goods, 2 semi-finished)';
-PRINT '  Item resource rules:          5 (Plant A1 only — PLACEHOLDER std hrs)';
+PRINT '  Item resource rules:          5 (Plant P1 only — PLACEHOLDER std hrs)';
 PRINT '  Resource types:               5 (Line Operator, Team Leader, Robot Operator,';
 PRINT '                                   Forklift Driver, Material Handler)';
-PRINT '  Line resource requirements:   6 (Plant A1 lines only)';
-PRINT '  Plant resource requirements:  3 (Plant A1 only)';
+PRINT '  Line resource requirements:   6 (Plant P1 lines only)';
+PRINT '  Plant resource requirements:  3 (Plant P1 only)';
 PRINT '  Line pack capabilities:      34 rows (speeds TBC for most lines)';
 PRINT '  Warehouse capacity:           0 rows (placeholder structure only)';
 PRINT '';
 PRINT '  REQUIRED BEFORE PHASE 2:';
 PRINT '    - Replace placeholder standard_hours_per_unit in item_resource_rules';
 PRINT '    - Confirm units_per_pallet for 1L and 4L items (101233, 101221)';
-PRINT '    - Add resource requirements for Plants A2–A5';
+PRINT '    - Add resource requirements for Plants P2–P5';
 PRINT '    - Confirm bottles_per_minute for all lines with NULL speed';
 PRINT '    - Enter actual warehouse capacity (pallet positions) per pack type';
 PRINT '    - Set standard_hourly_rate on resource_types';

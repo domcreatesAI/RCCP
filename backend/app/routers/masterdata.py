@@ -12,6 +12,7 @@ router = APIRouter(prefix="/masterdata", tags=["masterdata"])
 
 # Types that have a downloadable Excel template
 MASTERDATA_TEMPLATE_TYPES = frozenset([
+    "sku_masterdata",
     "line_pack_capabilities",
     "line_resource_requirements",
     "plant_resource_requirements",

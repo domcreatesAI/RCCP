@@ -2,12 +2,13 @@
 Masterdata upload service.
 
 Handles validation (synchronous, not persisted) and full-replace import
-for all 4 masterdata file types:
+for all masterdata file types:
 
-  line_pack_capabilities      → line_pack_capabilities table
-  line_resource_requirements  → line_resource_requirements table
-  plant_resource_requirements → plant_resource_requirements table
-  warehouse_capacity          → warehouse_capacity table
+  line_pack_capabilities      → line_pack_capabilities table (full replace)
+  line_resource_requirements  → line_resource_requirements table (full replace)
+  plant_resource_requirements → plant_resource_requirements table (full replace)
+  warehouse_capacity          → warehouse_capacity table (full replace)
+  sku_masterdata              → dbo.items (MERGE/upsert by item_code — never deletes)
 
 Stages run: 2 (structure), 3 (field mapping), 4 (data types), 5 (FK checks), 6 (rules)
 BLOCKED → reject upload, data not imported.
@@ -43,6 +44,43 @@ from app.services.excel_utils import (
 # ---------------------------------------------------------------------------
 
 MASTERDATA_SCHEMAS: dict = {
+    "sku_masterdata": {
+        "header_row": 2,
+        # item_code is the only required column — all attributes are optional
+        # so a partial upload (e.g. new SKUs only) is valid.
+        "required": ["item_code"],
+        "optional": [
+            "item_description", "abc_indicator", "mrp_type", "pack_size_l",
+            "moq", "pack_type_code", "sku_status", "rounding_value",
+            "plant_code", "primary_line_code", "secondary_line_code",
+            "tertiary_line_code", "quaternary_line_code", "unit_cost",
+        ],
+        "types": {
+            "item_code":            "str",
+            "item_description":     "str",
+            "abc_indicator":        "str",
+            "mrp_type":             "str",
+            "pack_size_l":          "decimal",
+            "moq":                  "decimal",
+            "pack_type_code":       "str",
+            "sku_status":           "int",
+            "rounding_value":       "decimal",
+            "plant_code":           "str",
+            "primary_line_code":    "str",
+            "secondary_line_code":  "str",
+            "tertiary_line_code":   "str",
+            "quaternary_line_code": "str",
+            "unit_cost":            "decimal",
+        },
+        "fk_checks": {
+            "pack_type_code":       ("dbo.pack_types", "pack_type_code"),
+            "plant_code":           ("dbo.plants",     "plant_code"),
+            "primary_line_code":    ("dbo.lines",      "line_code"),
+            "secondary_line_code":  ("dbo.lines",      "line_code"),
+            "tertiary_line_code":   ("dbo.lines",      "line_code"),
+            "quaternary_line_code": ("dbo.lines",      "line_code"),
+        },
+    },
     "line_pack_capabilities": {
         "header_row": 2,
         # bottles_per_minute promoted to required
@@ -110,6 +148,8 @@ _MASTERDATA_TABLE: dict[str, str] = {
     "line_resource_requirements":  "dbo.line_resource_requirements",
     "plant_resource_requirements": "dbo.plant_resource_requirements",
     "warehouse_capacity":          "dbo.warehouse_capacity",
+    # sku_masterdata upserts into dbo.items — no dedicated table to count rows from
+    # (table_row_count for sku_masterdata is derived from dbo.items directly in get_status)
 }
 
 
@@ -258,6 +298,10 @@ def get_status(conn: pyodbc.Connection) -> list[dict]:
     for t, table in _MASTERDATA_TABLE.items():
         cursor.execute(f"SELECT COUNT(*) FROM {table}")  # noqa: S608
         table_counts[t] = cursor.fetchone()[0]
+
+    # sku_masterdata rows live in dbo.items
+    cursor.execute("SELECT COUNT(*) FROM dbo.items")
+    table_counts["sku_masterdata"] = cursor.fetchone()[0]
 
     return [
         {
@@ -585,6 +629,7 @@ def _import(conn: pyodbc.Connection, masterdata_type: str, schema: dict,
         "line_resource_requirements":  _import_line_resource_requirements,
         "plant_resource_requirements": _import_plant_resource_requirements,
         "warehouse_capacity":          _import_warehouse_capacity,
+        "sku_masterdata":              _import_sku_masterdata,
     }
     return handlers[masterdata_type](conn, headers, data_rows, uploaded_by)
 
@@ -672,6 +717,103 @@ def _import_warehouse_capacity(conn, headers, data_rows, uploaded_by):
             uploaded_by,
         )
         count += 1
+    return count
+
+
+def _import_sku_masterdata(conn, headers, data_rows, uploaded_by):
+    """MERGE sku_masterdata rows into dbo.items.
+
+    Uses MERGE (upsert) by item_code:
+      - WHEN MATCHED: update all non-null attribute columns (COALESCE keeps existing values
+        when a cell is blank — allows partial uploads that only update specific fields).
+      - WHEN NOT MATCHED: insert a new item row.
+
+    Never deletes rows from dbo.items — removals must be done manually.
+    """
+    header_set = set(headers)
+    cursor = conn.cursor()
+    count = 0
+
+    for _, row in data_rows:
+        item_code = _get_str(row, "item_code", header_set)
+        if not item_code:
+            continue
+
+        item_description     = _get_str(row, "item_description",     header_set)
+        abc_indicator        = _get_str(row, "abc_indicator",        header_set)
+        mrp_type             = _get_str(row, "mrp_type",             header_set)
+        pack_size_l          = _get_decimal(row, "pack_size_l",      header_set)
+        moq                  = _get_decimal(row, "moq",              header_set)
+        pack_type_code       = _get_str(row, "pack_type_code",       header_set)
+        rounding_value       = _get_decimal(row, "rounding_value",   header_set)
+        units_per_pallet     = int(rounding_value) if rounding_value is not None and rounding_value > 0 else None
+        plant_code           = _get_str(row, "plant_code",           header_set)
+        primary_line_code    = _get_str(row, "primary_line_code",    header_set)
+        secondary_line_code  = _get_str(row, "secondary_line_code",  header_set)
+        tertiary_line_code   = _get_str(row, "tertiary_line_code",   header_set)
+        quaternary_line_code = _get_str(row, "quaternary_line_code", header_set)
+        unit_cost            = _get_decimal(row, "unit_cost",        header_set)
+
+        # sku_status: valid values 1, 2, 3
+        sku_status: int | None = None
+        raw_status = row.get("sku_status") if "sku_status" in header_set else None
+        if raw_status is not None and str(raw_status).strip():
+            from app.services.excel_utils import is_valid_int as _iv
+            if _iv(raw_status) and int(float(raw_status)) in (1, 2, 3):
+                sku_status = int(float(raw_status))
+
+        cursor.execute(
+            """
+            MERGE dbo.items AS target
+            USING (SELECT ? AS item_code) AS source
+            ON target.item_code = source.item_code
+
+            WHEN MATCHED THEN
+                UPDATE SET
+                    item_description     = COALESCE(?, target.item_description),
+                    abc_indicator        = COALESCE(?, target.abc_indicator),
+                    mrp_type             = COALESCE(?, target.mrp_type),
+                    pack_size_l          = COALESCE(?, target.pack_size_l),
+                    moq                  = COALESCE(?, target.moq),
+                    pack_type_code       = COALESCE(?, target.pack_type_code),
+                    sku_status           = COALESCE(?, target.sku_status),
+                    units_per_pallet     = COALESCE(?, target.units_per_pallet),
+                    plant_code           = COALESCE(?, target.plant_code),
+                    primary_line_code    = COALESCE(?, target.primary_line_code),
+                    secondary_line_code  = COALESCE(?, target.secondary_line_code),
+                    tertiary_line_code   = COALESCE(?, target.tertiary_line_code),
+                    quaternary_line_code = COALESCE(?, target.quaternary_line_code),
+                    unit_cost            = COALESCE(?, target.unit_cost)
+
+            WHEN NOT MATCHED THEN
+                INSERT (
+                    item_code, item_description, abc_indicator, mrp_type,
+                    pack_size_l, moq, pack_type_code, sku_status, units_per_pallet,
+                    plant_code, primary_line_code, secondary_line_code,
+                    tertiary_line_code, quaternary_line_code, unit_cost
+                )
+                VALUES (
+                    ?, ?, ?, ?,
+                    ?, ?, ?, ?, ?,
+                    ?, ?, ?,
+                    ?, ?, ?
+                );
+            """,
+            # MERGE key
+            item_code,
+            # UPDATE SET values (COALESCE pairs)
+            item_description, abc_indicator, mrp_type,
+            pack_size_l, moq, pack_type_code, sku_status, units_per_pallet,
+            plant_code, primary_line_code, secondary_line_code,
+            tertiary_line_code, quaternary_line_code, unit_cost,
+            # INSERT values
+            item_code, item_description, abc_indicator, mrp_type,
+            pack_size_l, moq, pack_type_code, sku_status, units_per_pallet,
+            plant_code, primary_line_code, secondary_line_code,
+            tertiary_line_code, quaternary_line_code, unit_cost,
+        )
+        count += 1
+
     return count
 
 

@@ -1,5 +1,10 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { motion } from 'motion/react'
+import {
+  Database, RefreshCw, Archive, Send, CheckCircle2, Info,
+} from 'lucide-react'
+import { toast } from 'sonner'
 import FileRow from './FileRow'
 import { MasterdataRow, DISPLAY_ORDER } from './MasterdataPanel'
 import { validateBatch, resetBatch, publishBatch } from '../../api/batches'
@@ -23,70 +28,79 @@ export default function FileUploadTable({ batch }: Props) {
   const filesByType = Object.fromEntries(
     (batch.files ?? []).map((f) => [f.file_type, f])
   )
-
   const requiredPresent = REQUIRED_FILES.filter((ft) => filesByType[ft]).length
-
-  const colHeaders = ['File', 'Status', 'Uploaded by', 'Time', 'Actions']
+  const isLocked = batch.status === 'PUBLISHED' || batch.status === 'ARCHIVED'
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-      {/* Card header */}
-      <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
-        <div>
-          <p className="text-sm font-semibold text-gray-900">Planning data</p>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Upload and validate all files for this planning cycle.{' '}
-            <span className="font-medium">portfolio_changes</span> accepts an empty file if no changes apply.
-          </p>
-        </div>
-        <span className={`text-sm font-semibold ${requiredPresent === 6 ? 'text-green-600' : 'text-red-600'}`}>
-          {requiredPresent}/6 required
-        </span>
-      </div>
+    <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden"
+      style={{ boxShadow: '0 1px 6px rgba(0,0,0,0.05)' }}>
 
-      <table className="w-full">
-        <thead>
-          <tr className="bg-gray-50">
-            {colHeaders.map((h) => (
-              <th key={h} className="py-2 px-4 text-left text-xs font-medium text-gray-500">
-                {h}
-              </th>
+      {/* Single unified table */}
+      <div className="px-5 pt-4 pb-5">
+        <table className="w-full text-sm">
+          <thead>
+            <tr style={{ borderBottom: '1px solid #F1F5F9' }}>
+              {['File', 'Status', 'Ver.', 'Uploaded by', 'Time', 'Actions'].map((h) => (
+                <th key={h} className="text-left pb-2 text-xs font-semibold text-gray-500 whitespace-nowrap pr-3">{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {/* SAP Batch Files section header */}
+            <tr style={{ background: 'linear-gradient(to right, #F8FAFC, white)' }}>
+              <td colSpan={6} className="pt-3 pb-2 pr-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <div className="text-sm font-bold text-gray-900">SAP Batch Files</div>
+                    <div className="text-xs text-gray-500 mt-0.5">
+                      6 required files from SAP — all must be present before batch can be published
+                    </div>
+                  </div>
+                  <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-semibold
+                    ${requiredPresent < 6
+                      ? 'bg-red-50 border-red-200 text-red-700'
+                      : 'bg-emerald-50 border-emerald-200 text-emerald-700'}`}>
+                    {requiredPresent}/6 present
+                  </div>
+                </div>
+              </td>
+            </tr>
+
+            {REQUIRED_FILES.map((ft, i) => (
+              <FileRow
+                key={ft}
+                batchId={batch.batch_id}
+                fileType={ft}
+                file={filesByType[ft]}
+                isLocked={isLocked}
+                index={i}
+              />
             ))}
-          </tr>
-        </thead>
 
-        {/* Required planning files */}
-        <tbody>
-          {REQUIRED_FILES.map((ft) => (
-            <FileRow
-              key={ft}
-              batchId={batch.batch_id}
-              fileType={ft}
-              file={filesByType[ft]}
-              isLocked={batch.status === 'PUBLISHED' || batch.status === 'ARCHIVED'}
-            />
-          ))}
-        </tbody>
+            {/* Masterdata section header */}
+            <tr>
+              <td colSpan={6} className="pt-5 pb-2 pr-3" style={{ borderTop: '1px solid #F1F5F9' }}>
+                <div className="flex items-center gap-2">
+                  <Database className="w-3.5 h-3.5 text-violet-500" />
+                  <div className="text-sm font-bold text-gray-900">Masterdata Uploads</div>
+                </div>
+                <div className="text-xs text-gray-500 mt-0.5 ml-[22px]">
+                  5 reference datasets — upload sku_masterdata first (upserts items). Others are full-replace.
+                </div>
+              </td>
+            </tr>
 
-        {/* Masterdata section */}
-        <tbody>
-          <tr className="bg-gray-50 border-t-2 border-gray-200">
-            <td colSpan={5} className="px-4 py-2">
-              <p className="text-xs font-semibold text-gray-500">Masterdata</p>
-              <p className="text-xs text-gray-400">
-                Update each cycle to ensure the capacity model uses current data.
-                BLOCKED issues reject the upload — fix the file and re-upload.
-              </p>
-            </td>
-          </tr>
-          {DISPLAY_ORDER.map((mdType) => (
-            <MasterdataRow key={mdType} mdType={mdType} />
-          ))}
-        </tbody>
-      </table>
+            {DISPLAY_ORDER.map((mdType, i) => (
+              <MasterdataRow key={mdType} mdType={mdType} index={i} />
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }
+
+// ─── Batch Action Bar ─────────────────────────────────────────────────────────
 
 interface ActionBarProps {
   batch: Batch
@@ -95,7 +109,6 @@ interface ActionBarProps {
 export function BatchActionBar({ batch }: ActionBarProps) {
   const queryClient = useQueryClient()
   const [resetConfirm, setResetConfirm] = useState(false)
-  const [publishError, setPublishError] = useState<string | null>(null)
   const [baselineName, setBaselineName] = useState('')
   const [baselineError, setBaselineError] = useState<string | null>(null)
 
@@ -110,36 +123,44 @@ export function BatchActionBar({ batch }: ActionBarProps) {
   )
 
   const isArchived = batch.status === 'ARCHIVED'
+  const isLocked = batch.status === 'PUBLISHED' || isArchived
   const requiredPresent = REQUIRED_FILES.filter((ft) => filesByType[ft]).length
   const hasBlocked = (batch.files ?? []).some((f) => f.validation_status === 'BLOCKED')
-  const canPublish = requiredPresent === 6 && !hasBlocked && batch.status === 'DRAFT'
+  const hasPending = REQUIRED_FILES.some((ft) => !filesByType[ft]?.validation_status)
+  const canPublish = requiredPresent === 6 && !hasBlocked && !hasPending && batch.status === 'DRAFT'
+  const canBaseline = batch.status === 'PUBLISHED' && !existingBaseline
   const hasFiles = (batch.files ?? []).length > 0
 
   const validateMutation = useMutation({
     mutationFn: () => validateBatch(batch.batch_id),
     onSuccess: () => {
+      toast.success('Validation complete')
       queryClient.invalidateQueries({ queryKey: ['batch', batch.batch_id] })
     },
+    onError: () => toast.error('Validation failed'),
   })
 
   const resetMutation = useMutation({
     mutationFn: () => resetBatch(batch.batch_id),
     onSuccess: () => {
       setResetConfirm(false)
+      toast.success('Batch reset to DRAFT')
       queryClient.invalidateQueries({ queryKey: ['batch', batch.batch_id] })
     },
+    onError: () => toast.error('Reset failed'),
   })
 
   const publishMutation = useMutation({
     mutationFn: () => publishBatch(batch.batch_id),
     onSuccess: () => {
-      setPublishError(null)
+      toast.success('Batch published', { description: 'Planning data is now active.' })
       queryClient.invalidateQueries({ queryKey: ['batch', batch.batch_id] })
       queryClient.invalidateQueries({ queryKey: ['batches'] })
     },
-    onError: (err: any) => {
-      const msg = err?.response?.data?.detail ?? 'Publish failed — check server logs'
-      setPublishError(msg)
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+        ?? 'Publish failed — check server logs'
+      toast.error(msg)
     },
   })
 
@@ -148,42 +169,42 @@ export function BatchActionBar({ batch }: ActionBarProps) {
     onSuccess: () => {
       setBaselineError(null)
       setBaselineName('')
+      toast.success('Baseline created', { description: 'This planning cycle is now locked.' })
       queryClient.invalidateQueries({ queryKey: ['baselines'] })
     },
-    onError: (err: any) => {
-      const msg = err?.response?.data?.detail ?? 'Failed to create baseline'
+    onError: (err: unknown) => {
+      const msg = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+        ?? 'Failed to create baseline'
       setBaselineError(msg)
     },
   })
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-      {/* Publish row */}
-      <div className="px-4 py-3 flex items-center justify-between">
-        <div className="text-sm text-gray-500">
-          {isArchived ? (
-            <span className="text-gray-400 font-medium">This batch has been archived — read only.</span>
-          ) : publishError ? (
-            <span className="text-red-600">{publishError}</span>
-          ) : batch.status === 'PUBLISHED' ? (
-            <span className="text-green-600 font-medium">This batch has been published.</span>
-          ) : hasBlocked ? (
-            <span className="text-red-600">One or more files have BLOCKED issues — resolve before publishing.</span>
-          ) : requiredPresent < 6 ? (
-            <span>Upload all 6 required files before publishing.</span>
-          ) : (
-            <span className="text-green-600">All required files present — ready to publish.</span>
-          )}
-        </div>
-        {!isArchived && (
+    <div className="bg-white rounded-2xl border border-gray-200 px-5 py-4"
+      style={{ boxShadow: '0 1px 6px rgba(0,0,0,0.05)' }}>
+
+      <div className="flex items-center justify-between gap-4">
+        {/* Left: secondary actions */}
         <div className="flex items-center gap-2">
-          {/* Reset batch — two-step confirmation */}
-          {hasFiles && batch.status === 'DRAFT' && !resetConfirm && (
+          {/* Re-validate */}
+          {hasFiles && !isLocked && (
+            <button
+              onClick={() => validateMutation.mutate()}
+              disabled={validateMutation.isPending}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold border transition-all disabled:opacity-40"
+              style={{ backgroundColor: '#F8FAFC', color: '#64748B', borderColor: '#E2E8F0' }}>
+              <RefreshCw className={`w-4 h-4 ${validateMutation.isPending ? 'animate-spin' : ''}`} />
+              {validateMutation.isPending ? 'Running…' : 'Re-validate'}
+            </button>
+          )}
+
+          {/* Reset batch */}
+          {hasFiles && !isLocked && !resetConfirm && (
             <button
               onClick={() => setResetConfirm(true)}
-              className="px-4 py-2 border border-gray-300 text-gray-500 text-sm font-medium rounded-lg hover:bg-red-50 hover:border-red-300 hover:text-red-600 transition-colors"
-            >
-              Reset batch
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold border transition-all"
+              style={{ backgroundColor: '#FEF2F2', color: '#991B1B', borderColor: '#FECACA' }}>
+              <Archive className="w-4 h-4" /> Reset Batch
             </button>
           )}
           {resetConfirm && (
@@ -192,73 +213,90 @@ export function BatchActionBar({ batch }: ActionBarProps) {
               <button
                 onClick={() => resetMutation.mutate()}
                 disabled={resetMutation.isPending}
-                className="px-3 py-1.5 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
-              >
+                className="px-3 py-1.5 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors">
                 {resetMutation.isPending ? 'Resetting…' : 'Confirm'}
               </button>
               <button
                 onClick={() => setResetConfirm(false)}
                 disabled={resetMutation.isPending}
-                className="px-3 py-1.5 border border-gray-300 text-gray-600 text-sm font-medium rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors"
-              >
+                className="px-3 py-1.5 border border-gray-300 text-gray-600 text-sm font-medium rounded-lg hover:bg-gray-50 disabled:opacity-50 transition-colors">
                 Cancel
               </button>
             </div>
           )}
 
-          {hasFiles && batch.status === 'DRAFT' && (
-            <button
-              onClick={() => validateMutation.mutate()}
-              disabled={validateMutation.isPending}
-              className="px-4 py-2 border border-gray-300 text-gray-600 text-sm font-medium rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            >
-              {validateMutation.isPending ? 'Validating…' : 'Run validation'}
-            </button>
+          {/* Archived notice */}
+          {isArchived && (
+            <span className="text-sm text-gray-400 font-medium">This batch has been archived — read only.</span>
           )}
-          <button
-            onClick={() => { setPublishError(null); publishMutation.mutate() }}
-            disabled={!canPublish || publishMutation.isPending}
-            className="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-          >
-            {publishMutation.isPending ? 'Publishing…' : 'Publish batch'}
-          </button>
         </div>
-        )}
-      </div>
 
-      {/* Baseline row — only when published */}
-      {batch.status === 'PUBLISHED' && (
-        <div className="px-4 py-3 border-t border-gray-100 flex items-center justify-between">
-          <div className="text-sm text-gray-500">
-            {baselineError ? (
-              <span className="text-red-600">{baselineError}</span>
-            ) : existingBaseline ? (
-              <span className="text-blue-700 font-medium">
+        {/* Right: primary actions */}
+        <div className="flex items-center gap-2">
+          {/* Publish */}
+          {!isLocked && (
+            <motion.button
+              onClick={() => publishMutation.mutate()}
+              disabled={!canPublish || publishMutation.isPending}
+              whileHover={{ scale: canPublish ? 1.03 : 1 }}
+              whileTap={{ scale: canPublish ? 0.97 : 1 }}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              style={{
+                background: canPublish
+                  ? 'linear-gradient(135deg, #4F46E5, #7C3AED)'
+                  : '#94A3B8',
+                boxShadow: canPublish ? '0 4px 14px rgba(99,102,241,0.4)' : 'none',
+              }}>
+              <Send className="w-4 h-4" />
+              {publishMutation.isPending ? 'Publishing…' : 'Publish Batch'}
+            </motion.button>
+          )}
+
+          {/* Create Baseline */}
+          {batch.status === 'PUBLISHED' && (
+            existingBaseline ? (
+              <span className="text-sm text-emerald-700 font-medium">
                 Baseline: {existingBaseline.version_name}
                 {existingBaseline.is_active_baseline && ' — active'}
               </span>
             ) : (
-              <span>Create a named baseline from this published batch.</span>
-            )}
-          </div>
-          {!existingBaseline && (
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                placeholder="Baseline name…"
-                value={baselineName}
-                onChange={(e) => setBaselineName(e.target.value)}
-                className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 w-56"
-              />
-              <button
-                onClick={() => { setBaselineError(null); createBaselineMutation.mutate() }}
-                disabled={!baselineName.trim() || createBaselineMutation.isPending}
-                className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-              >
-                {createBaselineMutation.isPending ? 'Creating…' : 'Create baseline'}
-              </button>
-            </div>
+              <div className="flex items-center gap-2">
+                {baselineError && (
+                  <span className="text-xs text-red-600">{baselineError}</span>
+                )}
+                <input
+                  type="text"
+                  placeholder="Baseline name…"
+                  value={baselineName}
+                  onChange={(e) => setBaselineName(e.target.value)}
+                  className="px-3 py-2 border border-gray-300 rounded-xl text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-emerald-400 w-52"
+                />
+                <motion.button
+                  onClick={() => { setBaselineError(null); createBaselineMutation.mutate() }}
+                  disabled={!baselineName.trim() || createBaselineMutation.isPending}
+                  whileHover={{ scale: baselineName.trim() ? 1.03 : 1 }}
+                  whileTap={{ scale: baselineName.trim() ? 0.97 : 1 }}
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                  style={{
+                    background: baselineName.trim()
+                      ? 'linear-gradient(135deg, #059669, #047857)'
+                      : '#94A3B8',
+                    boxShadow: baselineName.trim() ? '0 4px 14px rgba(5,150,105,0.4)' : 'none',
+                  }}>
+                  <CheckCircle2 className="w-4 h-4" />
+                  {createBaselineMutation.isPending ? 'Creating…' : 'Create Baseline'}
+                </motion.button>
+              </div>
+            )
           )}
+        </div>
+      </div>
+
+      {/* Can't publish hint */}
+      {!canPublish && !isLocked && (
+        <div className="mt-3 text-xs text-gray-400 flex items-center gap-1.5">
+          <Info className="w-3.5 h-3.5" />
+          Publish requires: all 6 batch files present · all validated · no BLOCKED issues.
         </div>
       )}
     </div>

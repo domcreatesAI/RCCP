@@ -11,12 +11,12 @@ Stages:
   7. BATCH_READINESS            — overall batch can-publish status
   8. CROSS_FILE_CHECK           — cross-file consistency (WARNING only, never blocks publish)
 
-master_stock: required columns: material, plant, unrestrictedstock, unrestricted_-_sales,
-  abc_indicator, mrp_type, safety_stock, rounding_value, volume, moq, pack_type.
-  item_status optional (blank keeps existing).
-  On PASS/WARNING (no BLOCKED in stages 3-6), items table updated via COALESCE for:
-  mrp_type, units_per_pallet (rounding_value), pack_size_l (volume), moq, sku_status (item_status),
-  pack_type_code (pack_type).
+master_stock: the authoritative per-batch SKU list (fresh SAP export). No material FK check —
+  it IS the reference. plant → dbo.warehouses is BLOCKED.
+
+production_orders / demand_plan: material codes are validated against master_stock (stage 8,
+  WARNING). master_stock must be uploaded first for this check to run. plant → dbo.warehouses
+  remains BLOCKED (stage 5).
 
 demand_plan: wide-format SAP PIR export (material_id x month). Stages 3-6 fully implemented.
   Row 1 = descriptions (ignored), Row 2 = headers, Row 3+ = data.
@@ -124,32 +124,25 @@ FILE_SCHEMAS: dict = {
     "master_stock": {
         "header_row": 2,
         "data_start_row": 3,
-        # All fields required except item_status (blank keeps existing items table value)
+        # Pure stock snapshot — SKU attributes (pack_type, volume, moq etc.)
+        # now come from the sku_masterdata upload, not from master_stock.
         "required": [
             "material", "plant", "unrestrictedstock", "unrestricted_-_sales",
-            "abc_indicator", "mrp_type", "safety_stock", "rounding_value",
-            "volume", "moq", "pack_type",
+            "safety_stock",
         ],
-        "optional": ["item_status"],
+        "optional": [],
         "types": {
             "material":             "str",
             "plant":                "str",
             "unrestrictedstock":    "decimal",
             "unrestricted_-_sales": "decimal",
             "safety_stock":         "decimal",
-            "mrp_type":             "str",
-            "rounding_value":       "decimal",
-            "volume":               "decimal",
-            "abc_indicator":        "str",
-            "moq":                  "decimal",
-            "item_status":          "int",
-            "pack_type":            "str",
         },
         "fk_checks": {
-            "material":  ("dbo.items",      "item_code"),
-            "plant":     ("dbo.warehouses", "warehouse_code"),
-            "pack_type": ("dbo.pack_types", "pack_type_code"),
+            "plant": ("dbo.warehouses", "warehouse_code"),
         },
+        # No material FK check — master_stock IS the reference for SKUs in a batch.
+        # Other files are checked against master_stock in stage 8 (cross-file).
         "min_rows": 1,
     },
     "demand_plan": {
@@ -163,9 +156,9 @@ FILE_SCHEMAS: dict = {
             "plant":       "str",
         },
         "fk_checks": {
-            "material_id": ("dbo.items",      "item_code"),
-            "plant":       ("dbo.warehouses", "warehouse_code"),
+            "plant": ("dbo.warehouses", "warehouse_code"),
         },
+        # No material_id FK check — validated against master_stock in stage 8 (cross-file).
         "min_rows": 1,
         "wide_format": True,
     },
@@ -262,9 +255,9 @@ FILE_SCHEMAS: dict = {
             "production_line":             "str",
         },
         "fk_checks": {
-            "material": ("dbo.items",      "item_code"),
-            "plant":    ("dbo.warehouses", "warehouse_code"),
+            "plant": ("dbo.warehouses", "warehouse_code"),
         },
+        # No material FK check — validated against master_stock in stage 8 (cross-file).
         "min_rows": 1,
     },
 }
@@ -342,24 +335,20 @@ def run_validation(
             _stage5(cursor, conn, batch_file_id, schema, headers, data_rows)
             _stage6(cursor, batch_file_id, file_type, schema, headers, data_rows)
 
-            if file_type == "master_stock":
-                chk = conn.cursor()
-                chk.execute(
-                    """SELECT COUNT(*) FROM dbo.import_validation_results
-                       WHERE batch_file_id = ?
-                         AND validation_stage BETWEEN 3 AND 6
-                         AND severity = 'BLOCKED'""",
-                    batch_file_id,
-                )
-                if chk.fetchone()[0] == 0:
-                    _update_items_from_master_stock(cursor, conn, batch_file_id, headers, data_rows)
 
     # --- Stage 7: batch readiness (always runs) ---
     _stage7(cursor, conn, batch_id, batch_file_id)
 
     # --- Stage 8: cross-file checks (only for participating file types, only when file opened) ---
-    if file_type in ("master_stock", "headcount_plan", "portfolio_changes") and wb is not None:
-        _stage8(cursor, conn, batch_id, batch_file_id, file_type, stored_file_path)
+    _STAGE8_TYPES = ("master_stock", "headcount_plan", "portfolio_changes",
+                     "production_orders", "demand_plan")
+    if file_type in _STAGE8_TYPES and wb is not None:
+        try:
+            _stage8(cursor, conn, batch_id, batch_file_id, file_type, stored_file_path)
+        except Exception as exc:
+            # Stage 8 is advisory only — never let it prevent the commit or hide a real status
+            _write(cursor, batch_file_id, 8, STAGE_NAMES[8], "WARNING",
+                   f"Cross-file check could not complete: {str(exc)[:300]}")
 
     # Update validation_status on the file record (stages 2-6 only; stage 8 is WARNING-only)
     _update_file_status(cursor, batch_file_id)
@@ -590,7 +579,9 @@ def _stage6(cursor, batch_file_id: int, file_type: str,
                                    f"Demand quantity cannot be negative: {val}", str(val)))
 
     elif file_type == "master_stock":
-        for col in ("unrestrictedstock", "safety_stock", "rounding_value"):
+        # unrestrictedstock and safety_stock must be >= 0
+        # unrestricted_-_sales may be negative (back-orders) — no check needed
+        for col in ("unrestrictedstock", "safety_stock"):
             if col not in header_set:
                 continue
             for row_num, row_dict in data_rows:
@@ -598,20 +589,6 @@ def _stage6(cursor, batch_file_id: int, file_type: str,
                 if val is not None and _is_valid_decimal(val) and float(val) < 0:
                     errors.append((row_num, col, "BLOCKED",
                                    f"{col} cannot be negative: {val}", str(val)))
-        if "moq" in header_set:
-            for row_num, row_dict in data_rows:
-                val = row_dict.get("moq")
-                if val is not None and _is_valid_decimal(val) and float(val) < 0:
-                    errors.append((row_num, "moq", "BLOCKED",
-                                   f"moq cannot be negative: {val}", str(val)))
-        if "item_status" in header_set:
-            for row_num, row_dict in data_rows:
-                val = row_dict.get("item_status")
-                is_empty = val is None or (isinstance(val, str) and val.strip() == "")
-                if not is_empty and _is_valid_int(val) and int(float(val)) not in (1, 2, 3):
-                    errors.append((row_num, "item_status", "BLOCKED",
-                                   f"item_status must be blank, 1 (In Design), "
-                                   f"2 (Phase Out) or 3 (Obsolete), got: {val}", str(val)))
 
     elif file_type == "portfolio_changes":
         # initial_demand must be a positive number on NEW_LAUNCH rows
@@ -667,6 +644,22 @@ def _stage7(cursor, conn: pyodbc.Connection, batch_id: int, batch_file_id: int) 
     )
     required_count = c2.fetchone()[0]
 
+    # Count required files that have been uploaded but NOT yet validated (validation_status IS NULL)
+    c2.execute(
+        """
+        SELECT COUNT(DISTINCT file_type)
+        FROM dbo.import_batch_files
+        WHERE batch_id = ? AND is_current_version = 1
+          AND file_type IN (
+              'master_stock', 'demand_plan', 'line_capacity_calendar',
+              'headcount_plan', 'portfolio_changes', 'production_orders'
+          )
+          AND validation_status IS NULL
+        """,
+        batch_id,
+    )
+    unvalidated_count = c2.fetchone()[0]
+
     c2.execute(
         """
         SELECT COUNT(*) FROM dbo.import_validation_results ivr
@@ -692,6 +685,10 @@ def _stage7(cursor, conn: pyodbc.Connection, batch_id: int, batch_file_id: int) 
     if required_count < 6:
         _write(cursor, batch_file_id, stage_num, stage_name, "WARNING",
                f"Batch not ready to publish: {required_count}/6 required files uploaded")
+    elif unvalidated_count > 0:
+        _write(cursor, batch_file_id, stage_num, stage_name, "BLOCKED",
+               f"{unvalidated_count} file(s) uploaded but not yet validated — "
+               f"click Re-validate to run the full validation pipeline")
     elif blocked_count > 0:
         _write(cursor, batch_file_id, stage_num, stage_name, "BLOCKED",
                f"Batch cannot be published: {blocked_count} BLOCKED issue(s) across all files")
@@ -716,6 +713,12 @@ def _stage8(cursor, conn: pyodbc.Connection, batch_id: int, batch_file_id: int,
         _stage8_headcount_coverage(cursor, conn, batch_id, batch_file_id, stored_file_path)
     elif file_type == "portfolio_changes":
         _stage8_demand_overlap(cursor, conn, batch_id, batch_file_id, stored_file_path)
+    elif file_type == "production_orders":
+        _stage8_material_vs_master_stock(cursor, conn, batch_id, batch_file_id,
+                                         stored_file_path, "production_orders", "material")
+    elif file_type == "demand_plan":
+        _stage8_material_vs_master_stock(cursor, conn, batch_id, batch_file_id,
+                                         stored_file_path, "demand_plan", "material_id")
 
 
 def _get_sibling_path(conn: pyodbc.Connection, batch_id: int, file_type: str) -> str | None:
@@ -910,6 +913,48 @@ def _stage8_demand_overlap(cursor, conn, batch_id, batch_file_id, stored_file_pa
                field_name="demand_overlap", sample_value=item_code)
 
 
+def _stage8_material_vs_master_stock(cursor, conn, batch_id, batch_file_id,
+                                      stored_file_path, file_type, material_col):
+    """Warn about materials in this file that are not present in the batch's master_stock.
+
+    master_stock is the authoritative per-batch SKU list (fresh SAP export). Any material
+    code not found there is either a new SKU not yet in master_stock, or a data entry error.
+    """
+    stage_num, stage_name = 8, STAGE_NAMES[8]
+
+    ms_path = _get_sibling_path(conn, batch_id, "master_stock")
+    if not ms_path:
+        _write(cursor, batch_file_id, stage_num, stage_name, "INFO",
+               "master_stock not yet uploaded — SKU reference check pending. "
+               "Run Re-validate once master_stock is uploaded.")
+        return
+
+    ms_materials = _read_file_column(ms_path, "master_stock", "material")
+    if not ms_materials:
+        _write(cursor, batch_file_id, stage_num, stage_name, "INFO",
+               "master_stock could not be read — SKU reference check skipped.",
+               field_name="sku_reference")
+        return
+
+    this_materials = _read_file_column(stored_file_path, file_type, material_col)
+    unknown = sorted(this_materials - ms_materials)
+
+    if not unknown:
+        _write(cursor, batch_file_id, stage_num, stage_name, "PASS",
+               f"All {len(this_materials)} material codes are present in master_stock")
+        return
+
+    for item_code in unknown[:50]:
+        _write(cursor, batch_file_id, stage_num, stage_name, "WARNING",
+               f"Material '{item_code}' not found in master_stock — "
+               f"upload an updated master_stock that includes this SKU",
+               field_name="sku_reference", sample_value=item_code)
+    if len(unknown) > 50:
+        _write(cursor, batch_file_id, stage_num, stage_name, "WARNING",
+               f"{len(unknown) - 50} more unknown materials not shown",
+               field_name="sku_reference")
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -983,79 +1028,3 @@ def _strip_sap_uom(val):
     return val
 
 
-def _update_items_from_master_stock(cursor, conn: pyodbc.Connection,
-                                    batch_file_id: int,
-                                    headers: list, data_rows: list) -> None:
-    """Update items table from master_stock data (COALESCE — blank values keep existing).
-
-    Updates: mrp_type, units_per_pallet (rounding_value), pack_size_l (volume),
-             moq, sku_status (item_status), pack_type_code (pack_type).
-    """
-    try:
-        header_set = set(headers)
-        item_attrs: dict[str, dict] = {}
-
-        for _, row in data_rows:
-            material = row.get("material")
-            if not material:
-                continue
-            item_code = str(material).strip()
-            if item_code not in item_attrs:
-                item_attrs[item_code] = {
-                    "mrp_type": None, "units_per_pallet": None, "pack_size_l": None,
-                    "moq": None, "sku_status": None, "pack_type_code": None,
-                }
-            attrs = item_attrs[item_code]
-
-            if attrs["mrp_type"] is None and "mrp_type" in header_set:
-                v = row.get("mrp_type")
-                if v is not None and str(v).strip():
-                    attrs["mrp_type"] = str(v).strip()
-
-            if attrs["units_per_pallet"] is None and "rounding_value" in header_set:
-                v = row.get("rounding_value")
-                if v is not None and _is_valid_decimal(v) and float(v) > 0:
-                    attrs["units_per_pallet"] = int(float(v))
-
-            if attrs["pack_size_l"] is None and "volume" in header_set:
-                v = row.get("volume")
-                if v is not None and _is_valid_decimal(v) and float(v) > 0:
-                    attrs["pack_size_l"] = float(v)
-
-            if attrs["moq"] is None and "moq" in header_set:
-                v = row.get("moq")
-                if v is not None and _is_valid_decimal(v) and float(v) >= 0:
-                    attrs["moq"] = float(v)
-
-            if attrs["sku_status"] is None and "item_status" in header_set:
-                v = row.get("item_status")
-                if v is not None and _is_valid_int(v) and int(float(v)) in (1, 2, 3):
-                    attrs["sku_status"] = int(float(v))
-
-            if attrs["pack_type_code"] is None and "pack_type" in header_set:
-                v = row.get("pack_type")
-                if v is not None and str(v).strip():
-                    attrs["pack_type_code"] = str(v).strip()
-
-        upd = conn.cursor()
-        for item_code, attrs in item_attrs.items():
-            upd.execute(
-                """UPDATE dbo.items
-                   SET mrp_type         = COALESCE(?, mrp_type),
-                       units_per_pallet = COALESCE(?, units_per_pallet),
-                       pack_size_l      = COALESCE(?, pack_size_l),
-                       moq              = COALESCE(?, moq),
-                       sku_status       = COALESCE(?, sku_status),
-                       pack_type_code   = COALESCE(?, pack_type_code)
-                   WHERE item_code = ?""",
-                attrs["mrp_type"],
-                attrs["units_per_pallet"],
-                attrs["pack_size_l"],
-                attrs["moq"],
-                attrs["sku_status"],
-                attrs["pack_type_code"],
-                item_code,
-            )
-    except Exception as exc:
-        _write(cursor, batch_file_id, 6, STAGE_NAMES[6], "WARNING",
-               f"Items table could not be updated from master_stock: {str(exc)[:200]}")

@@ -1,55 +1,48 @@
 import { useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { motion } from 'motion/react'
+import { Package, CheckCircle2, XCircle, Download, Upload } from 'lucide-react'
 import { getMasterdataStatus, uploadMasterdata, downloadMasterdataFile } from '../../api/masterdata'
 import type { MasterdataIssue } from '../../api/masterdata'
 import { useAuth } from '../../contexts/AuthContext'
 
 const MASTERDATA_META: Record<string, { label: string; description: string }> = {
+  sku_masterdata: {
+    label: 'sku_masterdata',
+    description: 'SKU attributes: description, ABC, MRP type, pack size, MOQ, pack type, line assignments, unit cost. Upload before batch files. MERGE by item_code.',
+  },
   line_pack_capabilities: {
-    label: 'Line pack capabilities',
-    description: 'Fill speeds and pack sizes per production line',
+    label: 'line_pack_capabilities',
+    description: 'Pack sizes each filling line can run and fill speed (bottles/min). Full replace on upload.',
   },
   line_resource_requirements: {
-    label: 'Line resource requirements',
-    description: 'Headcount needed per role to run each line',
+    label: 'line_resource_requirements',
+    description: 'Headcount per role required to run each line (e.g. A101 needs 3 Line Operators).',
   },
   plant_resource_requirements: {
-    label: 'Plant resource requirements',
-    description: 'Shared headcount per role per manufacturing plant',
+    label: 'plant_resource_requirements',
+    description: 'Shared headcount required at plant level regardless of lines running (forklift drivers etc.).',
   },
   warehouse_capacity: {
-    label: 'Warehouse capacity',
-    description: 'Maximum pallet positions per pack type per warehouse',
+    label: 'warehouse_capacity',
+    description: 'Max pallet positions per pack type per warehouse (UKP1, UKP3, UKP4, UKP5).',
   },
 }
 
-const TEMPLATE_TYPES = new Set([
-  'line_pack_capabilities',
-  'line_resource_requirements',
-  'plant_resource_requirements',
-  'warehouse_capacity',
-])
-
 export const DISPLAY_ORDER = [
+  'sku_masterdata',
   'line_pack_capabilities',
   'line_resource_requirements',
   'plant_resource_requirements',
   'warehouse_capacity',
 ]
 
-const STATUS_PILL: Record<string, string> = {
-  imported: 'bg-green-50 text-green-700',
-  warnings: 'bg-amber-50 text-amber-700',
-  blocked: 'bg-red-50 text-red-700',
-  not_uploaded: 'bg-gray-100 text-gray-500',
-}
-
 function IssueHint({ issues, severity }: { issues: MasterdataIssue[]; severity: 'BLOCKED' | 'WARNING' }) {
   if (issues.length === 0) return null
   const colour = severity === 'BLOCKED' ? 'text-red-600' : 'text-amber-600'
   return (
-    <div className="mt-1 max-w-[280px]">
-      <p className={`text-xs ${colour} line-clamp-2`}>{issues[0].message}</p>
+    <div className="mt-1 max-w-[240px]">
+      <p className={`text-xs ${colour} leading-tight line-clamp-2`}>{issues[0].message}</p>
       {issues.length > 1 && (
         <p className="text-xs text-gray-400">+{issues.length - 1} more</p>
       )}
@@ -57,7 +50,7 @@ function IssueHint({ issues, severity }: { issues: MasterdataIssue[]; severity: 
   )
 }
 
-export function MasterdataRow({ mdType }: { mdType: string }) {
+export function MasterdataRow({ mdType, index = 0 }: { mdType: string; index?: number }) {
   const { user } = useAuth()
   const queryClient = useQueryClient()
   const inputRef = useRef<HTMLInputElement>(null)
@@ -103,99 +96,82 @@ export function MasterdataRow({ mdType }: { mdType: string }) {
     downloadMasterdataFile(mdType, status?.last_original_filename ?? `${mdType}.xlsx`)
   }
 
-  // Determine status pill
-  let pillKey: string
-  let pillLabel: string
-  if (uploadMutation.isError) {
-    pillKey = 'blocked'
-    pillLabel = 'Blocked'
-  } else if (uploadMutation.isSuccess && lastResult) {
-    if (lastResult.errors.length === 0 && lastResult.warnings.length === 0) {
-      pillKey = 'imported'
-      pillLabel = '✓ Valid'
-    } else if (lastResult.errors.length === 0) {
-      pillKey = 'warnings'
-      pillLabel = '✓ Valid (warnings)'
-    } else {
-      pillKey = 'blocked'
-      pillLabel = 'Blocked'
-    }
-  } else if (status?.last_uploaded_at) {
-    pillKey = 'imported'
-    pillLabel = '✓ Valid'
-  } else if ((status?.table_row_count ?? 0) > 0) {
-    pillKey = 'imported'
-    pillLabel = `${status!.table_row_count} rows`
-  } else {
-    pillKey = 'not_uploaded'
-    pillLabel = 'Not uploaded'
-  }
-
-  const hasFile = !!(status?.last_uploaded_at || lastUploadedAt)
-
-  // Uploaded by and time: prefer DB value, fall back to post-mutation state
+  // Derive status display
+  const hasError = uploadMutation.isError || (lastResult && lastResult.errors.length > 0)
+  const hasOnRecord = !!(status?.last_uploaded_at || lastUploadedAt)
   const displayUploadedBy = status?.last_uploaded_by ?? lastUploadedBy
   const displayUploadedAt = status?.last_uploaded_at ?? lastUploadedAt
 
+  const versionLabel = status?.last_version_number != null
+    ? `v${status.last_version_number}`
+    : (status?.table_row_count ?? 0) > 0
+      ? `${status!.table_row_count} rows`
+      : '—'
+
   return (
-    <tr className="border-t border-gray-100 hover:bg-gray-50/50 align-top">
-      {/* File */}
-      <td className="py-3 px-4">
-        <div className="flex items-center gap-2">
-          <svg className="w-4 h-4 text-gray-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
-              d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-          </svg>
+    <motion.tr
+      initial={{ opacity: 0, x: -8 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ delay: 0.3 + index * 0.05 }}
+      className="border-b last:border-0 transition-colors hover:bg-gray-50/60"
+      style={{ borderColor: '#F1F5F9' }}>
+
+      {/* File name + description */}
+      <td className="py-2.5 pr-3" style={{ minWidth: 200 }}>
+        <div className="flex items-start gap-2">
+          <Package className="w-3.5 h-3.5 mt-0.5 shrink-0 text-violet-400" />
           <div>
-            <p className="text-sm font-medium text-gray-900">{meta.label}</p>
-            <p className="text-xs text-gray-400">{meta.description}</p>
-            {status?.last_version_number != null ? (
-              <p className="text-xs text-blue-600 font-medium mt-0.5">
-                v{status.last_version_number}
-                {status.last_uploaded_at
-                  ? ` · ${new Date(status.last_uploaded_at).toLocaleString('en-GB', { month: 'short', year: 'numeric' })}`
-                  : ''}
-              </p>
-            ) : !status?.last_uploaded_at && (status?.table_row_count ?? 0) > 0 ? (
-              <p className="text-xs text-gray-400 mt-0.5">{status!.table_row_count} rows in DB — upload to track versions</p>
-            ) : null}
-            {TEMPLATE_TYPES.has(mdType) && (
-              <a
-                href={`/api/masterdata/${mdType}/template`}
-                download
-                className="mt-0.5 text-xs text-blue-500 hover:text-blue-600 flex items-center gap-0.5 w-fit"
-              >
-                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                    d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                </svg>
-                Template
-              </a>
-            )}
+            <span className="font-mono text-xs font-semibold text-gray-900">{meta.label}</span>
+            <div className="text-xs text-gray-400 mt-0.5 leading-tight" style={{ fontSize: 10 }}>
+              {meta.description}
+            </div>
           </div>
         </div>
       </td>
 
       {/* Status */}
-      <td className="py-3 px-4">
-        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_PILL[pillKey]}`}>
-          {pillLabel}
-        </span>
-        {lastResult && lastResult.errors.length > 0 && (
-          <IssueHint issues={lastResult.errors} severity="BLOCKED" />
-        )}
-        {lastResult && lastResult.errors.length === 0 && lastResult.warnings.length > 0 && (
-          <IssueHint issues={lastResult.warnings} severity="WARNING" />
+      <td className="py-2.5 pr-3" style={{ minWidth: 140 }}>
+        {uploadMutation.isPending ? (
+          <span className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600">
+            <Upload className="w-3.5 h-3.5 animate-pulse" /> Uploading…
+          </span>
+        ) : hasError ? (
+          <div>
+            <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-700">
+              <XCircle className="w-3.5 h-3.5" /> Blocked
+            </span>
+            {lastResult && lastResult.errors.length > 0 && (
+              <IssueHint issues={lastResult.errors} severity="BLOCKED" />
+            )}
+          </div>
+        ) : hasOnRecord ? (
+          <div>
+            <span className="inline-flex items-center gap-1 text-xs font-semibold text-violet-700">
+              <CheckCircle2 className="w-3.5 h-3.5" /> On record
+            </span>
+            {lastResult && lastResult.warnings.length > 0 && (
+              <IssueHint issues={lastResult.warnings} severity="WARNING" />
+            )}
+          </div>
+        ) : (
+          <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-700">
+            <XCircle className="w-3.5 h-3.5" /> Not uploaded
+          </span>
         )}
       </td>
 
+      {/* Version */}
+      <td className="py-2.5 pr-3 text-xs text-gray-500 whitespace-nowrap">
+        {versionLabel}
+      </td>
+
       {/* Uploaded by */}
-      <td className="py-3 px-4 text-sm text-gray-500">
+      <td className="py-2.5 pr-3 text-xs text-gray-500">
         {displayUploadedBy ?? '—'}
       </td>
 
       {/* Time */}
-      <td className="py-3 px-4 text-sm text-gray-500">
+      <td className="py-2.5 pr-3 text-xs text-gray-400 whitespace-nowrap">
         {displayUploadedAt
           ? new Date(displayUploadedAt).toLocaleString('en-GB', {
               day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
@@ -204,8 +180,8 @@ export function MasterdataRow({ mdType }: { mdType: string }) {
       </td>
 
       {/* Actions */}
-      <td className="py-3 px-4">
-        <div className="flex items-center gap-1.5">
+      <td className="py-2.5">
+        <div className="flex items-center gap-1">
           <input
             ref={inputRef}
             type="file"
@@ -213,28 +189,35 @@ export function MasterdataRow({ mdType }: { mdType: string }) {
             className="hidden"
             onChange={handleFileChange}
           />
-          <button
-            onClick={() => inputRef.current?.click()}
-            disabled={uploadMutation.isPending}
-            className="text-xs px-3 py-1.5 rounded-lg font-medium border border-gray-300 text-gray-600 hover:bg-gray-50 disabled:opacity-50 transition-colors"
-          >
-            {uploadMutation.isPending ? 'Uploading…' : 'Upload'}
-          </button>
-          {hasFile && (
+          {/* Template */}
+          <a
+            href={`/api/masterdata/${mdType}/template`}
+            download
+            className="flex items-center gap-0.5 px-1.5 py-1 rounded-lg text-xs border transition-colors hover:bg-gray-100"
+            style={{ borderColor: '#E2E8F0', color: '#64748B' }}>
+            <Download className="w-3 h-3" /> Tmpl
+          </a>
+          {/* Download uploaded */}
+          {hasOnRecord && (
             <button
               onClick={handleDownload}
               title="Download last uploaded file"
-              className="text-xs px-2.5 py-1.5 rounded-lg font-medium border border-gray-300 text-gray-600 hover:bg-gray-50 transition-colors flex items-center gap-1"
-            >
-              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-              </svg>
-              Download
+              className="flex items-center gap-0.5 px-1.5 py-1 rounded-lg text-xs border transition-colors hover:bg-gray-100"
+              style={{ borderColor: '#E2E8F0', color: '#64748B' }}>
+              <Download className="w-3 h-3" /> Download
             </button>
           )}
+          {/* Upload / Re-upload */}
+          <button
+            onClick={() => inputRef.current?.click()}
+            disabled={uploadMutation.isPending}
+            className="flex items-center gap-0.5 px-2 py-1 rounded-lg text-xs font-semibold transition-colors disabled:opacity-40"
+            style={{ backgroundColor: '#F5F3FF', color: '#7C3AED', border: '1px solid #DDD6FE' }}>
+            <Upload className="w-3 h-3" />
+            {uploadMutation.isPending ? 'Uploading…' : hasOnRecord ? 'Re-upload' : 'Upload'}
+          </button>
         </div>
       </td>
-    </tr>
+    </motion.tr>
   )
 }

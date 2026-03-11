@@ -202,8 +202,8 @@ Separate from functional phases — this is a UI uplift using the Figma design a
 | Sub-phase | Scope | Status |
 |---|---|---|
 | **Phase A** | Dark sidebar, lucide icons, frosted topbar, cycle badge, sonner toasts, react-router v7 | **Done** |
-| **Phase B** | Planning Data page: 3fr/2fr grid, validation accordion panel, gradient action bar | Next |
-| **Phase C** | Animations: `npm install motion`, staggered entries, AnimatePresence | After B |
+| **Phase B** | Planning Data page: 3fr/2fr grid, validation accordion panel, gradient action bar | **Done** |
+| **Phase C** | Animations: `npm install motion`, staggered entries, AnimatePresence | **Done** |
 | **Phase D** | Dashboard, Scenarios, ExecutiveSummary, Config — use Figma as reference when phases start | With Phase 2–5 |
 
 ---

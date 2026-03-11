@@ -84,31 +84,23 @@ TEMPLATES: dict[str, dict] = {
     "master_stock": {
         "title": "Master Stock",
         "description": (
-            "Period-opening stock levels by item and warehouse. "
+            "Period-opening stock levels by item and warehouse (SAP stock report). "
             "One row per item per warehouse. "
-            "pack_type must match an active pack_type_code in the pack_types masterdata. "
-            "item_status is optional — leave blank to keep existing value. "
-            "On a valid upload, items.mrp_type, items.units_per_pallet, items.pack_size_l, "
-            "items.moq, items.pack_type_code and items.sku_status are updated from this file."
+            "material must already exist in the SKU Masterdata — upload sku_masterdata first. "
+            "SKU attributes (pack size, MRP type, line assignments etc.) are NOT read from "
+            "this file — they come from the sku_masterdata upload."
         ),
         "columns": [
-            ("material",             "Material",             "SAP material number. Must match an item in the items masterdata. Required.",                                "100000"),
+            ("material",             "Material",             "SAP material number. Must already exist in the SKU Masterdata (dbo.items). Required.",                      "100000"),
             ("plant",                "Plant",                "Warehouse code (e.g. UKP1, UKP3). Must match a warehouse in the masterdata. Required.",                    "UKP1"),
-            ("abc_indicator",        "ABC Indicator",        "SAP ABC classification. Required — use '#' if not applicable.",                                             "#"),
-            ("mrp_type",             "MRP Type",             "SAP MRP planning type (e.g. ZN, PD). Required. Updates items.mrp_type.",                                   "ZN"),
             ("unrestrictedstock",    "UnrestrictedStock",    "Total unrestricted stock in eaches. Required. Must be ≥ 0.",                                                "1200"),
-            ("unrestricted_-_sales", "Unrestricted - Sales", "Stock available after sales allocations. Required. May be negative (back-orders).",                         "800"),
+            ("unrestricted_-_sales", "Unrestricted - Sales", "Stock available for sales (unrestricted minus allocated). Required. May be negative (back-orders).",        "800"),
             ("safety_stock",         "Safety Stock",         "Minimum target stock level in eaches. Required. Must be ≥ 0.",                                              "200"),
-            ("rounding_value",       "Rounding value",       "Units per pallet. Required. Must be ≥ 0. Updates items.units_per_pallet.",                                  "120"),
-            ("volume",               "Volume",               "Pack size in litres. Required. Must be > 0. Updates items.pack_size_l.",                                    "5"),
-            ("moq",                  "MOQ",                  "Minimum order quantity in eaches. Required. 0 = no minimum. Updates items.moq.",                            "240"),
-            ("pack_type",            "Pack Type",            "Warehouse capacity category. Required. Must match a pack_type_code in the pack_types masterdata (e.g. SMALL_PACK, 60L, BARREL_200L, IBC).", "SMALL_PACK"),
-            ("item_status",          "Item status",          "Lifecycle status. Optional — blank keeps existing value. 1 = In Design  |  2 = Phase Out  |  3 = Obsolete.", "1"),
         ],
         "sample_rows": [
-            ["100000", "UKP1", "#", "ZN", 1200, 800, 200, 120, 5, 240, "SMALL_PACK", 1],
-            ["100000", "UKP3", "#", "ZN",  600, 600,   0, 120, 5, 240, "SMALL_PACK", 1],
-            ["100001", "UKP1", "#", "PD",    0,   0,  50,  96, 1, 120, "SMALL_PACK", 1],
+            ["100000", "UKP1", 1200, 800, 200],
+            ["100000", "UKP3",  600, 600,   0],
+            ["100001", "UKP1",    0,   0,  50],
         ],
     },
     "production_orders": {
@@ -178,6 +170,40 @@ TEMPLATES: dict[str, dict] = {
     # ------------------------------------------------------------------
     # Masterdata templates (served via GET /api/masterdata/{type}/template)
     # ------------------------------------------------------------------
+    "sku_masterdata": {
+        "title": "SKU Masterdata",
+        "description": (
+            "SKU (product) master attributes. Upload this BEFORE uploading any batch files. "
+            "MERGE by item_code: new rows are inserted, existing rows are updated. "
+            "Blank cells keep the existing value in the database — partial uploads are valid. "
+            "Items are never deleted by this upload — contact an admin to deactivate a SKU. "
+            "rounding_value maps to units_per_pallet (EA per pallet for warehouse capacity checks). "
+            "primary_line_code is the preferred filling line; secondary through quaternary are "
+            "capable alternatives (leave blank if not applicable)."
+        ),
+        "columns": [
+            ("item_code",            "Item Code",             "SAP material number — unique key. Required.",                                                               "100000"),
+            ("item_description",     "Item Description",      "Full SAP material description. Optional.",                                                                  "MOBIL BRAKE FLUID DOT4 12x0.5L"),
+            ("abc_indicator",        "ABC Indicator",         "SAP ABC classification (A, B, C, or '#' if not set). Optional.",                                            "A"),
+            ("mrp_type",             "MRP Type",              "SAP MRP planning type (e.g. ZN, PD, ND). Optional.",                                                        "ZN"),
+            ("pack_size_l",          "Pack Size (L)",         "Pack volume in litres (e.g. 0.5, 1, 5, 60). Must be > 0 if provided. Optional.",                            "0.5"),
+            ("moq",                  "MOQ",                   "Minimum order quantity in eaches. 0 = no minimum. Must be ≥ 0 if provided. Optional.",                      "240"),
+            ("pack_type_code",       "Pack Type Code",        "Warehouse capacity category. Must match pack_types masterdata (SMALL_PACK, 60L, BARREL_200L, IBC). Optional.", "SMALL_PACK"),
+            ("sku_status",           "SKU Status",            "SAP lifecycle status. 1 = In Design | 2 = Phasing Out | 3 = Obsolete. Optional.",                           "1"),
+            ("rounding_value",       "Rounding Value",        "Units per pallet (EA per pallet). Used for warehouse capacity calculations. Must be > 0 if provided. Optional.", "120"),
+            ("plant_code",           "Plant Code",            "Primary manufacturing plant code (e.g. P1). Must match plants masterdata. Optional.",                        "P1"),
+            ("primary_line_code",    "Primary Line Code",     "Preferred filling line code (e.g. A101). Must match lines masterdata. Optional.",                            "A101"),
+            ("secondary_line_code",  "Secondary Line Code",   "First alternative filling line. Must match lines masterdata. Optional.",                                     "A102"),
+            ("tertiary_line_code",   "Tertiary Line Code",    "Second alternative filling line. Optional — leave blank if not applicable.",                                 ""),
+            ("quaternary_line_code", "Quaternary Line Code",  "Third alternative filling line. Optional — leave blank if not applicable.",                                  ""),
+            ("unit_cost",            "Unit Cost (£)",         "Standard cost per EA in GBP. Must be ≥ 0 if provided. Optional — leave blank until cost data is available.", "0.85"),
+        ],
+        "sample_rows": [
+            ["100000", "MOBIL BRAKE FLUID DOT4 12x0.5L", "A", "ZN", 0.5, 240, "SMALL_PACK", 1, 120, "P1", "A101", "A102", "", "", 0.85],
+            ["100001", "MOBIL BRAKE FLUID DOT4 12x1L",   "B", "ZN", 1.0, 120, "SMALL_PACK", 1,  96, "P1", "A101", "",     "", "",  0.90],
+            ["100002", "MOBIL HYDRAULIC OIL 68 60L",     "C", "PD", 60,    1, "60L",        2,  20, "P1", "A202", "A203", "", "", 12.50],
+        ],
+    },
     "line_pack_capabilities": {
         "title": "Line Pack Capabilities",
         "description": (
@@ -231,14 +257,14 @@ TEMPLATES: dict[str, dict] = {
             "Upload replaces ALL existing plant resource requirement data."
         ),
         "columns": [
-            ("plant_code",         "Plant Code",          "Manufacturing plant code (e.g. A1, A2). Must exist in the masterdata.",           "A1"),
+            ("plant_code",         "Plant Code",          "Manufacturing plant code (e.g. P1, P2). Must exist in the masterdata.",           "P1"),
             ("resource_type_code", "Resource Type Code",  "Role code for a plant-level role (e.g. FORKLIFT_DRIVER, ROBOT_OPERATOR). Must exist in resource_types.", "FORKLIFT_DRIVER"),
             ("headcount_required", "Headcount Required",  "Number of people required for this role across the whole plant. Must be ≥ 0.",   "2"),
         ],
         "sample_rows": [
-            ["A1", "FORKLIFT_DRIVER",   2],
-            ["A1", "ROBOT_OPERATOR",    1],
-            ["A1", "MATERIAL_HANDLER",  1],
+            ["P1", "FORKLIFT_DRIVER",   2],
+            ["P1", "ROBOT_OPERATOR",    1],
+            ["P1", "MATERIAL_HANDLER",  1],
         ],
     },
     "warehouse_capacity": {
@@ -328,9 +354,16 @@ def generate_template(file_type: str) -> bytes:
         "planned_downtime_hours": 24, "other_loss_hours": 18,
         "description": 32, "impact_notes": 36, "notes": 28,
         # master_stock columns
-        "material": 14, "plant": 10, "abc_indicator": 14, "mrp_type": 12,
+        "material": 14, "plant": 10,
         "unrestrictedstock": 20, "unrestricted_-_sales": 22, "safety_stock": 14,
-        "rounding_value": 16, "volume": 10, "moq": 10, "pack_type": 16, "item_status": 14,
+        # sku_masterdata columns
+        "item_code": 14, "item_description": 38,
+        "abc_indicator": 14, "mrp_type": 12, "pack_size_l": 14,
+        "moq": 10, "pack_type_code": 18, "sku_status": 12,
+        "rounding_value": 16, "plant_code": 14,
+        "primary_line_code": 20, "secondary_line_code": 22,
+        "tertiary_line_code": 20, "quaternary_line_code": 22,
+        "unit_cost": 14,
         # portfolio_changes
         "initial_demand": 16,
         # demand_plan columns
