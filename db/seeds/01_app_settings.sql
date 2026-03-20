@@ -8,7 +8,7 @@
 -- or via the Phase 5 Config screen. Do not re-run this script to change values.
 -- =============================================================================
 
-USE RCCP_One;
+USE RCCP;
 GO
 
 MERGE dbo.app_settings AS target

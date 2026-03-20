@@ -85,13 +85,12 @@ MASTERDATA_SCHEMAS: dict = {
         "header_row": 2,
         # bottles_per_minute promoted to required
         "required": ["line_code", "pack_size_l", "bottles_per_minute"],
-        "optional": ["is_active", "oee_target"],
+        "optional": ["is_active"],
         "types": {
             "line_code":          "str",
             "pack_size_l":        "decimal",
             "bottles_per_minute": "decimal",
             "is_active":          "bit",
-            "oee_target":         "decimal",
         },
         "fk_checks": {
             "line_code": ("dbo.lines", "line_code"),
@@ -620,15 +619,6 @@ def _stage6(conn: pyodbc.Connection, masterdata_type: str, schema: dict,
                         "severity": "BLOCKED", "field": col, "row": row_num,
                         "message": f"Row {row_num}: {col} must be > 0, got: {val}.",
                     })
-        if "oee_target" in header_set:
-            for row_num, row_dict in data_rows:
-                val = row_dict.get("oee_target")
-                if val is not None and _is_valid_decimal(val) and not (0 < float(val) <= 1):
-                    issues.append({
-                        "stage": 6, "stage_name": "BUSINESS_RULE_CHECK",
-                        "severity": "BLOCKED", "field": "oee_target", "row": row_num,
-                        "message": f"Row {row_num}: oee_target must be between 0 and 1 (e.g. 0.65 = 65%), got: {val}.",
-                    })
 
 
 # ---------------------------------------------------------------------------
@@ -656,18 +646,16 @@ def _import_line_pack_capabilities(conn, headers, data_rows, uploaded_by):
     for _, row in data_rows:
         bpm = _get_decimal(row, "bottles_per_minute", header_set)
         is_active = _get_bit(row, "is_active", header_set, default=1)
-        oee_target = _get_decimal(row, "oee_target", header_set)
         cursor.execute(
             """
             INSERT INTO dbo.line_pack_capabilities
-                (line_code, pack_size_l, bottles_per_minute, is_active, oee_target, updated_by)
-            VALUES (?, ?, ?, ?, ?, ?)
+                (line_code, pack_size_l, bottles_per_minute, is_active, updated_by)
+            VALUES (?, ?, ?, ?, ?)
             """,
             str(row["line_code"]).strip(),
             float(row["pack_size_l"]),
             bpm,
             is_active,
-            oee_target,
             uploaded_by,
         )
         count += 1

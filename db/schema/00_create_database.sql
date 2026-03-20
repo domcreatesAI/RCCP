@@ -8,20 +8,20 @@ USE master;
 GO
 
 -- Create database if it does not already exist
-IF NOT EXISTS (SELECT name FROM sys.databases WHERE name = N'RCCP_One')
+IF NOT EXISTS (SELECT name FROM sys.databases WHERE name = N'RCCP')
 BEGIN
-    CREATE DATABASE RCCP_One
+    CREATE DATABASE RCCP
         COLLATE SQL_Latin1_General_CP1_CI_AS;
 
-    PRINT 'Database RCCP_One created.';
+    PRINT 'Database RCCP created.';
 END
 ELSE
 BEGIN
-    PRINT 'Database RCCP_One already exists. Skipping creation.';
+    PRINT 'Database RCCP already exists. Skipping creation.';
 END
 GO
 
-USE RCCP_One;
+USE RCCP;
 GO
 
 -- =============================================================================

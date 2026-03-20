@@ -10,7 +10,7 @@
 -- (released) orders often do not. A WARNING is raised on upload, not a BLOCKED.
 -- =============================================================================
 
-USE RCCP_One;
+USE RCCP;
 GO
 
 CREATE TABLE dbo.production_orders (

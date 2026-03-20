@@ -1,7 +1,8 @@
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 DB_SERVER = os.getenv("DB_SERVER", r"localhost\SQLEXPRESS")
 DB_NAME = os.getenv("DB_NAME", "RCCP_One")

@@ -5,7 +5,7 @@
 --         plan_versions
 -- =============================================================================
 
-USE RCCP_One;
+USE RCCP;
 GO
 
 -- =============================================================================
@@ -74,11 +74,13 @@ BEGIN
         stored_file_path    VARCHAR(500)    NOT NULL,       -- Relative path on filesystem
         file_size_bytes     BIGINT          NULL,
         upload_version      INT             NOT NULL        DEFAULT 1,
+        version_number      INT             NOT NULL        DEFAULT 1,
         is_current_version  BIT             NOT NULL        DEFAULT 1,
         row_count           INT             NULL,           -- Data rows parsed (excl. header)
         validation_status   VARCHAR(20)     NULL            DEFAULT 'PENDING',
         uploaded_by         VARCHAR(100)    NULL,
         uploaded_at         DATETIME2(7)    NOT NULL        DEFAULT GETUTCDATE(),
+        file_content        VARBINARY(MAX)  NULL,           -- File bytes stored for re-validation without filesystem
 
         CONSTRAINT PK_import_batch_files    PRIMARY KEY (batch_file_id),
         CONSTRAINT FK_import_batch_files_batch  FOREIGN KEY (batch_id)
@@ -90,8 +92,8 @@ BEGIN
                 'demand_plan',
                 'line_capacity_calendar',
                 'headcount_plan',
-                'oee_daily',
-                'portfolio_changes'
+                'portfolio_changes',
+                'production_orders'
             )
         ),
         CONSTRAINT CK_import_batch_files_val_status CHECK (

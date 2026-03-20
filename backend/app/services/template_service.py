@@ -337,7 +337,7 @@ def generate_template(file_type: str) -> bytes:
 
     # --- Data sheet ---
     ws = wb.active
-    ws.title = "Data"
+    ws.title = "Line Headcount" if file_type == "headcount_plan" else "Data"
 
     cols = spec["columns"]
 
@@ -403,6 +403,48 @@ def generate_template(file_type: str) -> bytes:
 
     # Freeze panes below header and description rows
     ws.freeze_panes = "A3"
+
+    # --- Plant Support sheet (headcount_plan only) ---
+    if file_type == "headcount_plan":
+        ps_cols = [
+            ("plant_code",          "Plant Code",          "Plant code matching masterdata (e.g. P1, P2).",                         "P1"),
+            ("resource_type_code",  "Role Code",           "Resource type code from masterdata (e.g. Forklift_Driver).",             "Forklift_Driver"),
+            ("plan_date",           "Plan Date",           "Date in DD/MM/YYYY format.",                                             "01/03/2026"),
+            ("planned_headcount",   "Planned Headcount",   "Number of staff planned for this plant-level role on this date. ≥ 0.",   "2"),
+        ]
+        ws2 = wb.create_sheet("Plant Support")
+
+        # Row 1: descriptions (amber)
+        for col_idx, (key, label, desc, sample) in enumerate(ps_cols, start=1):
+            cell = ws2.cell(row=1, column=col_idx, value=desc)
+            cell.font = _DESC_FONT
+            cell.fill = _DESC_FILL
+            cell.alignment = _LEFT
+
+        # Row 2: column keys (machine-readable header)
+        for col_idx, (key, label, desc, sample) in enumerate(ps_cols, start=1):
+            cell = ws2.cell(row=2, column=col_idx, value=key)
+            cell.font = _HEADER_FONT
+            cell.fill = _HEADER_FILL
+            cell.alignment = _CENTER
+            cell.border = _THIN_BORDER
+
+        # Sample rows
+        sample_rows2 = [
+            ["P1", "Forklift_Driver",    "01/03/2026", 2],
+            ["P1", "Forklift_Driver",    "02/03/2026", 0],
+            ["P1", "Materials_Handler",  "01/03/2026", 3],
+        ]
+        for row_offset, sample_row in enumerate(sample_rows2, start=3):
+            for col_idx, val in enumerate(sample_row, start=1):
+                cell = ws2.cell(row=row_offset, column=col_idx, value=val)
+                cell.font = _SAMPLE_FONT
+                cell.alignment = _LEFT
+
+        ps_widths = {"plant_code": 14, "resource_type_code": 24, "plan_date": 16, "planned_headcount": 20}
+        for col_idx, (key, *_) in enumerate(ps_cols, start=1):
+            ws2.column_dimensions[get_column_letter(col_idx)].width = ps_widths.get(key, 18)
+        ws2.freeze_panes = "A3"
 
     # --- Instructions sheet ---
     wi = wb.create_sheet("Instructions")

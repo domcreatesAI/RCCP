@@ -173,7 +173,7 @@ Publish is blocked if any file has severity = `BLOCKED`.
 **Masterdata tables (19 total):**
 - `app_settings` — key-value config store
 - `warehouses` — physical locations: UKP1 (Gravesend/manufacturing), UKP3, UKP4, UKP5
-- `plants` — manufacturing areas A1–A5 (all at UKP1); linked to warehouses via `warehouse_code`
+- `plants` — manufacturing areas P1–P5 (all at UKP1); linked to warehouses via `warehouse_code`
 - `pack_types` — warehouse capacity categories: SMALL_PACK, 60L, BARREL_200L, IBC
 - `labour_pools` — filling crew groups; `max_concurrent_lines` = physical ceiling
 - `lines` — 14 production lines; include `oee_target` (default 0.55) and `available_mins_per_day` (default 420)
@@ -305,6 +305,16 @@ sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\24_widen_system_st
 - `standard_hours_per_unit` in item_resource_rules — all values are placeholders
 - **MOQ** — `items.moq` column exists; populated via `master_stock` upload (moq field maps to items.moq)
 - Confirm migrations 16 + 17 applied on live DB (code is complete, may not have been run)
+
+---
+
+## Skills
+
+Custom skills are stored in `C:\claude\skills\` and auto-loaded by Claude Code.
+
+| Skill | File | When to use |
+|-------|------|-------------|
+| `frontend-design` | `C:\claude\skills\frontend_design.md` | Building new UI components, pages, or interfaces where high design quality matters. Guides toward distinctive, production-grade aesthetics — avoids generic patterns. Invoke with `/frontend-design` or reference it when asked to build/redesign frontend elements. |
 
 ---
 

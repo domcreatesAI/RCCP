@@ -15,7 +15,7 @@
 --   items       → plants, pack_types
 -- =============================================================================
 
-USE RCCP_One;
+USE RCCP;
 GO
 
 -- =============================================================================
@@ -82,8 +82,8 @@ IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'plants')
 BEGIN
     CREATE TABLE dbo.plants (
         plant_id        INT             IDENTITY(1,1)   NOT NULL,
-        plant_code      VARCHAR(20)     NOT NULL,           -- e.g. A1
-        plant_name      VARCHAR(100)    NOT NULL,           -- e.g. Plant A1
+        plant_code      VARCHAR(20)     NOT NULL,           -- e.g. P1, P2
+        plant_name      VARCHAR(100)    NOT NULL,           -- e.g. Plant 1, Plant 2
         warehouse_code  VARCHAR(20)     NULL,               -- which physical site this plant is in
         is_active       BIT             NOT NULL    DEFAULT 1,
         created_at      DATETIME2(7)    NOT NULL    DEFAULT GETUTCDATE(),
@@ -246,18 +246,26 @@ GO
 IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'items')
 BEGIN
     CREATE TABLE dbo.items (
-        item_id             INT             IDENTITY(1,1)   NOT NULL,
-        item_code           VARCHAR(50)     NOT NULL,
-        item_description    VARCHAR(200)    NULL,
-        item_type           VARCHAR(50)     NULL,           -- FINISHED_GOOD | SEMI_FINISHED | RAW_MATERIAL
-        item_group_code     VARCHAR(100)    NULL,           -- Planning family, e.g. '4L', '5L'
-        plant_code          VARCHAR(20)     NOT NULL,       -- Primary manufacturing plant
-        pack_size_l         DECIMAL(10,4)   NULL,           -- Pack volume in litres
-        pack_type_code      VARCHAR(50)     NULL,           -- FK to pack_types
-        units_per_pallet    INT             NULL,           -- EA per pallet (for stock → pallet conversion)
-        sku_status          TINYINT         NULL,           -- 1=In Design, 2=Phasing Out, 3=Obsolete
-        is_active           BIT             NOT NULL    DEFAULT 1,
-        created_at          DATETIME2(7)    NOT NULL    DEFAULT GETUTCDATE(),
+        item_id              INT             IDENTITY(1,1)   NOT NULL,
+        item_code            VARCHAR(50)     NOT NULL,
+        item_description     VARCHAR(200)    NULL,
+        item_type            VARCHAR(50)     NULL,           -- FINISHED_GOOD | SEMI_FINISHED | RAW_MATERIAL
+        item_group_code      VARCHAR(100)    NULL,           -- Planning family, e.g. '4L', '5L'
+        abc_indicator        VARCHAR(10)     NULL,           -- SAP ABC indicator
+        mrp_type             VARCHAR(10)     NULL,           -- SAP MRP type (e.g. PD, VB, ND)
+        plant_code           VARCHAR(20)     NULL,           -- Primary manufacturing plant
+        pack_size_l          DECIMAL(10,4)   NULL,           -- Pack volume in litres
+        pack_type_code       VARCHAR(50)     NULL,           -- FK to pack_types
+        units_per_pallet     INT             NULL,           -- EA per pallet (for stock → pallet conversion)
+        moq                  DECIMAL(18,4)   NULL,           -- Minimum order quantity
+        sku_status           TINYINT         NULL,           -- 1=In Design, 2=Phasing Out, 3=Obsolete
+        primary_line_code    VARCHAR(20)     NULL,           -- Primary production line
+        secondary_line_code  VARCHAR(20)     NULL,           -- Secondary production line
+        tertiary_line_code   VARCHAR(20)     NULL,           -- Tertiary production line
+        quaternary_line_code VARCHAR(20)     NULL,           -- Quaternary production line
+        unit_cost            DECIMAL(18,4)   NULL,           -- Standard unit cost
+        is_active            BIT             NOT NULL    DEFAULT 1,
+        created_at           DATETIME2(7)    NOT NULL    DEFAULT GETUTCDATE(),
 
         CONSTRAINT PK_items                 PRIMARY KEY (item_id),
         CONSTRAINT UQ_items_code            UNIQUE (item_code),

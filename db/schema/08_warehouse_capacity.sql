@@ -23,7 +23,7 @@
 --   updated_at / updated_by recorded at upload time.
 -- =============================================================================
 
-USE RCCP_One;
+USE RCCP;
 GO
 
 IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'warehouse_capacity')

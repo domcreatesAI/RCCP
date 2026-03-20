@@ -24,7 +24,7 @@
 --   Storing it would create a risk of the three values becoming inconsistent.
 -- =============================================================================
 
-USE RCCP_One;
+USE RCCP;
 GO
 
 IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'line_pack_capabilities')

@@ -23,7 +23,7 @@
 --   No ALTER to items is needed here.
 -- =============================================================================
 
-USE RCCP_One;
+USE RCCP;
 GO
 
 IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'item_resource_rules')

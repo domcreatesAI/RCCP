@@ -344,6 +344,23 @@ def run_validation(
             _stage6(cursor, conn, batch_file_id, file_type, schema, headers, data_rows)
 
 
+    # --- Plant Support Sheet 2 (headcount_plan only, advisory) ---
+    if file_type == "headcount_plan" and wb is not None:
+        try:
+            _validate_plant_support_sheet(cursor, conn, batch_file_id, wb)
+        except Exception as exc:
+            try:
+                c_err = conn.cursor()
+                c_err.execute(
+                    """INSERT INTO dbo.import_validation_results
+                           (batch_file_id, validation_stage, stage_name, severity, message)
+                       VALUES (?, 6, 'BUSINESS_RULE_CHECK', 'WARNING', ?)""",
+                    batch_file_id,
+                    f"Plant Support sheet check failed: {str(exc)[:300]}",
+                )
+            except Exception:
+                pass
+
     # --- Stage 7: batch readiness (always runs) ---
     _stage7(cursor, conn, batch_id, batch_file_id)
 
@@ -719,6 +736,76 @@ def _stage6(cursor, conn: pyodbc.Connection, batch_file_id: int, file_type: str,
 
     _emit_errors(cursor, batch_file_id, stage_num, stage_name, errors,
                  pass_msg="All business rules passed")
+
+
+def _validate_plant_support_sheet(cursor, conn, batch_file_id: int, wb) -> None:
+    """Validate Sheet 2 (Plant Support) of headcount_plan.xlsx. Optional — INFO if absent."""
+    stage_num, stage_name = 6, STAGE_NAMES[6]
+
+    sheet2 = next(
+        (wb[s] for s in wb.sheetnames if 'plant' in s.lower() or 'support' in s.lower()),
+        None,
+    )
+    if sheet2 is None:
+        _write(cursor, batch_file_id, stage_num, stage_name, "INFO",
+               "Plant Support sheet not found in headcount_plan.xlsx — "
+               "add a 'Plant Support' sheet to track plant-level headcount (optional).")
+        return
+
+    # Check required columns in header row 2
+    required_cols = {"plant_code", "resource_type_code", "plan_date", "planned_headcount"}
+    headers2 = _get_headers(sheet2, header_row=2)
+    header_set = set(headers2)
+    missing = required_cols - header_set
+    if missing:
+        _write(cursor, batch_file_id, stage_num, stage_name, "BLOCKED",
+               f"Plant Support sheet: missing required columns: {', '.join(sorted(missing))}. "
+               f"Expected header row 2 with: {', '.join(sorted(required_cols))}.")
+        return
+
+    data_rows2 = _get_data_rows(sheet2, headers2, start_row=3)
+    if not data_rows2:
+        _write(cursor, batch_file_id, stage_num, stage_name, "INFO",
+               "Plant Support sheet has no data rows — sheet is present but empty.")
+        return
+
+    # FK lookup sets
+    c2 = conn.cursor()
+    c2.execute("SELECT plant_code FROM dbo.plants")
+    valid_plants = {r[0] for r in c2.fetchall()}
+    c2.execute("SELECT resource_type_code FROM dbo.resource_types WHERE scope = 'PLANT'")
+    valid_roles = {r[0] for r in c2.fetchall()}
+
+    errors: list[str] = []
+    for row_num, row in data_rows2:
+        pc = (row.get("plant_code") or "").strip()
+        rc = (row.get("resource_type_code") or "").strip()
+        pd_raw = row.get("plan_date")
+        hc_raw = row.get("planned_headcount")
+
+        if not pc or not rc or pd_raw is None:
+            errors.append(f"Row {row_num}: plant_code, resource_type_code, plan_date are required.")
+            continue
+        if pc not in valid_plants:
+            errors.append(f"Row {row_num}: plant_code '{pc}' not found in dbo.plants.")
+        if rc not in valid_roles:
+            errors.append(f"Row {row_num}: resource_type_code '{rc}' not found in dbo.resource_types (scope=PLANT).")
+        try:
+            hc = float(hc_raw) if hc_raw is not None else None
+            if hc is None or hc < 0:
+                errors.append(f"Row {row_num}: planned_headcount must be a number ≥ 0.")
+        except (TypeError, ValueError):
+            errors.append(f"Row {row_num}: planned_headcount '{hc_raw}' is not a valid number.")
+
+    if errors:
+        sample = errors[:5]
+        suffix = f" (+{len(errors) - 5} more)" if len(errors) > 5 else ""
+        _write(cursor, batch_file_id, stage_num, stage_name, "BLOCKED",
+               f"Plant Support sheet has {len(errors)} error(s): "
+               + "; ".join(sample) + suffix)
+    else:
+        _write(cursor, batch_file_id, stage_num, stage_name, "PASS",
+               f"Plant Support sheet: {len(data_rows2)} row(s) validated OK.")
 
 
 def _stage7(cursor, conn: pyodbc.Connection, batch_id: int, batch_file_id: int) -> None:

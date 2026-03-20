@@ -9,7 +9,7 @@
 -- When a batch is archived, the data rows remain for historical reference.
 -- =============================================================================
 
-USE RCCP_One;
+USE RCCP;
 GO
 
 -- =============================================================================

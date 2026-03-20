@@ -13,7 +13,7 @@
 --       but will be left NULL going forward (data comes from item_master instead).
 -- =============================================================================
 
-USE RCCP_One;
+USE RCCP;
 GO
 
 -- =============================================================================
@@ -27,9 +27,11 @@ BEGIN
         upload_id           INT             IDENTITY(1,1)   NOT NULL,
         masterdata_type     VARCHAR(50)     NOT NULL,           -- e.g. line_pack_capabilities
         original_filename   VARCHAR(255)    NOT NULL,
+        version_number      INT             NOT NULL    DEFAULT 1,
         row_count           INT             NULL,               -- rows imported (NULL if upload failed validation)
         uploaded_at         DATETIME2(7)    NOT NULL    DEFAULT GETUTCDATE(),
         uploaded_by         VARCHAR(100)    NULL,
+        file_content        VARBINARY(MAX)  NULL,               -- File bytes stored for re-validation
 
         CONSTRAINT PK_masterdata_uploads    PRIMARY KEY (upload_id),
         CONSTRAINT CK_mu_type               CHECK (masterdata_type IN (
@@ -38,7 +40,9 @@ BEGIN
             'plant_resource_requirements',
             'warehouse_capacity',
             'item_master',
-            'item_status'
+            'item_status',
+            'pack_types',
+            'sku_masterdata'
         ))
     );
 

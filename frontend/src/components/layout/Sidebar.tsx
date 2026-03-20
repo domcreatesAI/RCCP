@@ -13,7 +13,7 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { label: 'Planning Data',       path: '/',    icon: Upload },
-  { label: 'RCCP Dashboard',      phase: 'Phase 2', icon: BarChart2 },
+  { label: 'RCCP Dashboard',      path: '/rccp',    icon: BarChart2 },
   { label: 'Scenarios',           phase: 'Phase 2', icon: GitBranch },
   { label: 'Executive Summary',   phase: 'Phase 2', icon: FileText },
   { label: 'Config & Masterdata', phase: 'Phase 5', icon: SlidersHorizontal },

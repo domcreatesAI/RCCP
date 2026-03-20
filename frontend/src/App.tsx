@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext'
 import AppShell from './components/layout/AppShell'
 import LoginPage from './pages/LoginPage'
 import PlanningDataPage from './pages/PlanningDataPage'
+import RCCPDashboardPage from './pages/RCCPDashboardPage'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth()
@@ -35,6 +36,7 @@ function AppRoutes() {
         }
       >
         <Route index element={<PlanningDataPage />} />
+        <Route path="rccp" element={<RCCPDashboardPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

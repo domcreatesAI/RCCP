@@ -182,7 +182,8 @@ def _check_publish_gate(conn: pyodbc.Connection, batch_id: int) -> list[str]:
 def _clear_planning_data(conn: pyodbc.Connection, batch_id: int) -> None:
     cursor = conn.cursor()
     for table in ("master_stock", "demand_plan", "line_capacity_calendar",
-                  "headcount_plan", "portfolio_changes", "production_orders"):
+                  "headcount_plan", "plant_headcount_plan",
+                  "portfolio_changes", "production_orders"):
         cursor.execute(f"DELETE FROM dbo.{table} WHERE batch_id = ?", batch_id)  # noqa: S608
 
 
@@ -239,6 +240,18 @@ def _import_file(
     }
     handlers[file_type](conn, batch_id, headers, data_rows, plan_cycle_date)
 
+    # Sheet 2 — plant support headcount (headcount_plan only)
+    if file_type == "headcount_plan":
+        sheet2 = next(
+            (wb[s] for s in wb.sheetnames
+             if 'plant' in s.lower() or 'support' in s.lower()),
+            None,
+        )
+        if sheet2 is not None:
+            headers2 = get_headers(sheet2, header_row=2)
+            data_rows2 = get_data_rows(sheet2, headers2, start_row=3)
+            _import_plant_headcount(conn, batch_id, data_rows2)
+
 
 # ---------------------------------------------------------------------------
 # Per-file import handlers
@@ -247,10 +260,14 @@ def _import_file(
 def _import_master_stock(conn, batch_id, headers, data_rows, plan_cycle_date):
     header_set = set(headers)
     cursor = conn.cursor()
+    cursor.execute("SELECT item_code FROM dbo.items")
+    valid_items = {str(r[0]).strip() for r in cursor.fetchall()}
     for row_num, row in data_rows:
         item_code = _str(row.get("material"))
         warehouse_code = _str(row.get("plant"))
         if not item_code or not warehouse_code:
+            continue
+        if item_code not in valid_items:
             continue
 
         total_stock = _dec(row.get("unrestrictedstock")) or 0.0
@@ -276,10 +293,14 @@ def _import_master_stock(conn, batch_id, headers, data_rows, plan_cycle_date):
 def _import_demand_plan(conn, batch_id, headers, data_rows, plan_cycle_date):
     month_cols = _detect_month_columns(headers)
     cursor = conn.cursor()
+    cursor.execute("SELECT item_code FROM dbo.items")
+    valid_items = {str(r[0]).strip() for r in cursor.fetchall()}
     for row_num, row in data_rows:
         item_code = _str(row.get("material_id"))
         warehouse_code = _str(row.get("plant"))
         if not item_code or not warehouse_code:
+            continue
+        if item_code not in valid_items:
             continue
 
         for col in month_cols:
@@ -342,6 +363,26 @@ def _import_line_capacity_calendar(conn, batch_id, headers, data_rows, plan_cycl
         )
 
 
+def _import_plant_headcount(conn, batch_id, data_rows):
+    cursor = conn.cursor()
+    for row_num, row in data_rows:
+        plant_code = _str(row.get("plant_code"))
+        role_code  = _str(row.get("resource_type_code"))
+        plan_dt    = to_date(row.get("plan_date"))
+        if not plant_code or not role_code or plan_dt is None:
+            continue
+        headcount = _dec(row.get("planned_headcount")) or 0.0
+        cursor.execute(
+            """
+            INSERT INTO dbo.plant_headcount_plan
+                (batch_id, plant_code, resource_type_code, plan_date,
+                 planned_headcount, source_row_number)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            batch_id, plant_code, role_code, plan_dt, headcount, row_num,
+        )
+
+
 def _import_headcount_plan(conn, batch_id, headers, data_rows, plan_cycle_date):
     header_set = set(headers)
     cursor = conn.cursor()
@@ -396,11 +437,15 @@ def _import_portfolio_changes(conn, batch_id, headers, data_rows, plan_cycle_dat
 def _import_production_orders(conn, batch_id, headers, data_rows, plan_cycle_date):
     header_set = set(headers)
     cursor = conn.cursor()
+    cursor.execute("SELECT item_code FROM dbo.items")
+    valid_items = {str(r[0]).strip() for r in cursor.fetchall()}
     for row_num, row in data_rows:
         sap_order = _str(row.get("order"))
         item_code = _str(row.get("material"))
         plant_code = _str(row.get("plant"))
         if not sap_order or not item_code or not plant_code:
+            continue
+        if item_code not in valid_items:
             continue
 
         order_type = _str(row.get("order_type"))
