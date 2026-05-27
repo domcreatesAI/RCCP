@@ -183,7 +183,7 @@ def _clear_planning_data(conn: pyodbc.Connection, batch_id: int) -> None:
     cursor = conn.cursor()
     for table in ("master_stock", "demand_plan", "line_capacity_calendar",
                   "headcount_plan", "plant_headcount_plan",
-                  "portfolio_changes", "production_orders"):
+                  "portfolio_changes", "production_orders", "actual_production"):
         cursor.execute(f"DELETE FROM dbo.{table} WHERE batch_id = ?", batch_id)  # noqa: S608
 
 
@@ -197,7 +197,8 @@ def _get_current_files(conn: pyodbc.Connection, batch_id: int) -> dict[str, str]
         WHERE batch_id = ? AND is_current_version = 1
           AND file_type IN (
               'master_stock', 'demand_plan', 'line_capacity_calendar',
-              'headcount_plan', 'portfolio_changes', 'production_orders'
+              'headcount_plan', 'portfolio_changes', 'production_orders',
+              'actual_production'
           )
         """,
         batch_id,
@@ -237,6 +238,7 @@ def _import_file(
         "headcount_plan":         _import_headcount_plan,
         "portfolio_changes":      _import_portfolio_changes,
         "production_orders":      _import_production_orders,
+        "actual_production":      _import_actual_production,
     }
     handlers[file_type](conn, batch_id, headers, data_rows, plan_cycle_date)
 
@@ -262,6 +264,8 @@ def _import_master_stock(conn, batch_id, headers, data_rows, plan_cycle_date):
     cursor = conn.cursor()
     cursor.execute("SELECT item_code FROM dbo.items")
     valid_items = {str(r[0]).strip() for r in cursor.fetchall()}
+
+    batch = []
     for row_num, row in data_rows:
         item_code = _str(row.get("material"))
         warehouse_code = _str(row.get("plant"))
@@ -271,13 +275,19 @@ def _import_master_stock(conn, batch_id, headers, data_rows, plan_cycle_date):
             continue
 
         total_stock = _dec(row.get("unrestrictedstock")) or 0.0
-        # free_stock_ea has a DB CHECK >= 0; negative = back-order → clamp to 0
         free_stock_raw = _dec(row.get("unrestricted_-_sales")) or 0.0
         free_stock = max(0.0, free_stock_raw)
         safety_stock = _dec(row.get("safety_stock")) if "safety_stock" in header_set else None
         mrp_type = _str(row.get("mrp_type")) if "mrp_type" in header_set else None
 
-        cursor.execute(
+        batch.append((
+            batch_id, warehouse_code, item_code, plan_cycle_date,
+            mrp_type, total_stock, free_stock, safety_stock, row_num,
+        ))
+
+    if batch:
+        cursor.fast_executemany = True
+        cursor.executemany(
             """
             INSERT INTO dbo.master_stock
                 (batch_id, warehouse_code, item_code, snapshot_date,
@@ -285,8 +295,7 @@ def _import_master_stock(conn, batch_id, headers, data_rows, plan_cycle_date):
                  source_row_number)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            batch_id, warehouse_code, item_code, plan_cycle_date,
-            mrp_type, total_stock, free_stock, safety_stock, row_num,
+            batch,
         )
 
 
@@ -295,6 +304,8 @@ def _import_demand_plan(conn, batch_id, headers, data_rows, plan_cycle_date):
     cursor = conn.cursor()
     cursor.execute("SELECT item_code FROM dbo.items")
     valid_items = {str(r[0]).strip() for r in cursor.fetchall()}
+
+    batch = []
     for row_num, row in data_rows:
         item_code = _str(row.get("material_id"))
         warehouse_code = _str(row.get("plant"))
@@ -315,22 +326,30 @@ def _import_demand_plan(conn, batch_id, headers, data_rows, plan_cycle_date):
             if qty is None:
                 qty = 0.0
 
-            cursor.execute(
-                """
-                INSERT INTO dbo.demand_plan
-                    (batch_id, warehouse_code, item_code, period_type,
-                     period_start_date, period_end_date, demand_quantity,
-                     source_row_number)
-                VALUES (?, ?, ?, 'MONTHLY', ?, ?, ?, ?)
-                """,
+            batch.append((
                 batch_id, warehouse_code, item_code,
                 period_start, period_end, qty, row_num,
-            )
+            ))
+
+    if batch:
+        cursor.fast_executemany = True
+        cursor.executemany(
+            """
+            INSERT INTO dbo.demand_plan
+                (batch_id, warehouse_code, item_code, period_type,
+                 period_start_date, period_end_date, demand_quantity,
+                 source_row_number)
+            VALUES (?, ?, ?, 'MONTHLY', ?, ?, ?, ?)
+            """,
+            batch,
+        )
 
 
 def _import_line_capacity_calendar(conn, batch_id, headers, data_rows, plan_cycle_date):
     header_set = set(headers)
     cursor = conn.cursor()
+
+    batch = []
     for row_num, row in data_rows:
         line_code = _str(row.get("line_code"))
         cal_date = to_date(row.get("calendar_date"))
@@ -339,14 +358,22 @@ def _import_line_capacity_calendar(conn, batch_id, headers, data_rows, plan_cycl
 
         is_working = to_bit(row.get("is_working_day"), default=1)
         planned_hrs = _dec(row.get("planned_hours")) or 0.0
-        # standard_hours = planned_hours for Phase 1 (net = planned - losses)
         maint = _dec(row.get("maintenance_hours")) if "maintenance_hours" in header_set else 0.0
         ph = _dec(row.get("public_holiday_hours")) if "public_holiday_hours" in header_set else 0.0
         downtime = _dec(row.get("planned_downtime_hours")) if "planned_downtime_hours" in header_set else 0.0
         other = _dec(row.get("other_loss_hours")) if "other_loss_hours" in header_set else 0.0
         notes = _str(row.get("notes")) if "notes" in header_set else None
 
-        cursor.execute(
+        batch.append((
+            batch_id, line_code, cal_date, is_working,
+            planned_hrs, planned_hrs,
+            maint or 0.0, ph or 0.0, downtime or 0.0, other or 0.0,
+            notes, row_num,
+        ))
+
+    if batch:
+        cursor.fast_executemany = True
+        cursor.executemany(
             """
             INSERT INTO dbo.line_capacity_calendar
                 (batch_id, line_code, calendar_date, is_working_day,
@@ -356,15 +383,13 @@ def _import_line_capacity_calendar(conn, batch_id, headers, data_rows, plan_cycl
                  notes, source_row_number)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            batch_id, line_code, cal_date, is_working,
-            planned_hrs, planned_hrs,
-            maint or 0.0, ph or 0.0, downtime or 0.0, other or 0.0,
-            notes, row_num,
+            batch,
         )
 
 
 def _import_plant_headcount(conn, batch_id, data_rows):
     cursor = conn.cursor()
+    batch = []
     for row_num, row in data_rows:
         plant_code = _str(row.get("plant_code"))
         role_code  = _str(row.get("resource_type_code"))
@@ -372,20 +397,26 @@ def _import_plant_headcount(conn, batch_id, data_rows):
         if not plant_code or not role_code or plan_dt is None:
             continue
         headcount = _dec(row.get("planned_headcount")) or 0.0
-        cursor.execute(
+        batch.append((batch_id, plant_code, role_code, plan_dt, headcount, row_num))
+
+    if batch:
+        cursor.fast_executemany = True
+        cursor.executemany(
             """
             INSERT INTO dbo.plant_headcount_plan
                 (batch_id, plant_code, resource_type_code, plan_date,
                  planned_headcount, source_row_number)
             VALUES (?, ?, ?, ?, ?, ?)
             """,
-            batch_id, plant_code, role_code, plan_dt, headcount, row_num,
+            batch,
         )
 
 
 def _import_headcount_plan(conn, batch_id, headers, data_rows, plan_cycle_date):
     header_set = set(headers)
     cursor = conn.cursor()
+
+    batch = []
     for row_num, row in data_rows:
         line_code = _str(row.get("line_code"))
         plan_dt = to_date(row.get("plan_date"))
@@ -397,15 +428,21 @@ def _import_headcount_plan(conn, batch_id, headers, data_rows, plan_cycle_date):
         avail_hrs = _dec(row.get("available_hours")) if "available_hours" in header_set else None
         notes = _str(row.get("notes")) if "notes" in header_set else None
 
-        cursor.execute(
+        batch.append((
+            batch_id, line_code, plan_dt, shift_code,
+            headcount, avail_hrs, notes, row_num,
+        ))
+
+    if batch:
+        cursor.fast_executemany = True
+        cursor.executemany(
             """
             INSERT INTO dbo.headcount_plan
                 (batch_id, line_code, plan_date, shift_code,
                  planned_headcount, available_hours, notes, source_row_number)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            batch_id, line_code, plan_dt, shift_code,
-            headcount, avail_hrs, notes, row_num,
+            batch,
         )
 
 
@@ -413,24 +450,31 @@ def _import_portfolio_changes(conn, batch_id, headers, data_rows, plan_cycle_dat
     """0 data rows is valid — nothing to import."""
     header_set = set(headers)
     cursor = conn.cursor()
+
+    batch = []
     for row_num, row in data_rows:
         change_type = _str(row.get("change_type"))
         effective_dt = to_date(row.get("effective_date")) if "effective_date" in header_set else None
         item_code = _str(row.get("item_code")) if "item_code" in header_set else None
         description = _str(row.get("description")) if "description" in header_set else None
         impact_notes = _str(row.get("impact_notes")) if "impact_notes" in header_set else None
-        # initial_demand: only meaningful for NEW_LAUNCH rows; stored as-is for all rows
         initial_demand = _dec(row.get("initial_demand")) if "initial_demand" in header_set else None
 
-        cursor.execute(
+        batch.append((
+            batch_id, item_code, change_type, effective_dt,
+            description, impact_notes, initial_demand, row_num,
+        ))
+
+    if batch:
+        cursor.fast_executemany = True
+        cursor.executemany(
             """
             INSERT INTO dbo.portfolio_changes
                 (batch_id, item_code, change_type, effective_date,
                  description, impact_notes, initial_demand, source_row_number)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            batch_id, item_code, change_type, effective_dt,
-            description, impact_notes, initial_demand, row_num,
+            batch,
         )
 
 
@@ -439,6 +483,8 @@ def _import_production_orders(conn, batch_id, headers, data_rows, plan_cycle_dat
     cursor = conn.cursor()
     cursor.execute("SELECT item_code FROM dbo.items")
     valid_items = {str(r[0]).strip() for r in cursor.fetchall()}
+
+    batch = []
     for row_num, row in data_rows:
         sap_order = _str(row.get("order"))
         item_code = _str(row.get("material"))
@@ -458,7 +504,16 @@ def _import_production_orders(conn, batch_id, headers, data_rows, plan_cycle_dat
         system_status = _str(row.get("system_status")) if "system_status" in header_set else None
         production_line = _str(row.get("production_line")) if "production_line" in header_set else None
 
-        cursor.execute(
+        batch.append((
+            batch_id, sap_order, item_code, order_type,
+            mrp_controller, plant_code, order_qty, delivered_qty,
+            net_qty, uom, start_dt, system_status,
+            production_line, row_num,
+        ))
+
+    if batch:
+        cursor.fast_executemany = True
+        cursor.executemany(
             """
             INSERT INTO dbo.production_orders
                 (batch_id, sap_order_number, item_code, order_type,
@@ -467,10 +522,65 @@ def _import_production_orders(conn, batch_id, headers, data_rows, plan_cycle_dat
                  production_line, source_row_number)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            batch_id, sap_order, item_code, order_type,
-            mrp_controller, plant_code, order_qty, delivered_qty,
-            net_qty, uom, start_dt, system_status,
-            production_line, row_num,
+            batch,
+        )
+
+
+def _import_actual_production(conn, batch_id, headers, data_rows, plan_cycle_date):
+    """Import SAP MB51 goods receipts. EA quantities converted to litres using pack_size_l."""
+    header_set = set(headers)
+    cursor = conn.cursor()
+
+    # Load pack_size_l per item for EA → L conversion
+    cursor.execute("SELECT item_code, pack_size_l FROM dbo.items")
+    pack_size: dict[str, float | None] = {r[0]: float(r[1]) if r[1] is not None else None for r in cursor.fetchall()}
+
+    # Load valid item codes for FK guard
+    valid_items = set(pack_size.keys())
+
+    batch = []
+    for row_num, row in data_rows:
+        item_code  = _str(row.get("material"))
+        plant_code = _str(row.get("plant"))
+        if not item_code or not plant_code:
+            continue
+        if item_code not in valid_items:
+            continue
+
+        # Filter to movement type 101 (GR from production order) when column present
+        if "movement_type" in header_set:
+            mvt_val = _str(row.get("movement_type"))
+            if mvt_val and mvt_val.strip() != "101":
+                continue
+
+        posting_dt = to_date(row.get("posting_date"))
+        if posting_dt is None:
+            continue
+
+        qty_ea = _dec(row.get("quantity")) or 0.0
+        ps_l   = pack_size.get(item_code)
+        qty_l  = round(qty_ea * ps_l, 4) if ps_l is not None else None
+
+        mvt        = _str(row.get("movement_type")) if "movement_type" in header_set else None
+        sap_order  = _str(row.get("order")) if "order" in header_set else None
+        mat_doc    = _str(row.get("material_document")) if "material_document" in header_set else None
+
+        batch.append((
+            batch_id, item_code, plant_code, posting_dt,
+            qty_ea, qty_l, mvt, sap_order, mat_doc, row_num,
+        ))
+
+    if batch:
+        cursor.fast_executemany = True
+        cursor.executemany(
+            """
+            INSERT INTO dbo.actual_production
+                (batch_id, item_code, plant_code, posting_date,
+                 quantity_ea, quantity_l, movement_type,
+                 sap_order_no, material_doc, source_row_number)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            batch,
         )
 
 

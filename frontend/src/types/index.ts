@@ -44,6 +44,7 @@ export type FileType =
   | 'headcount_plan'
   | 'portfolio_changes'
   | 'production_orders'
+  | 'actual_production'
 
 export type ValidationStatus = 'PENDING' | 'PASS' | 'WARNING' | 'BLOCKED'
 
@@ -61,9 +62,7 @@ export interface Baseline {
 // ─── RCCP Dashboard types ─────────────────────────────────────────────────────
 
 export type UnitMode = 'L' | 'h'
-export type PeriodSlice = '18M' | '12M' | '6M' | '3M'
-export type WeekSlice = '12W' | '8W' | '4W'
-export type Granularity = 'monthly' | 'weekly'
+export type PeriodSlice = '18M' | '12M' | '6M' | '3M' | '1M'
 
 export interface RCCPKPIs {
   critical_lines: number
@@ -96,27 +95,15 @@ export interface RCCPMonthlyBucket {
   production_hours: number | null
   demand_hours: number | null
   gap_hours: number | null
+  actual_hours: number | null
+  // actuals
+  actual_litres: number | null
   // headcount
   hc_required: number | null
   hc_planned_avg: number | null
   hc_shortfall: number | null
 }
 
-export interface RCCPWeeklyBucket {
-  period: string           // "2026-W12"
-  working_days: number
-  available_litres: number | null
-  firm_litres: number
-  planned_litres: number
-  production_litres: number
-  utilisation_pct: number | null
-  gap_litres: number | null
-  available_hours: number | null
-  firm_hours: number | null
-  planned_hours: number | null
-  production_hours: number | null
-  gap_hours: number | null
-}
 
 export interface RCCPHCRole {
   role_code: string
@@ -135,16 +122,35 @@ export interface RCCPPlantSupportRole {
   monthly: RCCPPlantSupportMonthly[]
 }
 
+export interface RCCPWeeklyBucket {
+  period: string           // "2026-W12"
+  working_days: number
+  available_litres: number | null
+  firm_litres: number
+  planned_litres: number
+  production_litres: number
+  utilisation_pct: number | null
+  gap_litres: number | null
+  available_hours: number | null
+  firm_hours: number | null
+  planned_hours: number | null
+  production_hours: number | null
+  gap_hours: number | null
+}
+
 export interface RCCPLine {
   line_code: string
   line_name: string
   plant_code: string
   pool_code: string | null
   pool_max_concurrent: number | null
+  oee_target: number                // e.g. 0.55
+  available_mins_per_day: number    // e.g. 420
   risk_status: 'Critical' | 'High' | 'Watch' | 'Stable' | 'No data'
   risk_score: number
   primary_driver: 'CAPACITY' | 'LABOUR' | 'STABLE' | 'NO_DATA'
   labour_status: 'OK' | 'SHORTFALL' | 'NO_DATA'
+  material_labour_shortfall: boolean   // any month with a >= 1 FTE gap
   hc_roles: RCCPHCRole[]
   monthly: RCCPMonthlyBucket[]
   weekly: RCCPWeeklyBucket[]
@@ -169,6 +175,7 @@ export interface RCCPDashboard {
   lines: RCCPLine[]
   unassigned_orders: RCCPUnassignedOrder[]
   plant_support_requirements: Record<string, RCCPPlantSupportRole[]>
+  resource_type_rates: Record<string, number>  // role_code → standard_hourly_rate
 }
 
 export interface User {

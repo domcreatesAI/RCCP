@@ -27,23 +27,70 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-8 w-full max-w-sm">
+    <div
+      className="min-h-screen flex items-center justify-center relative overflow-hidden"
+      style={{
+        background:
+          'linear-gradient(180deg,#143F5C 0%,#0C3C5D 60%,#082A40 100%)',
+      }}
+    >
+      {/* Decorative glows */}
+      <div
+        aria-hidden
+        className="absolute pointer-events-none"
+        style={{
+          right: '-120px',
+          top: '-80px',
+          width: '440px',
+          height: '440px',
+          background: 'radial-gradient(circle,rgba(170,205,0,0.18),transparent 65%)',
+        }}
+      />
+      <div
+        aria-hidden
+        className="absolute pointer-events-none"
+        style={{
+          left: '-100px',
+          bottom: '-60px',
+          width: '320px',
+          height: '320px',
+          background: 'radial-gradient(circle,rgba(177,204,187,0.14),transparent 70%)',
+        }}
+      />
+
+      <div
+        className="relative bg-white rounded-2xl p-8 w-full max-w-sm"
+        style={{
+          border: '1px solid #E2E6EA',
+          boxShadow: '0 24px 64px rgba(8,42,64,0.35)',
+        }}
+      >
         {/* Logo / title */}
-        <div className="mb-8 text-center">
-          <div className="inline-flex items-center justify-center w-12 h-12 bg-blue-600 rounded-xl mb-4">
-            <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-            </svg>
+        <div className="mb-7 text-center">
+          <div className="inline-flex items-center justify-center mb-4">
+            <img src="/moove-logo.png" alt="moove" className="h-9 w-auto" />
           </div>
-          <h1 className="text-xl font-semibold text-gray-900">RCCP One</h1>
-          <p className="text-sm text-gray-500 mt-1">Capacity Planning</p>
+          <p
+            className="font-mono text-[10px] font-semibold uppercase mb-2 inline-block"
+            style={{
+              color: '#7B9400',
+              letterSpacing: '0.16em',
+              background: 'rgba(170,205,0,0.12)',
+              padding: '3px 8px',
+              borderRadius: 3,
+              border: '1px solid rgba(170,205,0,0.3)',
+            }}
+          >
+            RCCP One
+          </p>
+          <p className="text-[13px] mt-3" style={{ color: '#6B7A8A' }}>
+            Capacity Planning · Gravesend UKP1
+          </p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-[12.5px] font-semibold mb-1.5" style={{ color: '#3F4D5B' }}>
               Username
             </label>
             <input
@@ -52,11 +99,12 @@ export default function LoginPage() {
               onChange={(e) => setUsername(e.target.value)}
               required
               autoFocus
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full px-3 py-2 rounded-lg text-[14px] focus:outline-none focus:ring-2"
+              style={{ border: '1px solid #CCD3DA', color: '#0F1A24' }}
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className="block text-[12.5px] font-semibold mb-1.5" style={{ color: '#3F4D5B' }}>
               Password
             </label>
             <input
@@ -64,22 +112,30 @@ export default function LoginPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full px-3 py-2 rounded-lg text-[14px] focus:outline-none focus:ring-2"
+              style={{ border: '1px solid #CCD3DA', color: '#0F1A24' }}
             />
           </div>
 
           {error && (
-            <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">{error}</p>
+            <p className="text-[12.5px] px-3 py-2 rounded-lg" style={{ background: '#FEE4D5', color: '#C2410C' }}>
+              {error}
+            </p>
           )}
 
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-blue-600 text-white py-2 px-4 rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="w-full text-white py-2 px-4 rounded-lg text-[13.5px] font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{ background: '#0C3C5D' }}
           >
             {loading ? 'Signing in…' : 'Sign in'}
           </button>
         </form>
+
+        <p className="mt-6 text-center text-[10.5px] font-mono uppercase tracking-widest" style={{ color: '#9CABB9' }}>
+          v0.9 · Phase 1
+        </p>
       </div>
     </div>
   )

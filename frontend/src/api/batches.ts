@@ -33,3 +33,8 @@ export async function publishBatch(batchId: number): Promise<Batch> {
   const { data } = await client.post<Batch>(`/batches/${batchId}/publish`)
   return data
 }
+
+export async function unpublishBatch(batchId: number): Promise<{ status: string }> {
+  const { data } = await client.post<{ status: string }>(`/batches/${batchId}/unpublish`)
+  return data
+}

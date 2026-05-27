@@ -20,7 +20,7 @@ Internal manufacturing planning app — **Rough Cut Capacity Planning (RCCP)**.
 
 | Layer | Technology |
 |-------|-----------|
-| Database | SQL Server 17 (`localhost\SQLEXPRESS`, database `RCCP_One`) |
+| Database | SQL Server (`172.17.136.4`, database `RCCP`, SQL auth as `RCCP.admin`) |
 | Backend | Python + FastAPI |
 | Frontend | React (TypeScript) |
 | File storage | Local filesystem — `uploads/` relative to backend root |
@@ -255,41 +255,48 @@ Auth was originally deferred to Phase 5 but is being built in Phase 1.
 **Capacity calendar pre-filled:** `scripts/generate_capacity_calendar.py` generates `uploads/capacity_calendar_2026_2030.xlsx` — 14 lines × 1,826 days (2026–2030), UK bank holidays hardcoded, DD/MM/YYYY date format.
 
 **Before running the backend (fresh machine setup):**
-1. Ensure `rccp_app` SQL login exists with access to `RCCP_One`
-2. `cd backend && py -m venv venv`
-3. `.\venv\Scripts\python.exe -m pip install -r requirements.txt`
-4. Copy `.env.example` → `.env`, fill in `DB_PASSWORD` and `JWT_SECRET`
-5. `.\venv\Scripts\uvicorn.exe app.main:app --reload`
+1. `cd backend && py -m venv venv`
+2. `.\venv\Scripts\python.exe -m pip install -r requirements.txt`
+3. Copy `.env.example` → `.env`, set `DB_SERVER=172.17.136.4`, `DB_NAME=RCCP`, `DB_USER=RCCP.admin`, `DB_PASSWORD`, and `JWT_SECRET`
+4. `.\venv\Scripts\uvicorn.exe app.main:app --reload`
 
-**To redeploy DB from scratch** (run from repo root with `-C` flag for ODBC Driver 18):
+**DB connection:** Remote SQL Server at `172.17.136.4`, database `RCCP`, SQL auth as `RCCP.admin`. Credentials in `.env`.
+
+**To run sqlcmd migrations** (use SQL auth `-U`/`-P`, not Windows auth `-E`):
 ```bat
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\00_reset_all_tables.sql
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\01_masterdata.sql
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\02_workflow.sql
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\03_planning_data.sql
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\04_views.sql
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\05_item_resource_rules.sql
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\06_resource_requirements.sql
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\07_line_pack_capabilities.sql
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\08_warehouse_capacity.sql
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\09_users.sql
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\11_masterdata_uploads.sql
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\seeds\01_app_settings.sql
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\seeds\02_masterdata_sample.sql
+sqlcmd -S 172.17.136.4 -d RCCP -U RCCP.admin -P <password> -C -i db\schema\<file>.sql
+```
+
+**To redeploy DB from scratch:**
+```bat
+sqlcmd -S 172.17.136.4 -d RCCP -U RCCP.admin -P <password> -C -i db\schema\00_reset_all_tables.sql
+sqlcmd -S 172.17.136.4 -d RCCP -U RCCP.admin -P <password> -C -i db\schema\01_masterdata.sql
+sqlcmd -S 172.17.136.4 -d RCCP -U RCCP.admin -P <password> -C -i db\schema\02_workflow.sql
+sqlcmd -S 172.17.136.4 -d RCCP -U RCCP.admin -P <password> -C -i db\schema\03_planning_data.sql
+sqlcmd -S 172.17.136.4 -d RCCP -U RCCP.admin -P <password> -C -i db\schema\04_views.sql
+sqlcmd -S 172.17.136.4 -d RCCP -U RCCP.admin -P <password> -C -i db\schema\05_item_resource_rules.sql
+sqlcmd -S 172.17.136.4 -d RCCP -U RCCP.admin -P <password> -C -i db\schema\06_resource_requirements.sql
+sqlcmd -S 172.17.136.4 -d RCCP -U RCCP.admin -P <password> -C -i db\schema\07_line_pack_capabilities.sql
+sqlcmd -S 172.17.136.4 -d RCCP -U RCCP.admin -P <password> -C -i db\schema\08_warehouse_capacity.sql
+sqlcmd -S 172.17.136.4 -d RCCP -U RCCP.admin -P <password> -C -i db\schema\09_users.sql
+sqlcmd -S 172.17.136.4 -d RCCP -U RCCP.admin -P <password> -C -i db\schema\11_masterdata_uploads.sql
+sqlcmd -S 172.17.136.4 -d RCCP -U RCCP.admin -P <password> -C -i db\seeds\01_app_settings.sql
+sqlcmd -S 172.17.136.4 -d RCCP -U RCCP.admin -P <password> -C -i db\seeds\02_masterdata_sample.sql
 ```
 
 **Migrations (apply to existing deployment, in order):**
 ```bat
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\10_rename_staffing_to_headcount.sql
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\12_fix_masterdata_uploads_ck.sql
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\13_line_pack_oee.sql
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\14_masterdata_stored_path.sql
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\15_remove_item_status_type.sql
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\16_remove_oee_daily.sql
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\17_file_content_versioning.sql
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\18_production_orders.sql
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\19_update_batch_readiness_view.sql
-sqlcmd -S localhost\SQLEXPRESS -d RCCP_One -E -C -i db\schema\24_widen_system_status.sql
+sqlcmd -S 172.17.136.4 -d RCCP -U RCCP.admin -P <password> -C -i db\schema\10_rename_staffing_to_headcount.sql
+sqlcmd -S 172.17.136.4 -d RCCP -U RCCP.admin -P <password> -C -i db\schema\12_fix_masterdata_uploads_ck.sql
+sqlcmd -S 172.17.136.4 -d RCCP -U RCCP.admin -P <password> -C -i db\schema\13_line_pack_oee.sql
+sqlcmd -S 172.17.136.4 -d RCCP -U RCCP.admin -P <password> -C -i db\schema\14_masterdata_stored_path.sql
+sqlcmd -S 172.17.136.4 -d RCCP -U RCCP.admin -P <password> -C -i db\schema\15_remove_item_status_type.sql
+sqlcmd -S 172.17.136.4 -d RCCP -U RCCP.admin -P <password> -C -i db\schema\16_remove_oee_daily.sql
+sqlcmd -S 172.17.136.4 -d RCCP -U RCCP.admin -P <password> -C -i db\schema\17_file_content_versioning.sql
+sqlcmd -S 172.17.136.4 -d RCCP -U RCCP.admin -P <password> -C -i db\schema\18_production_orders.sql
+sqlcmd -S 172.17.136.4 -d RCCP -U RCCP.admin -P <password> -C -i db\schema\19_update_batch_readiness_view.sql
+sqlcmd -S 172.17.136.4 -d RCCP -U RCCP.admin -P <password> -C -i db\schema\24_widen_system_status.sql
+sqlcmd -S 172.17.136.4 -d RCCP -U RCCP.admin -P <password> -C -i db\schema\28_actual_production.sql
 ```
 
 ---

@@ -107,7 +107,7 @@ function NewBatchModal({ onClose, onCreated }: { onClose: () => void; onCreated:
                 onChange={(e) => setName(e.target.value)}
                 placeholder="e.g. March 2026 Plan"
                 className="w-full rounded-xl px-3 py-2.5 text-sm outline-none transition-all border border-gray-200 bg-[#F8FAFC] text-slate-700
-                  focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                  focus:border-[#0C3C5D] focus:ring-2 focus:ring-[#D6E0E9]"
               />
             </div>
             <div>
@@ -117,13 +117,13 @@ function NewBatchModal({ onClose, onCreated }: { onClose: () => void; onCreated:
                 value={month}
                 onChange={(e) => setMonth(e.target.value)}
                 className="w-full rounded-xl px-3 py-2.5 text-sm outline-none transition-all border border-gray-200 bg-[#F8FAFC] text-slate-700
-                  focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                  focus:border-[#0C3C5D] focus:ring-2 focus:ring-[#D6E0E9]"
               />
               <p className="text-xs text-gray-400 mt-1">Cycle date will be set to the 1st of the selected month.</p>
             </div>
-            <div className="rounded-xl p-3 flex items-start gap-2 bg-indigo-50 border border-indigo-200">
-              <Info className="w-3.5 h-3.5 text-indigo-500 shrink-0 mt-0.5" />
-              <p className="text-xs text-indigo-800">
+            <div className="rounded-xl p-3 flex items-start gap-2 bg-[#E8EEF3] border border-[#D6E0E9]">
+              <Info className="w-3.5 h-3.5 text-[#E8EEF3]0 shrink-0 mt-0.5" />
+              <p className="text-xs text-[#0C3C5D]">
                 Creating a new batch does not affect the currently PUBLISHED batch. Upload all 6 SAP files before publishing.
               </p>
             </div>
@@ -141,7 +141,7 @@ function NewBatchModal({ onClose, onCreated }: { onClose: () => void; onCreated:
             <motion.button type="submit" disabled={createMutation.isPending}
               whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
               className="flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-semibold text-white transition-all disabled:opacity-50"
-              style={{ background: 'linear-gradient(135deg, #4F46E5, #7C3AED)', boxShadow: '0 4px 12px rgba(99,102,241,0.3)' }}>
+              style={{ background: 'linear-gradient(135deg, #0C3C5D, #7C3AED)', boxShadow: '0 4px 12px rgba(99,102,241,0.3)' }}>
               <Plus className="w-4 h-4" />
               {createMutation.isPending ? 'Creating…' : 'Create Batch'}
             </motion.button>
@@ -188,7 +188,7 @@ export default function BatchSelector({ selectedId, onSelect, activeBatch, basel
     })
 
   // Lifecycle stepper
-  // lifecycleIdx = the "next action" step (shown as indigo).
+  // lifecycleIdx = the "next action" step (shown as Moove navy).
   // Completed steps (i < lifecycleIdx) show green.
   const lifecycleIdx = (() => {
     if (!activeBatch) return 0
@@ -241,12 +241,12 @@ export default function BatchSelector({ selectedId, onSelect, activeBatch, basel
                   onClick={() => setOpen((v) => !v)}
                   className="flex items-center gap-3 px-4 py-3 rounded-xl border transition-all w-full text-left"
                   style={{
-                    borderColor: open ? '#6366F1' : '#E2E8F0',
+                    borderColor: open ? '#0C3C5D' : '#E2E8F0',
                     backgroundColor: open ? '#EEF2FF' : '#F8FAFC',
                     boxShadow: open ? '0 0 0 3px rgba(99,102,241,0.1)' : 'none',
                   }}>
-                  <div className="w-8 h-8 rounded-lg bg-indigo-100 flex items-center justify-center shrink-0">
-                    <Calendar className="w-4 h-4 text-indigo-600" />
+                  <div className="w-8 h-8 rounded-lg bg-[#D6E0E9] flex items-center justify-center shrink-0">
+                    <Calendar className="w-4 h-4 text-[#0C3C5D]" />
                   </div>
                   <div className="flex-1 min-w-0">
                     {activeBatch ? (
@@ -296,14 +296,14 @@ export default function BatchSelector({ selectedId, onSelect, activeBatch, basel
                             {' · '}{b.status}
                           </div>
                         </div>
-                        {b.batch_id === selectedId && <Check className="w-4 h-4 text-indigo-600 shrink-0" />}
+                        {b.batch_id === selectedId && <Check className="w-4 h-4 text-[#0C3C5D] shrink-0" />}
                       </button>
                     ))}
                     <button
                       onClick={() => { setOpen(false); setShowModal(true) }}
                       className="w-full flex items-center gap-3 px-4 py-3.5 text-left transition-colors bg-gray-50 hover:bg-gray-100 border-t border-gray-200">
-                      <Plus className="w-4 h-4 text-indigo-600" />
-                      <span className="text-sm font-semibold text-indigo-600">Create New Batch…</span>
+                      <Plus className="w-4 h-4 text-[#0C3C5D]" />
+                      <span className="text-sm font-semibold text-[#0C3C5D]">Create New Batch…</span>
                     </button>
                   </motion.div>
                 )}
@@ -324,13 +324,13 @@ export default function BatchSelector({ selectedId, onSelect, activeBatch, basel
                         <div className="flex flex-col items-center">
                           <div className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold"
                             style={{
-                              backgroundColor: isDone ? '#22C55E' : isCurrent ? '#6366F1' : '#F1F5F9',
+                              backgroundColor: isDone ? '#22C55E' : isCurrent ? '#0C3C5D' : '#F1F5F9',
                               color: isDone || isCurrent ? '#FFF' : '#94A3B8',
                             }}>
                             {isDone ? '✓' : i + 1}
                           </div>
                           <div className="text-center mt-0.5"
-                            style={{ color: isCurrent ? '#6366F1' : isDone ? '#22C55E' : '#94A3B8', fontSize: 9 }}>
+                            style={{ color: isCurrent ? '#0C3C5D' : isDone ? '#22C55E' : '#94A3B8', fontSize: 9 }}>
                             <span className="font-semibold whitespace-nowrap">{step.label}</span>
                           </div>
                         </div>

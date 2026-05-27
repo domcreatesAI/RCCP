@@ -167,6 +167,42 @@ TEMPLATES: dict[str, dict] = {
         ],
     },
 
+    "actual_production": {
+        "title": "Actual Production (SAP MB51 Export)",
+        "description": (
+            "SAP MB51 goods receipt export for movement type 101 (GR from production order). "
+            "One row per goods receipt posting. Row 1 = column headers. Row 2+ = data. "
+            "Export directly from SAP MB51 and upload without modification. "
+            "Quantities are in EA — converted to litres on publish using pack_size_l from SKU Masterdata. "
+            "If the mvt column is present, only rows with mvt = 101 are imported. "
+            "material must already exist in the SKU Masterdata. plant must match a warehouse in masterdata."
+        ),
+        "no_desc_row": True,
+        "columns": [
+            ("material",             "Material",             "SAP material number. Must already exist in the SKU Masterdata. Required.",                "100556"),
+            ("material_description", "Material Description", "SKU description from SAP. Optional — ignored on import.",                               "MOBIL BRAKE FLUID DOT4 AP C2/3 12x0.5L"),
+            ("quantity",             "Quantity",             "Goods receipt quantity in EA (eaches). Must be > 0. Required.",                          "960"),
+            ("posting_date",         "Posting Date",         "Date the goods receipt was posted in SAP (DD/MM/YYYY or YYYY-MM-DD). Required.",         "24/04/2026"),
+            ("movement_type",        "Movement type",        "SAP movement type. Only rows with 101 (GR from production order) are imported.",         "101"),
+            ("plant",                "Plant",                "SAP plant/warehouse code (e.g. UKP1). Must match a warehouse in masterdata. Required.",  "UKP1"),
+            ("storage_location",     "Storage location",     "SAP storage location code. Optional — not stored.",                                      "UK1D"),
+            ("material_document",    "Material Document",    "SAP material document number. Optional.",                                                "5000268077"),
+            ("document_date",        "Document Date",        "SAP document date. Optional — not stored.",                                              "24/04/2026"),
+            ("customer",             "Customer",             "Customer number. Optional — not stored.",                                                ""),
+            ("sales_order",          "Sales order",          "Sales order number. Optional — not stored.",                                             ""),
+            ("purchase_order",       "Purchase order",       "Purchase order number. Optional — not stored.",                                          ""),
+            ("batch",                "Batch",                "SAP batch number. Optional — not stored.",                                               "0000063643"),
+            ("supplier",             "Supplier",             "Supplier number. Optional — not stored.",                                                ""),
+            ("reference",            "Reference",            "Reference document. Optional — not stored.",                                             "UKP1100001139832"),
+            ("order",                "Order",                "SAP production order number. Optional.",                                                 "1016164"),
+            ("user_name",            "User Name",            "SAP user who posted the document. Optional — not stored.",                               "DDIC_BTC"),
+        ],
+        "sample_rows": [
+            ["100556", "MOBIL BRAKE FLUID DOT4 AP C2/3 12x0.5L", 960, "24/04/2026", "101", "UKP1", "UK1D", "5000268077", "24/04/2026", "", "", "", "0000063643", "", "UKP1100001139832", "1016164", "DDIC_BTC"],
+            ["100557", "MOBIL BRAKE FLUID DOT4 AP C2/3 12x1L",   600, "24/04/2026", "101", "UKP1", "UK1D", "5000268078", "24/04/2026", "", "", "", "",           "", "",                  "1016165", "DDIC_BTC"],
+        ],
+    },
+
     # ------------------------------------------------------------------
     # Masterdata templates (served via GET /api/masterdata/{type}/template)
     # ------------------------------------------------------------------
@@ -340,24 +376,32 @@ def generate_template(file_type: str) -> bytes:
     ws.title = "Line Headcount" if file_type == "headcount_plan" else "Data"
 
     cols = spec["columns"]
+    no_desc_row = spec.get("no_desc_row", False)
 
-    # Row 1: field descriptions (amber — validator ignores this row, do not delete)
-    for col_idx, (key, label, desc, sample) in enumerate(cols, start=1):
-        cell = ws.cell(row=1, column=col_idx, value=desc)
-        cell.font = _DESC_FONT
-        cell.fill = _DESC_FILL
-        cell.alignment = _LEFT
+    if no_desc_row:
+        # Row 1: column keys (header only — no amber description row)
+        header_row = 1
+        data_start = 2
+    else:
+        # Row 1: field descriptions (amber — validator ignores this row)
+        for col_idx, (key, label, desc, sample) in enumerate(cols, start=1):
+            cell = ws.cell(row=1, column=col_idx, value=desc)
+            cell.font = _DESC_FONT
+            cell.fill = _DESC_FILL
+            cell.alignment = _LEFT
+        header_row = 2
+        data_start = 3
 
-    # Row 2: column keys — machine-readable header the validator reads
+    # Header row: column keys — machine-readable header the validator reads
     for col_idx, (key, label, desc, sample) in enumerate(cols, start=1):
-        cell = ws.cell(row=2, column=col_idx, value=key)
+        cell = ws.cell(row=header_row, column=col_idx, value=key)
         cell.font = _HEADER_FONT
         cell.fill = _HEADER_FILL
         cell.alignment = _CENTER
         cell.border = _THIN_BORDER
 
-    # Rows 3+: sample data rows
-    for row_offset, sample_row in enumerate(spec["sample_rows"], start=3):
+    # Sample data rows
+    for row_offset, sample_row in enumerate(spec["sample_rows"], start=data_start):
         for col_idx, val in enumerate(sample_row, start=1):
             cell = ws.cell(row=row_offset, column=col_idx, value=val)
             cell.font = _SAMPLE_FONT
@@ -397,12 +441,16 @@ def generate_template(file_type: str) -> bytes:
         "order_quantity_(gmein)": 24, "delivered_quantity_(gmein)": 26,
         "unit_of_measure_(=gmein)": 24, "basic_start_date": 18, "basic_finish_date": 18,
         "system_status": 14, "production_version": 18, "entered_by": 14, "production_line": 16,
+        # actual_production columns
+        "quantity": 14, "posting_date": 16, "movement_type": 16, "storage_location": 18,
+        "material_document": 20, "document_date": 16, "sales_order": 16,
+        "purchase_order": 16, "reference": 26, "order": 12, "user_name": 14,
     }
     for col_idx, (key, *_) in enumerate(cols, start=1):
         ws.column_dimensions[get_column_letter(col_idx)].width = col_widths.get(key, 18)
 
-    # Freeze panes below header and description rows
-    ws.freeze_panes = "A3"
+    # Freeze panes below header row
+    ws.freeze_panes = f"A{data_start}"
 
     # --- Plant Support sheet (headcount_plan only) ---
     if file_type == "headcount_plan":
@@ -450,17 +498,28 @@ def generate_template(file_type: str) -> bytes:
     wi = wb.create_sheet("Instructions")
     wi.column_dimensions["A"].width = 100
 
+    if no_desc_row:
+        how_to = [
+            (f"1. Fill in your data on the 'Data' sheet starting from row 2.", Font(size=10)),
+            ("2. Do NOT modify row 1 — it is the column header the system reads.", Font(size=10)),
+            ("3. Save as .xlsx before uploading.", Font(size=10)),
+        ]
+    else:
+        how_to = [
+            (f"1. Fill in your data on the 'Data' sheet starting from row 3.", Font(size=10)),
+            ("2. Do NOT modify rows 1 or 2 — row 1 is field descriptions, row 2 is the column header the system reads.", Font(size=10)),
+            ("3. Row 1 (amber/yellow) is ignored by the validator — leave it in as a reference or delete it if you prefer.", Font(size=10)),
+            ("   WARNING: If you delete row 1, what was row 2 shifts to row 1 and the validator will fail to find column names.", Font(size=10)),
+            ("4. Save as .xlsx before uploading.", Font(size=10)),
+        ]
+
     instructions = [
         (f"RCCP One — {spec['title']} Template", Font(bold=True, size=13)),
         ("", None),
         (spec["description"], Font(size=10)),
         ("", None),
         ("HOW TO USE THIS TEMPLATE", Font(bold=True, size=11)),
-        ("1. Fill in your data on the 'Data' sheet starting from row 3.", Font(size=10)),
-        ("2. Do NOT modify rows 1 or 2 — row 1 is field descriptions, row 2 is the column header the system reads.", Font(size=10)),
-        ("3. Row 1 (amber/yellow) is ignored by the validator — leave it in as a reference or delete it if you prefer.", Font(size=10)),
-        ("   WARNING: If you delete row 1, what was row 2 shifts to row 1 and the validator will fail to find column names.", Font(size=10)),
-        ("4. Save as .xlsx before uploading.", Font(size=10)),
+        *how_to,
         ("", None),
         ("COLUMN REFERENCE", Font(bold=True, size=11)),
     ]

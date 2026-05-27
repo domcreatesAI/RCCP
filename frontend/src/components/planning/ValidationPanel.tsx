@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { CheckCircle2, AlertTriangle, XCircle, Clock, ChevronDown, Info } from 'lucide-react'
+import { CheckCircle2, AlertTriangle, XCircle, Clock, ChevronDown, Info, Download } from 'lucide-react'
 import type { Batch, ValidationStage } from '../../types'
+import client from '../../api/client'
 
 type Severity = 'PASS' | 'WARNING' | 'BLOCKED' | 'INFO'
 
@@ -133,15 +134,39 @@ interface Props {
   batch: Batch
 }
 
+async function downloadValidationReport(batchId: number, batchName: string) {
+  const response = await client.get(`/batches/${batchId}/validation-report`, {
+    responseType: 'blob',
+  })
+  const url = URL.createObjectURL(response.data)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `validation_report_${batchName.replace(/\s+/g, '_')}.xlsx`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 export default function ValidationPanel({ batch }: Props) {
   const stages = batch.validation_stages ?? []
   const hasStages = stages.length > 0
+  const [downloading, setDownloading] = useState(false)
 
   // Overall worst severity
   const worstOrder: Severity[] = ['BLOCKED', 'WARNING', 'INFO', 'PASS']
   const overall: Severity = hasStages
     ? (worstOrder.find((s) => stages.some((st) => st.severity === s)) ?? 'PASS')
     : 'INFO'
+
+  const hasResults = hasStages || (batch.files ?? []).some(f => f.validation_status)
+
+  async function handleDownload() {
+    setDownloading(true)
+    try {
+      await downloadValidationReport(batch.batch_id, batch.batch_name)
+    } finally {
+      setDownloading(false)
+    }
+  }
 
   return (
     <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden"
@@ -154,7 +179,25 @@ export default function ValidationPanel({ batch }: Props) {
           <div className="text-sm font-bold text-gray-900">Validation Pipeline</div>
           <div className="text-xs text-gray-500 mt-0.5">7-stage automated check · runs on each file upload</div>
         </div>
-        {hasStages && <SeverityBadge severity={overall} />}
+        <div className="flex items-center gap-2">
+          {hasStages && <SeverityBadge severity={overall} />}
+          {hasResults && (
+            <button
+              onClick={handleDownload}
+              disabled={downloading}
+              title="Download full validation report"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors"
+              style={{
+                borderColor: '#E2E8F0',
+                color: downloading ? '#94A3B8' : '#475569',
+                backgroundColor: downloading ? '#F8FAFC' : 'white',
+              }}
+            >
+              <Download className="w-3.5 h-3.5" />
+              {downloading ? 'Downloading…' : 'Export'}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Stages or fallback */}

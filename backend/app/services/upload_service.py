@@ -13,6 +13,7 @@ VALID_FILE_TYPES = {
     "headcount_plan",
     "portfolio_changes",
     "production_orders",
+    "actual_production",
 }
 
 

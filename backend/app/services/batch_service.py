@@ -155,6 +155,16 @@ def get_current_file_for_download(conn: pyodbc.Connection, batch_id: int, file_t
     }
 
 
+def unpublish_batch(conn: pyodbc.Connection, batch_id: int) -> None:
+    """Move a PUBLISHED batch back to VALIDATED. Files and planning data are preserved."""
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE dbo.import_batches SET status = 'VALIDATED' WHERE batch_id = ?",
+        batch_id,
+    )
+    conn.commit()
+
+
 def reset_batch_files(conn: pyodbc.Connection, batch_id: int) -> int:
     """Delete all uploaded files for a batch (all versions). Returns count of records deleted."""
     import os

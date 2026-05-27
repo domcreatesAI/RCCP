@@ -2,12 +2,12 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'motion/react'
 import {
-  Database, RefreshCw, Archive, Send, CheckCircle2, Info,
+  Database, RefreshCw, Archive, Send, CheckCircle2, Info, Undo2,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import FileRow from './FileRow'
 import { MasterdataRow, DISPLAY_ORDER } from './MasterdataPanel'
-import { validateBatch, resetBatch, publishBatch } from '../../api/batches'
+import { validateBatch, resetBatch, publishBatch, unpublishBatch } from '../../api/batches'
 import { listBaselines, createBaseline } from '../../api/baselines'
 import type { Batch, FileType } from '../../types'
 
@@ -53,7 +53,7 @@ export default function FileUploadTable({ batch }: Props) {
                   <div>
                     <div className="text-sm font-bold text-gray-900">SAP Batch Files</div>
                     <div className="text-xs text-gray-500 mt-0.5">
-                      6 required files from SAP — all must be present before batch can be published
+                      6 required + 1 optional — all 6 required files must be present before batch can be published
                     </div>
                   </div>
                   <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-semibold
@@ -76,6 +76,14 @@ export default function FileUploadTable({ batch }: Props) {
                 index={i}
               />
             ))}
+
+            <FileRow
+              batchId={batch.batch_id}
+              fileType="actual_production"
+              file={filesByType['actual_production']}
+              isLocked={batch.status === 'ARCHIVED'}
+              index={6}
+            />
 
             {/* Masterdata section header */}
             <tr>
@@ -127,7 +135,8 @@ export function BatchActionBar({ batch }: ActionBarProps) {
   const requiredPresent = REQUIRED_FILES.filter((ft) => filesByType[ft]).length
   const hasBlocked = (batch.files ?? []).some((f) => f.validation_status === 'BLOCKED')
   const hasPending = REQUIRED_FILES.some((ft) => !filesByType[ft]?.validation_status)
-  const canPublish = requiredPresent === 6 && !hasBlocked && !hasPending && batch.status === 'DRAFT'
+  const canPublish = requiredPresent === 6 && !hasBlocked && !hasPending &&
+    (batch.status === 'DRAFT' || batch.status === 'VALIDATED')
   const canBaseline = batch.status === 'PUBLISHED' && !existingBaseline
   const hasFiles = (batch.files ?? []).length > 0
 
@@ -165,6 +174,16 @@ export function BatchActionBar({ batch }: ActionBarProps) {
         ?? 'Publish failed — check server logs'
       toast.error(msg)
     },
+  })
+
+  const unpublishMutation = useMutation({
+    mutationFn: () => unpublishBatch(batch.batch_id),
+    onSuccess: () => {
+      toast.success('Batch unpublished', { description: 'Upload actual_production then re-publish.' })
+      queryClient.invalidateQueries({ queryKey: ['batch', batch.batch_id] })
+      queryClient.invalidateQueries({ queryKey: ['batches'] })
+    },
+    onError: () => toast.error('Unpublish failed'),
   })
 
   const createBaselineMutation = useMutation({
@@ -226,6 +245,19 @@ export function BatchActionBar({ batch }: ActionBarProps) {
                 Cancel
               </button>
             </div>
+          )}
+
+          {/* Unpublish — move back to VALIDATED to allow re-upload + re-publish */}
+          {batch.status === 'PUBLISHED' && (
+            <button
+              onClick={() => unpublishMutation.mutate()}
+              disabled={unpublishMutation.isPending}
+              title="Move back to VALIDATED so you can upload actual_production and re-publish"
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold border transition-all disabled:opacity-40"
+              style={{ backgroundColor: '#FFFBEB', color: '#92400E', borderColor: '#FDE68A' }}>
+              <Undo2 className="w-4 h-4" />
+              {unpublishMutation.isPending ? 'Unpublishing…' : 'Unpublish'}
+            </button>
           )}
 
           {/* Archived notice */}

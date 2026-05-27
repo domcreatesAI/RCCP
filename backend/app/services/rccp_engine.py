@@ -12,6 +12,13 @@ from datetime import datetime, date
 from typing import Any
 
 
+# Materiality threshold for headcount shortfalls. A line is only flagged for a
+# staffing risk when the average monthly gap reaches a whole person; sub-1-FTE
+# gaps are within rostering noise and stay visible only in the per-month detail.
+# Mirrors HC_MATERIAL in frontend/src/components/rccp/brand.ts.
+HC_MATERIAL = 1.0
+
+
 # ─── helpers ──────────────────────────────────────────────────────────────────
 
 def _period(d: date | str) -> str:
@@ -70,7 +77,7 @@ def _to_hours(
 
 # ─── main entry point ─────────────────────────────────────────────────────────
 
-def compute_dashboard(conn, batch_id: int) -> dict:
+def compute_dashboard(conn, batch_id: int, allowed_statuses: tuple[str, ...] = ("PUBLISHED",)) -> dict:
     cursor = conn.cursor()
 
     # ── 1. Verify batch is PUBLISHED ──────────────────────────────────────────
@@ -82,8 +89,9 @@ def compute_dashboard(conn, batch_id: int) -> dict:
     if not row:
         raise ValueError(f"Batch {batch_id} not found")
     batch_status = row.status
-    if batch_status != "PUBLISHED":
-        raise ValueError(f"Batch {batch_id} is {batch_status}; RCCP requires a PUBLISHED batch")
+    if batch_status not in allowed_statuses:
+        allowed = " or ".join(allowed_statuses)
+        raise ValueError(f"Batch {batch_id} is {batch_status}; RCCP requires a {allowed} batch")
 
     plan_cycle_date = row.plan_cycle_date
     if hasattr(plan_cycle_date, 'date'):
@@ -155,6 +163,24 @@ def compute_dashboard(conn, batch_id: int) -> dict:
         pack_l = item_pack.get(r.item_code, 0.0)
         litres = float(r.demand_qty) * pack_l
         line_period_demand[(routing_line, r.period)] += litres
+
+    # ── 5c. Load actual production per line × period ──────────────────────────
+    # From SAP MB51 goods receipts. quantity_l is pre-computed on publish (EA × pack_size_l).
+    # Route to lines via items.primary_line_code — same routing as production orders.
+    cursor.execute("""
+        SELECT ap.item_code,
+               FORMAT(ap.posting_date, 'yyyy-MM') AS period,
+               SUM(ap.quantity_l) AS actual_litres
+        FROM dbo.actual_production ap
+        WHERE ap.batch_id = ?
+          AND ap.quantity_l IS NOT NULL
+        GROUP BY ap.item_code, FORMAT(ap.posting_date, 'yyyy-MM')
+    """, batch_id)
+    actual_by_line_period: dict[tuple, float] = defaultdict(float)
+    for r in cursor.fetchall():
+        routing_line = item_primary_line.get(r.item_code)
+        if routing_line:
+            actual_by_line_period[(routing_line, r.period)] += float(r.actual_litres)
 
     # ── 6. Load headcount plan vs requirements ─────────────────────────────────
     # Planned headcount: sum across roles per line per day
@@ -243,14 +269,24 @@ def compute_dashboard(conn, batch_id: int) -> dict:
                 d = d.date()
             order_dates.append(d)
 
-    if order_dates:
-        horizon_start_date = min(order_dates)
-        horizon_start = _period(horizon_start_date)
-    else:
-        horizon_start_date = plan_cycle_date
-        horizon_start = _period(plan_cycle_date)
+    # Always include 3 months before plan_cycle_date so the Capacity vs Actuals
+    # view has monthly buckets for past periods (actual_production + capacity).
+    _pm, _py = plan_cycle_date.month - 3, plan_cycle_date.year
+    while _pm < 1:
+        _pm += 12
+        _py -= 1
+    past_start_date = date(_py, _pm, 1)
 
-    horizon_months = _months_range(horizon_start, 18)   # 18 months for full horizon
+    if order_dates:
+        horizon_start_date = min(past_start_date, min(order_dates))
+    else:
+        horizon_start_date = past_start_date
+    horizon_start = _period(horizon_start_date)
+
+    # Total span: from horizon_start through plan_cycle_date + 18 forward
+    hs_y, hs_m = int(horizon_start[:4]), int(horizon_start[5:7])
+    months_back = (plan_cycle_date.year - hs_y) * 12 + (plan_cycle_date.month - hs_m)
+    horizon_months = _months_range(horizon_start, months_back + 18)
     horizon_weeks  = _weeks_range(horizon_start_date, 26)  # 26 weeks covers 4W/8W/12W views
     horizon_months_set = set(horizon_months)
     week_set = set(horizon_weeks)
@@ -379,6 +415,12 @@ def compute_dashboard(conn, batch_id: int) -> dict:
             weighted_lpm = sum(mix[ps] * lpm_by_pack[ps] for ps in mix) / total_mix if total_mix > 0 else max_lpm
             line_week_weighted_lpm[(lc, week)] = weighted_lpm
 
+    # Max L/min per line — used to convert actual_litres → actual_hours for historical periods
+    max_lpm_by_line: dict[str, float] = {
+        lc: max(pc["litres_per_minute"] for pc in caps)
+        for lc, caps in line_pack.items() if caps
+    }
+
     def _available(line_code: str, period: str) -> float | None:
         if line_code not in line_pack:
             return None
@@ -465,34 +507,35 @@ def compute_dashboard(conn, batch_id: int) -> dict:
         return round(max(0.0, float(required) - avg), 1)
 
     # ── 13. Build per-line monthly breakdown ──────────────────────────────────
-    def _risk_status(util_pct: float | None, labour: str) -> str:
+    # Risk is capacity-led: a line is Critical only when utilisation exceeds 100%.
+    # A material (>= HC_MATERIAL) staffing gap escalates to High, not Critical — so
+    # a low-utilisation line is never shown as a capacity emergency on its own.
+    def _risk_status(util_pct: float | None, material_short: bool) -> str:
         if util_pct is None:
-            return "No data"
-        if util_pct > 100 or labour == "SHORTFALL":
+            return "High" if material_short else "No data"
+        if util_pct > 100:
             return "Critical"
-        if util_pct > 90:
+        if util_pct > 90 or material_short:
             return "High"
         if util_pct > 75:
             return "Watch"
         return "Stable"
 
-    def _risk_score(util_pct: float | None, labour: str) -> int:
+    def _risk_score(util_pct: float | None, material_short: bool) -> int:
         if util_pct is None:
-            return 0
+            return 15 if material_short else 0
         score = min(100, int(util_pct))
-        if labour == "SHORTFALL":
+        if material_short:
             score = min(100, score + 15)
         return score
 
-    def _primary_driver(util_pct: float | None, labour: str) -> str:
+    def _primary_driver(util_pct: float | None, material_short: bool) -> str:
         if util_pct is None:
-            return "NO_DATA"
-        if util_pct > 100:
-            return "CAPACITY"
-        if labour == "SHORTFALL":
-            return "LABOUR"
+            return "LABOUR" if material_short else "NO_DATA"
         if util_pct > 90:
             return "CAPACITY"
+        if material_short:
+            return "LABOUR"
         return "STABLE"
 
     lines_out = []
@@ -544,6 +587,7 @@ def compute_dashboard(conn, batch_id: int) -> dict:
             planned = line_period_planned.get((line_code, period), 0.0)
             production = firm + planned
             demand = line_period_demand.get((line_code, period), 0.0)
+            actual = actual_by_line_period.get((line_code, period))
             avail = _available(line_code, period)
             cal = line_period_days.get((line_code, period), {})
             working_days = cal.get("working_days", 0)
@@ -576,29 +620,40 @@ def compute_dashboard(conn, batch_id: int) -> dict:
                 else None
             )
 
+            # Actual hours: actual_litres / (max_lpm × 60). Uses max fill speed as proxy
+            # for historical periods where weighted mix is unknown.
+            max_lpm = max_lpm_by_line.get(line_code)
+            actual_hours = (
+                round(actual / (max_lpm * 60), 1)
+                if actual is not None and max_lpm and max_lpm > 0
+                else None
+            )
+
             monthly.append({
                 "period": period,
                 "working_days": working_days,
                 # litres
-                "available_litres": round(avail, 0) if avail is not None else None,
-                "demand_litres": round(demand, 0),
-                "firm_litres": round(firm, 0),
-                "planned_litres": round(planned, 0),
+                "available_litres":  round(avail, 0) if avail is not None else None,
+                "demand_litres":     round(demand, 0),
+                "firm_litres":       round(firm, 0),
+                "planned_litres":    round(planned, 0),
                 "production_litres": round(production, 0),
-                "utilisation_pct": util_pct,
-                "gap_litres": gap,
-                "labour_status": labour,
+                "actual_litres":     round(actual, 0) if actual is not None else None,
+                "utilisation_pct":   util_pct,
+                "gap_litres":        gap,
+                "labour_status":     labour,
                 # hours
-                "available_hours":  available_hours,
-                "firm_hours":       _to_hours(firm,    avail, available_hours),
-                "planned_hours":    _to_hours(planned, avail, available_hours),
-                "production_hours": production_h,
-                "demand_hours":     _to_hours(demand,  avail, available_hours),
-                "gap_hours":        gap_hours,
+                "available_hours":   available_hours,
+                "firm_hours":        _to_hours(firm,    avail, available_hours),
+                "planned_hours":     _to_hours(planned, avail, available_hours),
+                "production_hours":  production_h,
+                "demand_hours":      _to_hours(demand,  avail, available_hours),
+                "gap_hours":         gap_hours,
+                "actual_hours":      actual_hours,
                 # headcount
-                "hc_required":      hc_required.get(line_code),
-                "hc_planned_avg":   _hc_planned_avg(line_code, period),
-                "hc_shortfall":     _hc_shortfall(line_code, period),
+                "hc_required":       hc_required.get(line_code),
+                "hc_planned_avg":    _hc_planned_avg(line_code, period),
+                "hc_shortfall":      _hc_shortfall(line_code, period),
             })
 
         # Peak utilisation across all months (worst case)
@@ -613,9 +668,15 @@ def compute_dashboard(conn, batch_id: int) -> dict:
         else:
             overall_labour = "NO_DATA"
 
-        risk = _risk_status(peak_util, overall_labour)
-        score = _risk_score(peak_util, overall_labour)
-        driver = _primary_driver(peak_util, overall_labour)
+        # Material shortfall: a whole-person (>= HC_MATERIAL) gap in any month.
+        material_short = any(
+            m["hc_shortfall"] is not None and m["hc_shortfall"] >= HC_MATERIAL
+            for m in monthly
+        )
+
+        risk = _risk_status(peak_util, material_short)
+        score = _risk_score(peak_util, material_short)
+        driver = _primary_driver(peak_util, material_short)
 
         lines_out.append({
             "line_code": line_code,
@@ -623,10 +684,13 @@ def compute_dashboard(conn, batch_id: int) -> dict:
             "plant_code": meta["plant_code"],
             "pool_code": meta["pool_code"],
             "pool_max_concurrent": meta["pool_max_concurrent"],
+            "oee_target": meta["oee_target"],
+            "available_mins_per_day": int(meta["available_mins_per_day"]),
             "risk_status": risk,
             "risk_score": score,
             "primary_driver": driver,
             "labour_status": overall_labour,
+            "material_labour_shortfall": material_short,
             "hc_roles": line_hc_roles.get(line_code, []),
             "monthly": monthly,
             "weekly": weekly,
@@ -655,7 +719,7 @@ def compute_dashboard(conn, batch_id: int) -> dict:
     # ── 15. KPIs ───────────────────────────────────────────────────────────────
     critical = sum(1 for l in lines_out if l["risk_status"] == "Critical")
     high = sum(1 for l in lines_out if l["risk_status"] == "High")
-    labour_shortfalls = sum(1 for l in lines_out if l["labour_status"] == "SHORTFALL")
+    labour_shortfalls = sum(1 for l in lines_out if l["material_labour_shortfall"])
     no_data = sum(1 for l in lines_out if l["risk_status"] == "No data")
 
     peak_utils = [
@@ -706,6 +770,17 @@ def compute_dashboard(conn, batch_id: int) -> dict:
         "peak_util_period": peak_util_period,
     }
 
+    # ── Resource type hourly rates (for scenario cost estimates) ───────────────
+    cursor.execute("""
+        SELECT resource_type_code, standard_hourly_rate
+        FROM dbo.resource_types
+        WHERE standard_hourly_rate IS NOT NULL
+    """)
+    resource_type_rates = {
+        r.resource_type_code: float(r.standard_hourly_rate)
+        for r in cursor.fetchall()
+    }
+
     # Build plant_support_requirements with per-period headcount data
     plant_support_out: dict[str, list] = {}
     for plant_code, roles in plant_support.items():
@@ -738,4 +813,5 @@ def compute_dashboard(conn, batch_id: int) -> dict:
         "lines": lines_out,
         "unassigned_orders": unassigned_out,
         "plant_support_requirements": plant_support_out,  # plant_code → [{role_code, required, monthly}]
+        "resource_type_rates": resource_type_rates,        # role_code → standard_hourly_rate
     }

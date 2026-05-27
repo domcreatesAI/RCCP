@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>RCCP One — Moove Brand</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    /* Moove brand */
+    --navy:#0C3C5D;
+    --navy-2:#143F5C;
+    --navy-3:#1F4E78;
+    --navy-tint:#E8EEF3;
+    --navy-tint-2:#D6E0E9;
+    --lime:#AACD00;
+    --lime-tint:#F0F7CC;
+    --lime-deep:#7B9400;
+    --sage:#B1CCBB;
+    --sage-tint:#EDF4EF;
+
+    --bg:#F7F7F5;
+    --panel:#FFFFFF;
+    --panel-2:#F7F7F5;
+    --ink:#0F1A24;
+    --ink-2:#3F4D5B;
+    --ink-3:#6B7A8A;
+    --ink-4:#9CABB9;
+    --border:#E2E6EA;
+    --border-2:#CCD3DA;
+    --red:#C2410C;
+    --red-light:#FEE4D5;
+    --amber:#B45309;
+    --amber-light:#FEF3C7;
+    --green:#166534;
+    --green-light:#DCFCE7;
+    --gradient-card:linear-gradient(180deg,#FFFFFF 0%,#FAFAFA 100%);
+    --gradient-navy:linear-gradient(180deg,#143F5C 0%,#0C3C5D 100%);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{
+    background:var(--bg);
+    background-image:radial-gradient(circle at 100% 0%, rgba(170,205,0,0.04), transparent 40%);
+    color:var(--ink);
+    font-family:'Geist',ui-sans-serif,system-ui,sans-serif;
+    font-feature-settings:"tnum" 1,"ss01" 1,"cv11" 1;
+    -webkit-font-smoothing:antialiased;
+    letter-spacing:-0.005em;
+  }
+  .mono{font-family:'JetBrains Mono',ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums;letter-spacing:-0.01em}
+
+  .shell{display:grid;grid-template-columns:248px 1fr;min-height:100vh}
+
+  /* Sidebar — Moove navy */
+  aside{background:var(--navy);background-image:linear-gradient(180deg,#143F5C 0%,#0C3C5D 60%,#082A40 100%);color:#fff;padding:24px 16px;display:flex;flex-direction:column;position:relative;overflow:hidden}
+  aside::before{content:"";position:absolute;right:-60px;top:-40px;width:180px;height:180px;background:radial-gradient(circle,rgba(170,205,0,0.18),transparent 70%);pointer-events:none}
+  aside::after{content:"";position:absolute;left:-30px;bottom:60px;width:120px;height:120px;background:radial-gradient(circle,rgba(177,204,187,0.08),transparent 70%);pointer-events:none}
+
+  .brand{display:flex;flex-direction:column;align-items:flex-start;gap:6px;padding:6px 8px 22px;border-bottom:1px solid rgba(255,255,255,0.1);margin-bottom:16px;position:relative;z-index:1}
+  .brand .logo-wrap{display:flex;align-items:center;gap:10px}
+  .brand img{height:28px;width:auto;filter:brightness(0) invert(1)}
+  .brand .badge{font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--lime);letter-spacing:0.16em;text-transform:uppercase;font-weight:600;background:rgba(170,205,0,0.12);padding:3px 8px;border-radius:3px;border:1px solid rgba(170,205,0,0.3)}
+  .brand .product{font-size:11.5px;color:rgba(255,255,255,0.55);letter-spacing:0.04em;font-weight:500;margin-top:4px;padding-left:2px}
+
+  .navlbl{font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:500;letter-spacing:0.14em;color:rgba(255,255,255,0.45);text-transform:uppercase;padding:10px 8px 8px;position:relative;z-index:1}
+  nav{position:relative;z-index:1}
+  nav a{display:flex;align-items:center;justify-content:space-between;padding:9px 11px;border-radius:6px;color:rgba(255,255,255,0.72);text-decoration:none;font-size:13.5px;font-weight:500;margin-bottom:1px;transition:all .15s;border:1px solid transparent}
+  nav a:hover{background:rgba(255,255,255,0.06);color:#fff}
+  nav a.active{background:rgba(170,205,0,0.12);color:#fff;border-color:rgba(170,205,0,0.35);font-weight:600;box-shadow:inset 0 0 20px rgba(170,205,0,0.08)}
+  nav a.active::before{content:"";display:inline-block;width:3px;height:14px;background:var(--lime);border-radius:2px;margin-right:8px;margin-left:-4px;box-shadow:0 0 8px rgba(170,205,0,0.6)}
+  nav a .badge{font-family:'JetBrains Mono',monospace;font-size:10px;background:rgba(255,255,255,0.06);color:rgba(255,255,255,0.45);padding:1px 6px;border-radius:3px;font-weight:500}
+  nav a.active .badge{background:rgba(170,205,0,0.2);color:var(--lime)}
+
+  .userbox{margin-top:auto;padding:12px;border-radius:10px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);display:flex;align-items:center;gap:10px;position:relative;z-index:1}
+  .avatar{width:34px;height:34px;border-radius:50%;background:linear-gradient(135deg,var(--lime),#7B9400);color:var(--navy);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;letter-spacing:-0.02em}
+  .userbox .who{font-size:12.5px;font-weight:600;line-height:1.2;color:#fff}
+  .userbox .who small{display:block;color:rgba(255,255,255,0.5);font-weight:400;font-size:11px;text-transform:capitalize;margin-top:1px}
+  .userbox .live{margin-left:auto;display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--lime);box-shadow:0 0 0 3px rgba(170,205,0,0.2)}
+
+  /* Main */
+  main{padding:32px 40px 80px;max-width:1480px;margin:0 auto;width:100%}
+
+  .breadcrumb{font-size:12px;color:var(--ink-3);margin-bottom:14px;display:flex;align-items:center;gap:6px}
+  .breadcrumb .sep{color:var(--ink-4)}
+  .breadcrumb b{color:var(--ink-2);font-weight:500}
+
+  .pageheader{display:flex;align-items:flex-start;justify-content:space-between;gap:32px;margin-bottom:28px}
+  h1{font-weight:600;font-size:28px;letter-spacing:-0.025em;line-height:1.1;color:var(--navy);display:flex;align-items:center;gap:12px}
+  h1 .accent{display:inline-block;width:5px;height:30px;background:linear-gradient(180deg,var(--lime),var(--lime-deep));border-radius:2px;box-shadow:0 0 10px rgba(170,205,0,0.4)}
+  .deck{margin-top:8px;font-size:13.5px;color:var(--ink-2);max-width:580px;line-height:1.5}
+  .deck b{color:var(--navy);font-weight:600}
+  .deck .mono{color:var(--navy);font-weight:600;font-size:12.5px}
+
+  .controls{display:flex;align-items:center;gap:8px;flex-shrink:0;flex-wrap:wrap;justify-content:flex-end}
+  .pill-group{display:inline-flex;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:2px;gap:1px}
+  .pill-group button{font-family:'Geist',sans-serif;background:none;border:none;padding:6px 13px;font-size:12px;font-weight:500;color:var(--ink-3);cursor:pointer;border-radius:6px;transition:all .12s}
+  .pill-group button.on{background:var(--navy);color:#fff;box-shadow:0 1px 2px rgba(12,60,93,0.2)}
+  .btn{font-family:'Geist',sans-serif;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:7px 13px;font-size:12.5px;font-weight:500;color:var(--ink-2);cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:all .12s}
+  .btn:hover{border-color:var(--border-2);background:#FAFAFA}
+  .btn-primary{background:var(--navy);color:#fff;border-color:var(--navy);box-shadow:0 1px 2px rgba(12,60,93,0.15)}
+  .btn-primary:hover{background:#0A3450}
+  .btn-accent{background:var(--lime);color:var(--navy);border-color:var(--lime);font-weight:600}
+  .btn-accent:hover{background:#9BC400}
+
+  .badge-cycle{display:inline-flex;align-items:center;gap:7px;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:6px 12px;font-size:12px;color:var(--ink-2)}
+  .badge-cycle .dot{width:7px;height:7px;border-radius:50%;background:var(--lime);box-shadow:0 0 0 3px rgba(170,205,0,0.18)}
+
+  /* KPI grid */
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px}
+  .kpi{background:var(--gradient-card);border:1px solid var(--border);border-radius:12px;padding:18px 20px;position:relative;overflow:hidden;transition:all .15s}
+  .kpi::before{content:"";position:absolute;left:0;top:0;width:100%;height:3px;background:var(--navy);opacity:0.85}
+  .kpi.warn::before{background:var(--red)}
+  .kpi.lime::before{background:var(--lime)}
+  .kpi::after{content:"";position:absolute;inset:0;background:radial-gradient(120% 80% at 0% 0%,rgba(12,60,93,0.025),transparent 60%);pointer-events:none}
+  .kpi:hover{border-color:var(--border-2);transform:translateY(-1px);box-shadow:0 4px 12px rgba(12,60,93,0.06)}
+  .kpi .lbl{font-size:11.5px;color:var(--ink-3);font-weight:500;display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+  .kpi .lbl .ico{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:6px;background:var(--navy-tint);color:var(--navy);font-size:11px;font-weight:700}
+  .kpi.warn .lbl .ico{background:var(--red-light);color:var(--red)}
+  .kpi.lime .lbl .ico{background:var(--lime-tint);color:var(--lime-deep)}
+  .kpi .num-row{display:flex;align-items:baseline;gap:8px}
+  .kpi .num{font-size:32px;font-weight:600;letter-spacing:-0.025em;line-height:1;color:var(--navy)}
+  .kpi .pct{font-size:18px;color:var(--ink-3);font-weight:500;margin-left:1px}
+  .kpi.warn .num{color:var(--red)}
+  .kpi.lime .num{color:var(--lime-deep)}
+  .kpi .delta{font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:500;display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border-radius:4px}
+  .kpi .delta.up{background:var(--red-light);color:var(--red)}
+  .kpi .delta.down{background:var(--green-light);color:var(--green)}
+  .kpi .foot{font-size:11.5px;color:var(--ink-3);margin-top:12px}
+
+  /* Card */
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:22px 24px 24px;margin-bottom:18px;position:relative}
+  .cardhead{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:18px}
+  .cardhead h2{font-size:16px;font-weight:600;letter-spacing:-0.018em;color:var(--navy);display:flex;align-items:center;gap:10px}
+  .cardhead h2 .pre{display:inline-block;width:3px;height:18px;background:var(--lime);border-radius:2px}
+  .cardhead .sub{font-size:12px;color:var(--ink-3);margin-top:4px;margin-left:13px}
+  .cardhead .right{font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--ink-3);text-align:right}
+  .cardhead .right strong{display:block;color:var(--navy);font-size:16px;font-weight:600;margin-top:2px;letter-spacing:-0.02em}
+
+  /* Commentary */
+  .commentary{background:linear-gradient(135deg,#FAFCF9 0%,#F4F8F0 100%);border:1px solid var(--border);border-radius:14px;padding:22px 26px;margin-bottom:18px;position:relative;overflow:hidden}
+  .commentary::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:linear-gradient(180deg,var(--lime),var(--navy));border-radius:0 4px 4px 0}
+  .commentary::after{content:"";position:absolute;right:-30px;top:-30px;width:100px;height:100px;background:radial-gradient(circle,rgba(170,205,0,0.1),transparent 70%);pointer-events:none}
+  .commentary .head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;padding-left:14px;position:relative;z-index:1}
+  .commentary .lbl{font-size:11px;font-weight:600;color:var(--navy);text-transform:uppercase;letter-spacing:0.06em;display:flex;align-items:center;gap:6px}
+  .commentary .lbl::before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--lime);box-shadow:0 0 0 2px rgba(170,205,0,0.2)}
+  .commentary .author{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--ink-3)}
+  .commentary p{padding-left:14px;font-size:14.5px;line-height:1.55;color:var(--ink);font-weight:400;position:relative;z-index:1}
+  .commentary p b{color:var(--navy);font-weight:600}
+  .commentary p .hot{background:rgba(170,205,0,0.18);color:var(--navy);padding:0 5px;border-radius:3px;font-weight:600}
+
+  /* Chart legend */
+  .chartlegend{display:flex;flex-wrap:wrap;gap:18px;font-size:11.5px;color:var(--ink-3);font-weight:500;margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--border)}
+  .chartlegend .item{display:inline-flex;align-items:center;gap:7px}
+  .chartlegend .swatch{width:12px;height:12px;border-radius:2px}
+  .chartlegend .sw-actual{background:#9CA3AF}
+  .chartlegend .sw-firm{background:var(--navy)}
+  .chartlegend .sw-mrp{background:var(--lime)}
+  .chartlegend .sw-cap{display:inline-block;width:18px;border-top:2px dashed var(--ink-3)}
+  .chartlegend .sw-dem{display:inline-block;width:18px;border-top:2px solid var(--amber)}
+
+  /* Table */
+  .tbl{width:100%;border-collapse:collapse}
+  .tbl thead th{font-size:11px;font-weight:600;color:var(--ink-3);text-align:left;padding:11px 14px 11px 0;letter-spacing:0.01em;border-bottom:1px solid var(--border);text-transform:uppercase}
+  .tbl thead th.r{text-align:right;padding-right:0}
+  .tbl tbody td{padding:12px 14px 12px 0;border-bottom:1px solid var(--border);font-size:13px;color:var(--ink);vertical-align:middle}
+  .tbl tbody td.r{text-align:right;padding-right:0}
+  .tbl tbody td.mono{font-family:'JetBrains Mono',monospace;font-variant-numeric:tabular-nums;font-size:12.5px;color:var(--ink-2)}
+  .tbl tbody td b{color:var(--navy);font-weight:600}
+  .tbl tbody tr:hover td{background:var(--sage-tint)}
+  .pill{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:6px;font-size:11px;font-weight:600}
+  .pill .d{width:6px;height:6px;border-radius:50%}
+  .pill-critical{background:var(--red-light);color:var(--red)} .pill-critical .d{background:var(--red)}
+  .pill-high{background:var(--amber-light);color:var(--amber)} .pill-high .d{background:var(--amber)}
+  .pill-watch{background:#FEF9C3;color:#A16207} .pill-watch .d{background:#FACC15}
+  .pill-stable{background:var(--lime-tint);color:var(--lime-deep)} .pill-stable .d{background:var(--lime)}
+  .num-warn{color:var(--red);font-weight:600}
+  .num-mid{color:var(--amber);font-weight:500}
+  .num-good{color:var(--lime-deep);font-weight:500}
+
+  footer{margin-top:36px;padding-top:18px;border-top:1px solid var(--border);font-size:11.5px;color:var(--ink-3);text-align:center;display:flex;align-items:center;justify-content:center;gap:14px}
+  footer .moove-mark{font-weight:700;color:var(--navy);letter-spacing:-0.02em}
+  footer .sep{color:var(--ink-4)}
+</style>
+</head>
+<body>
+<div class="shell">
+
+<aside>
+  <div class="brand">
+    <div class="logo-wrap">
+      <img src="_moove_logo1.png" alt="moove">
+      <span class="badge">RCCP</span>
+    </div>
+    <span class="product">Capacity Planning · Gravesend UKP1</span>
+  </div>
+
+  <div class="navlbl">Workspace</div>
+  <nav>
+    <a href="#"><span>Planning Data</span><span class="badge">P1</span></a>
+    <a href="#"><span>RCCP Dashboard</span><span class="badge">P2</span></a>
+    <a href="#"><span>Capacity vs Actuals</span><span class="badge">P2</span></a>
+    <a href="#"><span>Scenarios</span><span class="badge">P3</span></a>
+    <a href="#" class="active"><span>Executive Summary</span><span class="badge">P4</span></a>
+    <a href="#" style="opacity:.4"><span>Config</span><span class="badge">P5</span></a>
+  </nav>
+
+  <div class="userbox">
+    <div class="avatar">DS</div>
+    <div class="who">D. Sady<small>admin · planning</small></div>
+    <span class="live"></span>
+  </div>
+</aside>
+
+<main>
+  <div class="breadcrumb">
+    <span>RCCP One</span><span class="sep">/</span>
+    <span>Executive Summary</span><span class="sep">/</span>
+    <span class="mono">Apr 2026</span>
+  </div>
+
+  <div class="pageheader">
+    <div>
+      <h1><span class="accent"></span>Capacity Executive Summary</h1>
+      <div class="deck"><b>Gravesend UKP1</b> · 14 filling lines · OEE baseline 55%. Plan cycle <span class="mono">Apr 2026</span>. Three lines flagged at risk; <b>July peak loads exceed contracted capacity</b> on lines A101 &amp; A102.</div>
+    </div>
+    <div class="controls">
+      <div class="pill-group">
+        <button>3M</button><button class="on">6M</button><button>12M</button>
+      </div>
+      <div class="badge-cycle"><span class="dot"></span>Cycle: <strong class="mono" style="font-weight:600;color:var(--navy);margin-left:4px">Apr 2026</strong></div>
+      <button class="btn">↻ Refresh</button>
+      <button class="btn btn-primary">↓ Export PDF</button>
+    </div>
+  </div>
+
+  <!-- KPIs -->
+  <div class="kpis">
+    <div class="kpi warn">
+      <div class="lbl"><span>Lines at risk</span><span class="ico">!</span></div>
+      <div class="num-row">
+        <span class="num">3</span>
+        <span class="delta up">↑ +1</span>
+      </div>
+      <div class="foot">1 critical · 2 high · vs Mar cycle</div>
+    </div>
+    <div class="kpi">
+      <div class="lbl"><span>Site utilisation</span><span class="ico">U</span></div>
+      <div class="num-row">
+        <span class="num">87<span class="pct">%</span></span>
+        <span class="delta up">↑ +4pp</span>
+      </div>
+      <div class="foot">avg across 14 lines · 6M horizon</div>
+    </div>
+    <div class="kpi">
+      <div class="lbl"><span>Demand vs capacity</span><span class="ico">D</span></div>
+      <div class="num-row">
+        <span class="num">92<span class="pct">%</span></span>
+        <span class="delta up">↑ +6pp</span>
+      </div>
+      <div class="foot">peak Jul 108% — over capacity</div>
+    </div>
+    <div class="kpi warn">
+      <div class="lbl"><span>Labour shortfalls</span><span class="ico">⚠</span></div>
+      <div class="num-row">
+        <span class="num">2</span>
+        <span class="delta down">↓ −1</span>
+      </div>
+      <div class="foot">forklift &amp; team-lead gaps</div>
+    </div>
+  </div>
+
+  <!-- Commentary -->
+  <div class="commentary">
+    <div class="head">
+      <div class="lbl">Planner's Commentary</div>
+      <div class="author">D. Sady · 28 Apr 2026</div>
+    </div>
+    <p>Demand spikes 14% in <span class="hot">July</span> driven by promotional volume on 5L motor oil; <b>A101</b> and <b>A102</b> will breach contracted capacity for two weeks. Recommend approving <b>overtime</b> or shifting <b>60kL of August MRP</b> forward to June. Headcount plan is short two forklift drivers from Jun–Sep — recruitment to begin this week.</p>
+  </div>
+
+  <!-- Plant card with chart -->
+  <div class="card">
+    <div class="cardhead">
+      <div>
+        <h2><span class="pre"></span>Plant 1 · Capacity vs Actuals</h2>
+        <div class="sub">A101 · A102 · A103 — Filling, small &amp; 60L pack</div>
+      </div>
+      <div class="right">12-month capacity<strong class="mono">8.72M L</strong></div>
+    </div>
+
+    <div class="chartlegend">
+      <span class="item"><span class="swatch sw-actual"></span> Actuals (MB51)</span>
+      <span class="item"><span class="swatch sw-firm"></span> Firm orders (YPAC)</span>
+      <span class="item"><span class="swatch sw-mrp"></span> MRP proposals (LA)</span>
+      <span class="item"><span class="sw-cap"></span> Capacity ceiling</span>
+      <span class="item"><span class="sw-dem"></span> S&amp;OP demand</span>
+    </div>
+
+    <!-- Chart SVG -->
+    <svg viewBox="0 0 940 320" width="100%" preserveAspectRatio="xMidYMid meet">
+      <defs>
+        <linearGradient id="firmMoove" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#1F5478"/>
+          <stop offset="100%" stop-color="#0C3C5D"/>
+        </linearGradient>
+        <linearGradient id="mrpMoove" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#BFDD20"/>
+          <stop offset="100%" stop-color="#AACD00"/>
+        </linearGradient>
+        <linearGradient id="actMoove" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#B5BCC4"/>
+          <stop offset="100%" stop-color="#8A95A1"/>
+        </linearGradient>
+      </defs>
+
+      <!-- Y gridlines (subtle) -->
+      <g stroke="#F0F2F5" stroke-width="1">
+        <line x1="50" y1="34" x2="870" y2="34"/>
+        <line x1="50" y1="94" x2="870" y2="94"/>
+        <line x1="50" y1="154" x2="870" y2="154"/>
+        <line x1="50" y1="214" x2="870" y2="214"/>
+      </g>
+      <line x1="50" y1="270" x2="870" y2="270" stroke="#CCD3DA" stroke-width="1"/>
+
+      <!-- Y ticks -->
+      <g font-family="JetBrains Mono" font-size="10" fill="#6B7A8A">
+        <text x="44" y="38" text-anchor="end">800k</text>
+        <text x="44" y="98" text-anchor="end">600k</text>
+        <text x="44" y="158" text-anchor="end">400k</text>
+        <text x="44" y="218" text-anchor="end">200k</text>
+        <text x="44" y="274" text-anchor="end">0</text>
+      </g>
+
+      <!-- Today divider -->
+      <line x1="254" y1="30" x2="254" y2="270" stroke="#0C3C5D" stroke-width="1" stroke-dasharray="3 3" opacity="0.5"/>
+      <rect x="220" y="22" width="68" height="14" rx="3" fill="#0C3C5D"/>
+      <text x="254" y="32" font-family="Geist" font-size="9.5" font-weight="600" fill="#fff" text-anchor="middle" letter-spacing="0.06em">TODAY</text>
+
+      <!-- ACTUAL bars -->
+      <g>
+        <rect x="65" y="54" width="38" height="216" rx="3 3 0 0" fill="url(#actMoove)"/>
+        <rect x="133" y="63" width="38" height="207" rx="3 3 0 0" fill="url(#actMoove)"/>
+        <rect x="201" y="58.5" width="38" height="211.5" rx="3 3 0 0" fill="url(#actMoove)"/>
+      </g>
+
+      <!-- Future bars: Firm (Moove navy) bottom + MRP (Moove lime) top — high contrast -->
+      <!-- May -->
+      <rect x="269" y="96" width="38" height="174" fill="url(#firmMoove)"/>
+      <rect x="269" y="69" width="38" height="27" fill="url(#mrpMoove)" rx="3 3 0 0"/>
+      <!-- Jun -->
+      <rect x="337" y="108" width="38" height="162" fill="url(#firmMoove)"/>
+      <rect x="337" y="75" width="38" height="33" fill="url(#mrpMoove)" rx="3 3 0 0"/>
+      <!-- Jul (over-cap) -->
+      <rect x="405" y="114" width="38" height="156" fill="url(#firmMoove)"/>
+      <rect x="405" y="30" width="38" height="84" fill="url(#mrpMoove)" rx="3 3 0 0"/>
+      <line x1="403" y1="29" x2="445" y2="29" stroke="#C2410C" stroke-width="2.5"/>
+      <rect x="408" y="12" width="32" height="13" rx="3" fill="#C2410C"/>
+      <text x="424" y="22" font-family="Geist" font-size="9" font-weight="700" fill="#fff" text-anchor="middle">+5%</text>
+      <!-- Aug -->
+      <rect x="473" y="132" width="38" height="138" fill="url(#firmMoove)"/>
+      <rect x="473" y="66" width="38" height="66" fill="url(#mrpMoove)" rx="3 3 0 0"/>
+      <!-- Sep -->
+      <rect x="541" y="147" width="38" height="123" fill="url(#firmMoove)"/>
+      <rect x="541" y="93" width="38" height="54" fill="url(#mrpMoove)" rx="3 3 0 0"/>
+      <!-- Oct -->
+      <rect x="609" y="156" width="38" height="114" fill="url(#firmMoove)"/>
+      <rect x="609" y="84" width="38" height="72" fill="url(#mrpMoove)" rx="3 3 0 0"/>
+      <!-- Nov -->
+      <rect x="677" y="144" width="38" height="126" fill="url(#firmMoove)"/>
+      <rect x="677" y="84" width="38" height="60" fill="url(#mrpMoove)" rx="3 3 0 0"/>
+      <!-- Dec -->
+      <rect x="745" y="162" width="38" height="108" fill="url(#firmMoove)"/>
+      <rect x="745" y="108" width="38" height="54" fill="url(#mrpMoove)" rx="3 3 0 0"/>
+      <!-- Jan -->
+      <rect x="813" y="174" width="38" height="96" fill="url(#firmMoove)"/>
+      <rect x="813" y="87" width="38" height="87" fill="url(#mrpMoove)" rx="3 3 0 0"/>
+
+      <!-- Capacity line (smooth dashed slate) -->
+      <polyline fill="none" stroke="#3F4D5B" stroke-width="2" stroke-dasharray="6 4"
+        points="50,48 254,48 254,42 458,42 458,54 662,54 662,48 870,48"/>
+      <circle cx="870" cy="48" r="3.5" fill="#3F4D5B"/>
+      <text x="876" y="52" font-family="JetBrains Mono" font-size="10" font-weight="600" fill="#3F4D5B">740k</text>
+
+      <!-- Demand line (amber, solid) -->
+      <polyline fill="none" stroke="#B45309" stroke-width="2.4"
+        points="84,66 152,60 220,54 288,69 356,54 424,30 492,63 560,96 628,84 696,75 764,108 832,90"/>
+      <g fill="#B45309">
+        <circle cx="84" cy="66" r="3.2" stroke="#fff" stroke-width="1.2"/>
+        <circle cx="152" cy="60" r="3.2" stroke="#fff" stroke-width="1.2"/>
+        <circle cx="220" cy="54" r="3.2" stroke="#fff" stroke-width="1.2"/>
+        <circle cx="288" cy="69" r="3.2" stroke="#fff" stroke-width="1.2"/>
+        <circle cx="356" cy="54" r="3.2" stroke="#fff" stroke-width="1.2"/>
+        <circle cx="424" cy="30" r="4.2" fill="#C2410C" stroke="#fff" stroke-width="1.5"/>
+        <circle cx="492" cy="63" r="3.2" stroke="#fff" stroke-width="1.2"/>
+        <circle cx="560" cy="96" r="3.2" stroke="#fff" stroke-width="1.2"/>
+        <circle cx="628" cy="84" r="3.2" stroke="#fff" stroke-width="1.2"/>
+        <circle cx="696" cy="75" r="3.2" stroke="#fff" stroke-width="1.2"/>
+        <circle cx="764" cy="108" r="3.2" stroke="#fff" stroke-width="1.2"/>
+        <circle cx="832" cy="90" r="3.2" stroke="#fff" stroke-width="1.2"/>
+      </g>
+
+      <!-- X labels -->
+      <g font-family="Geist" font-size="11.5" fill="#3F4D5B" font-weight="500" text-anchor="middle">
+        <text x="84" y="290">Feb</text><text x="152" y="290">Mar</text><text x="220" y="290">Apr</text>
+        <text x="288" y="290">May</text><text x="356" y="290">Jun</text>
+        <text x="424" y="290" fill="#C2410C" font-weight="700">Jul</text>
+        <text x="492" y="290">Aug</text><text x="560" y="290">Sep</text><text x="628" y="290">Oct</text>
+        <text x="696" y="290">Nov</text><text x="764" y="290">Dec</text><text x="832" y="290">Jan</text>
+      </g>
+      <g font-family="JetBrains Mono" font-size="9" fill="#9CABB9" text-anchor="middle">
+        <text x="84" y="304">'26</text><text x="152" y="304">'26</text><text x="220" y="304">'26</text>
+        <text x="288" y="304">'26</text><text x="356" y="304">'26</text><text x="424" y="304">'26</text>
+        <text x="492" y="304">'26</text><text x="560" y="304">'26</text><text x="628" y="304">'26</text>
+        <text x="696" y="304">'26</text><text x="764" y="304">'26</text><text x="832" y="304">'27</text>
+      </g>
+    </svg>
+  </div>
+
+  <!-- Risk table -->
+  <div class="card">
+    <div class="cardhead">
+      <div>
+        <h2><span class="pre"></span>Line Risk Summary</h2>
+        <div class="sub">14 lines · sorted by risk score · next 6M</div>
+      </div>
+      <div class="right">High-risk lines<strong style="color:var(--red)">3</strong></div>
+    </div>
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th>Line</th><th>Plant</th><th>Risk</th><th class="r">Peak util.</th><th>Peak month</th><th>Labour</th><th class="r">Demand vs cap.</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><b>A101</b></td><td class="mono">P1</td>
+          <td><span class="pill pill-critical"><span class="d"></span>Critical</span></td>
+          <td class="mono r num-warn">108%</td><td class="mono">Jul '26</td>
+          <td><span class="pill pill-critical"><span class="d"></span>Shortfall</span></td>
+          <td class="mono r num-warn">108%</td>
+        </tr>
+        <tr>
+          <td><b>A102</b></td><td class="mono">P1</td>
+          <td><span class="pill pill-high"><span class="d"></span>High</span></td>
+          <td class="mono r num-mid">98%</td><td class="mono">Jul '26</td>
+          <td><span class="pill pill-stable"><span class="d"></span>OK</span></td>
+          <td class="mono r">95%</td>
+        </tr>
+        <tr>
+          <td><b>A103</b></td><td class="mono">P1</td>
+          <td><span class="pill pill-high"><span class="d"></span>High</span></td>
+          <td class="mono r num-mid">94%</td><td class="mono">Jul '26</td>
+          <td><span class="pill pill-critical"><span class="d"></span>Shortfall</span></td>
+          <td class="mono r">88%</td>
+        </tr>
+        <tr>
+          <td><b>A201</b></td><td class="mono">P2</td>
+          <td><span class="pill pill-watch"><span class="d"></span>Watch</span></td>
+          <td class="mono r">82%</td><td class="mono">Jul '26</td>
+          <td><span class="pill pill-stable"><span class="d"></span>OK</span></td>
+          <td class="mono r">78%</td>
+        </tr>
+        <tr>
+          <td><b>A302</b></td><td class="mono">P3</td>
+          <td><span class="pill pill-stable"><span class="d"></span>Stable</span></td>
+          <td class="mono r num-good">65%</td><td class="mono">Aug '26</td>
+          <td><span class="pill pill-stable"><span class="d"></span>OK</span></td>
+          <td class="mono r num-good">60%</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <footer>
+    <span class="moove-mark">moove</span>
+    <span class="sep">·</span>
+    <span>RCCP One</span>
+    <span class="sep">·</span>
+    <span>Gravesend UKP1</span>
+    <span class="sep">·</span>
+    <span>Plan cycle Apr 2026</span>
+    <span class="sep">·</span>
+    <span>OEE baseline 55%</span>
+    <span class="sep">·</span>
+    <span>Generated 8 May 2026</span>
+  </footer>
+</main>
+</div>
+</body>
+</html>

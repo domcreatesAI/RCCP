@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>RCCP One — Industrial Dark</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0A0F1A; --panel:#0F1729; --panel-2:#131E36; --panel-3:#1A2742;
+    --border:#1F2D4D; --border-2:#2A3B62;
+    --grid:#152038;
+    --ink:#E8EEF7; --ink-2:#9CA9C2; --ink-3:#6B7A95;
+    --cyan:#22D3EE; --cyan-glow:rgba(34,211,238,0.45);
+    --lime:#A3E635; --lime-glow:rgba(163,230,53,0.4);
+    --amber:#FBBF24; --amber-glow:rgba(251,191,36,0.45);
+    --magenta:#F472B6; --magenta-glow:rgba(244,114,182,0.45);
+    --red:#F87171; --red-glow:rgba(248,113,113,0.5);
+    --green:#4ADE80;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{
+    background:var(--bg);
+    background-image:
+      linear-gradient(var(--grid) 1px,transparent 1px),
+      linear-gradient(90deg,var(--grid) 1px,transparent 1px),
+      radial-gradient(circle at 70% 0%,rgba(34,211,238,0.08),transparent 40%),
+      radial-gradient(circle at 0% 100%,rgba(163,230,53,0.04),transparent 40%);
+    background-size:40px 40px,40px 40px,100% 100%,100% 100%;
+    color:var(--ink);
+    font-family:'IBM Plex Sans',ui-sans-serif,system-ui,sans-serif;
+    font-feature-settings:"tnum" 1;
+    -webkit-font-smoothing:antialiased;
+  }
+  .mono{font-family:'IBM Plex Mono',ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums}
+
+  .shell{display:grid;grid-template-columns:240px 1fr;min-height:100vh}
+
+  /* Sidebar */
+  aside{background:rgba(15,23,41,0.85);backdrop-filter:blur(8px);border-right:1px solid var(--border);padding:22px 14px;display:flex;flex-direction:column}
+  .brand{padding:8px 8px 18px;border-bottom:1px solid var(--border);margin-bottom:14px}
+  .brand .name{font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:600;letter-spacing:0.18em;color:var(--cyan);text-shadow:0 0 14px var(--cyan-glow);text-transform:uppercase}
+  .brand .ver{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--ink-3);margin-top:6px;letter-spacing:0.08em}
+  .brand .ver .live{display:inline-block;width:6px;height:6px;background:var(--lime);border-radius:50%;margin-right:5px;box-shadow:0 0 6px var(--lime-glow);animation:pulse 1.6s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}
+
+  .navlbl{font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:500;letter-spacing:0.18em;color:var(--ink-3);text-transform:uppercase;padding:10px 8px}
+  nav a{display:flex;align-items:center;justify-content:space-between;padding:8px 10px;color:var(--ink-2);text-decoration:none;font-size:13px;font-weight:500;margin-bottom:1px;border-left:2px solid transparent;transition:all .12s}
+  nav a:hover{background:var(--panel-2);color:var(--ink)}
+  nav a.active{background:linear-gradient(90deg,rgba(34,211,238,0.1),transparent);color:var(--cyan);border-left-color:var(--cyan);box-shadow:inset 0 0 30px rgba(34,211,238,0.06)}
+  nav a .num{font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--ink-3);letter-spacing:0.05em}
+  nav a.active .num{color:var(--cyan)}
+
+  .vitals{margin-top:auto;padding:14px 10px;border-top:1px solid var(--border);font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--ink-3);line-height:1.7}
+  .vitals .row{display:flex;justify-content:space-between}
+  .vitals .ok{color:var(--lime)}
+
+  main{padding:28px 36px 60px;max-width:1480px;margin:0 auto;width:100%}
+
+  /* Header bar (terminal-style) */
+  .terminal-bar{display:flex;align-items:center;gap:14px;padding:8px 14px;background:var(--panel);border:1px solid var(--border);border-radius:6px;margin-bottom:24px;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink-2);letter-spacing:0.05em}
+  .terminal-bar .prompt{color:var(--cyan)}
+  .terminal-bar .cmd{color:var(--ink)}
+  .terminal-bar .arg{color:var(--lime)}
+  .terminal-bar .ts{margin-left:auto;color:var(--ink-3)}
+
+  /* Header */
+  .pageheader{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;padding-bottom:24px;border-bottom:1px solid var(--border);margin-bottom:24px}
+  h1{font-family:'IBM Plex Sans',sans-serif;font-weight:600;font-size:24px;letter-spacing:-0.01em;color:var(--ink);margin-bottom:4px}
+  h1 .accent{color:var(--cyan);text-shadow:0 0 16px var(--cyan-glow)}
+  .deck{font-size:13px;color:var(--ink-2);max-width:580px;line-height:1.45}
+  .deck b{color:var(--ink)}
+  .deck .mono{color:var(--cyan)}
+
+  .controls{display:flex;align-items:center;gap:8px;flex-shrink:0}
+  .toggle{display:inline-flex;background:var(--panel);border:1px solid var(--border);border-radius:4px;padding:2px}
+  .toggle button{font-family:'IBM Plex Mono',monospace;background:none;border:none;padding:5px 11px;font-size:11px;font-weight:500;color:var(--ink-3);cursor:pointer;letter-spacing:0.06em;border-radius:2px}
+  .toggle button.on{background:var(--cyan);color:var(--bg);font-weight:600;box-shadow:0 0 12px var(--cyan-glow)}
+  .btn{font-family:'IBM Plex Mono',monospace;background:var(--panel);border:1px solid var(--border);color:var(--ink-2);padding:6px 12px;font-size:11px;letter-spacing:0.06em;cursor:pointer;border-radius:4px}
+  .btn:hover{border-color:var(--border-2);color:var(--ink)}
+  .btn.primary{background:transparent;border:1px solid var(--cyan);color:var(--cyan);text-shadow:0 0 8px var(--cyan-glow)}
+
+  /* KPIs */
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:24px}
+  .kpi{background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:18px 18px 16px;position:relative;overflow:hidden}
+  .kpi::before{content:"";position:absolute;left:0;top:0;width:100%;height:1px;background:linear-gradient(90deg,transparent,var(--border-2),transparent)}
+  .kpi .lbl{font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:500;color:var(--ink-3);text-transform:uppercase;letter-spacing:0.14em;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center}
+  .kpi .lbl .id{color:var(--ink-3);opacity:0.5}
+  .kpi .num{font-family:'IBM Plex Mono',monospace;font-size:38px;font-weight:600;letter-spacing:-0.02em;line-height:1;color:var(--ink)}
+  .kpi .num .pct{font-size:24px;color:var(--ink-2)}
+  .kpi.warn .num{color:var(--red);text-shadow:0 0 16px var(--red-glow)}
+  .kpi.cyan .num{color:var(--cyan);text-shadow:0 0 16px var(--cyan-glow)}
+  .kpi.lime .num{color:var(--lime);text-shadow:0 0 14px var(--lime-glow)}
+  .kpi.amber .num{color:var(--amber);text-shadow:0 0 14px var(--amber-glow)}
+  .kpi .meta{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink-2);margin-top:14px;display:flex;justify-content:space-between}
+  .kpi .meta .delta-up{color:var(--red)}
+  .kpi .meta .delta-down{color:var(--lime)}
+  .kpi .spark{margin-top:10px;height:24px}
+
+  /* Commentary */
+  .commentary{background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:18px 22px;margin-bottom:18px;position:relative}
+  .commentary::before{content:"";position:absolute;left:0;top:0;width:3px;height:100%;background:linear-gradient(180deg,var(--cyan),var(--magenta));box-shadow:0 0 14px var(--cyan-glow)}
+  .commentary .head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:0.16em;text-transform:uppercase}
+  .commentary .head .lbl{color:var(--cyan)}
+  .commentary .head .author{color:var(--ink-3)}
+  .commentary p{font-size:13.5px;line-height:1.55;color:var(--ink-2)}
+  .commentary p b{color:var(--ink);font-weight:600}
+  .commentary p .hot{color:var(--amber);background:rgba(251,191,36,0.08);padding:0 4px;border-radius:2px}
+
+  /* Card */
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:6px;padding:20px 22px 22px;margin-bottom:16px;position:relative}
+  .card::before{content:"";position:absolute;top:-1px;left:14px;width:60px;height:3px;background:var(--cyan);box-shadow:0 0 14px var(--cyan-glow)}
+  .cardhead{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:18px;padding-bottom:14px;border-bottom:1px dashed var(--border)}
+  .cardhead h2{font-family:'IBM Plex Sans',sans-serif;font-weight:600;font-size:14px;letter-spacing:0.02em;color:var(--ink);text-transform:uppercase}
+  .cardhead .sub{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink-3);margin-top:5px;letter-spacing:0.06em}
+  .cardhead .right{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink-3);text-align:right;text-transform:uppercase;letter-spacing:0.08em}
+  .cardhead .right .total{display:block;font-size:18px;font-weight:600;color:var(--cyan);margin-top:3px;text-shadow:0 0 12px var(--cyan-glow)}
+
+  .chartlegend{display:flex;flex-wrap:wrap;gap:18px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--ink-2);margin-bottom:12px;letter-spacing:0.05em;text-transform:uppercase}
+  .chartlegend .item{display:inline-flex;align-items:center;gap:7px}
+  .chartlegend .swatch{width:11px;height:11px}
+  .chartlegend .sw-actual{background:#475569}
+  .chartlegend .sw-firm{background:var(--cyan);box-shadow:0 0 6px var(--cyan-glow)}
+  .chartlegend .sw-mrp{background:var(--lime);box-shadow:0 0 6px var(--lime-glow)}
+  .chartlegend .sw-cap{display:inline-block;width:18px;border-top:1.5px dashed var(--amber)}
+  .chartlegend .sw-dem{display:inline-block;width:18px;border-top:1.5px solid var(--magenta);box-shadow:0 0 4px var(--magenta-glow)}
+
+  /* Table */
+  .tbl{width:100%;border-collapse:collapse}
+  .tbl thead th{font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:500;color:var(--ink-3);text-align:left;padding:10px 14px 10px 0;letter-spacing:0.14em;text-transform:uppercase;border-bottom:1px solid var(--border)}
+  .tbl thead th.r{text-align:right;padding-right:0}
+  .tbl tbody td{padding:11px 14px 11px 0;border-bottom:1px dashed var(--border);font-size:13px;color:var(--ink);font-family:'IBM Plex Sans',sans-serif}
+  .tbl tbody td.r{text-align:right;padding-right:0}
+  .tbl tbody td.mono{font-family:'IBM Plex Mono',monospace;font-size:12.5px}
+  .tbl tbody tr:hover td{background:rgba(34,211,238,0.04)}
+  .badge{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:0.12em;text-transform:uppercase;padding:2px 8px;border-radius:2px;display:inline-flex;align-items:center;gap:5px}
+  .badge .d{width:6px;height:6px;border-radius:50%}
+  .badge.crit{background:rgba(248,113,113,0.1);color:var(--red);border:1px solid rgba(248,113,113,0.3)} .badge.crit .d{background:var(--red);box-shadow:0 0 6px var(--red-glow)}
+  .badge.high{background:rgba(251,191,36,0.08);color:var(--amber);border:1px solid rgba(251,191,36,0.3)} .badge.high .d{background:var(--amber);box-shadow:0 0 6px var(--amber-glow)}
+  .badge.watch{background:rgba(252,211,77,0.05);color:#FACC15;border:1px solid rgba(252,211,77,0.2)} .badge.watch .d{background:#FACC15}
+  .badge.stable{background:rgba(74,222,128,0.06);color:var(--green);border:1px solid rgba(74,222,128,0.2)} .badge.stable .d{background:var(--green)}
+  .num-warn{color:var(--red);font-weight:600}
+  .num-mid{color:var(--amber)}
+  .num-good{color:var(--green)}
+
+  footer{margin-top:32px;font-family:'IBM Plex Mono',monospace;font-size:10px;color:var(--ink-3);letter-spacing:0.08em;text-align:center}
+  footer .sep{margin:0 10px;color:var(--border-2)}
+</style>
+</head>
+<body>
+<div class="shell">
+
+<aside>
+  <div class="brand">
+    <div class="name">RCCP::One</div>
+    <div class="ver"><span class="live"></span>v0.9.4 · cycle:apr-26</div>
+  </div>
+  <div class="navlbl">[Modules]</div>
+  <nav>
+    <a href="#"><span>planning_data</span><span class="num">P1</span></a>
+    <a href="#"><span>rccp_dashboard</span><span class="num">P2</span></a>
+    <a href="#"><span>capacity_actuals</span><span class="num">P2</span></a>
+    <a href="#"><span>scenarios</span><span class="num">P3</span></a>
+    <a href="#" class="active"><span>exec_summary</span><span class="num">P4</span></a>
+    <a href="#" style="opacity:.4"><span>config</span><span class="num">P5</span></a>
+  </nav>
+  <div class="vitals">
+    <div class="row"><span>SQL</span><span class="ok">● 12ms</span></div>
+    <div class="row"><span>API</span><span class="ok">● 200</span></div>
+    <div class="row"><span>BATCH</span><span>#APR-26</span></div>
+    <div class="row"><span>USER</span><span>d.sady</span></div>
+  </div>
+</aside>
+
+<main>
+  <div class="terminal-bar">
+    <span class="prompt">rccp&gt;</span>
+    <span class="cmd">load</span>
+    <span class="arg">--cycle=apr-26 --horizon=6M --plant=p1</span>
+    <span style="color:var(--lime)">✓ ok</span>
+    <span class="ts">08-MAY-26 09:14:02 GMT</span>
+  </div>
+
+  <div class="pageheader">
+    <div>
+      <h1><span class="accent">▎</span>CAPACITY EXECUTIVE SUMMARY</h1>
+      <div class="deck"><b>Gravesend UKP1</b> · 14 filling lines · OEE baseline <span class="mono">55%</span> · plan cycle <span class="mono">APR-26</span>. <b style="color:var(--red)">3 lines flagged at risk</b>; July peak loads exceed contracted capacity on lines A101 &amp; A102.</div>
+    </div>
+    <div class="controls">
+      <div class="toggle"><button>3M</button><button class="on">6M</button><button>12M</button></div>
+      <button class="btn">↻ refresh</button>
+      <button class="btn primary">[ export ]</button>
+    </div>
+  </div>
+
+  <!-- KPIs -->
+  <div class="kpis">
+    <div class="kpi warn">
+      <div class="lbl"><span>LINES_AT_RISK</span><span class="id">[01]</span></div>
+      <div class="num">03</div>
+      <div class="meta"><span class="delta-up">▲ +1</span><span>1c · 2h</span></div>
+      <svg class="spark" viewBox="0 0 100 24" preserveAspectRatio="none"><polyline fill="none" stroke="#F87171" stroke-width="1.2" points="0,18 14,16 28,12 42,15 56,10 70,8 84,6 98,4"/></svg>
+    </div>
+    <div class="kpi cyan">
+      <div class="lbl"><span>SITE_UTILISATION</span><span class="id">[02]</span></div>
+      <div class="num">87<span class="pct">%</span></div>
+      <div class="meta"><span class="delta-up">▲ +4pp</span><span>14 lines</span></div>
+      <svg class="spark" viewBox="0 0 100 24" preserveAspectRatio="none"><polyline fill="none" stroke="#22D3EE" stroke-width="1.2" points="0,16 14,15 28,12 42,14 56,10 70,12 84,8 98,9"/></svg>
+    </div>
+    <div class="kpi amber">
+      <div class="lbl"><span>DEMAND/CAPACITY</span><span class="id">[03]</span></div>
+      <div class="num">92<span class="pct">%</span></div>
+      <div class="meta"><span class="delta-up">▲ +6pp</span><span>peak Jul 108%</span></div>
+      <svg class="spark" viewBox="0 0 100 24" preserveAspectRatio="none"><polyline fill="none" stroke="#FBBF24" stroke-width="1.2" points="0,17 14,15 28,14 42,16 56,11 70,4 84,12 98,15"/></svg>
+    </div>
+    <div class="kpi warn">
+      <div class="lbl"><span>LABOUR_SHORTFALLS</span><span class="id">[04]</span></div>
+      <div class="num">02</div>
+      <div class="meta"><span class="delta-down">▼ −1</span><span>FLT · TL</span></div>
+      <svg class="spark" viewBox="0 0 100 24" preserveAspectRatio="none"><polyline fill="none" stroke="#F87171" stroke-width="1.2" points="0,8 14,9 28,10 42,8 56,11 70,12 84,13 98,15"/></svg>
+    </div>
+  </div>
+
+  <!-- Commentary -->
+  <div class="commentary">
+    <div class="head">
+      <span class="lbl">// PLANNER_NOTE</span>
+      <span class="author">d.sady · 28-apr-26 11:42</span>
+    </div>
+    <p>Demand spikes <b>14%</b> in <span class="hot">JUL</span> driven by promotional volume on 5L motor oil; <b>A101</b> and <b>A102</b> will breach contracted capacity for two weeks. Recommend approving <b>overtime</b> or shifting <b>60kL of Aug MRP</b> forward to Jun. Headcount plan is short two forklift drivers from Jun–Sep — recruitment to begin this week.</p>
+  </div>
+
+  <!-- Plant card -->
+  <div class="card">
+    <div class="cardhead">
+      <div>
+        <h2>// PLANT_01 — CAPACITY VS ACTUALS</h2>
+        <div class="sub">[A101] [A102] [A103] · filling · small &amp; 60L pack</div>
+      </div>
+      <div class="right">12M_capacity_litres<span class="total mono">8,720,000</span></div>
+    </div>
+
+    <div class="chartlegend">
+      <span class="item"><span class="swatch sw-actual"></span> ACTUALS</span>
+      <span class="item"><span class="swatch sw-firm"></span> FIRM_YPAC</span>
+      <span class="item"><span class="swatch sw-mrp"></span> MRP_LA</span>
+      <span class="item"><span class="sw-cap"></span> CAP_CEILING</span>
+      <span class="item"><span class="sw-dem"></span> S&amp;OP_DEMAND</span>
+    </div>
+
+    <!-- Chart SVG -->
+    <svg viewBox="0 0 940 320" width="100%" preserveAspectRatio="xMidYMid meet">
+      <defs>
+        <linearGradient id="firmDark" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#22D3EE" stop-opacity="0.95"/>
+          <stop offset="100%" stop-color="#0891B2" stop-opacity="0.85"/>
+        </linearGradient>
+        <linearGradient id="mrpDark" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#A3E635" stop-opacity="0.9"/>
+          <stop offset="100%" stop-color="#65A30D" stop-opacity="0.8"/>
+        </linearGradient>
+        <linearGradient id="actDark" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="#64748B"/>
+          <stop offset="100%" stop-color="#334155"/>
+        </linearGradient>
+        <filter id="glowCyan" x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur stdDeviation="3" result="blur"/>
+          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+        <filter id="glowMag" x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur stdDeviation="2" result="blur"/>
+          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+      </defs>
+
+      <!-- Background grid (graph paper) -->
+      <g stroke="#152038" stroke-width="0.6">
+        <line x1="50" y1="34" x2="870" y2="34"/>
+        <line x1="50" y1="94" x2="870" y2="94"/>
+        <line x1="50" y1="154" x2="870" y2="154"/>
+        <line x1="50" y1="214" x2="870" y2="214"/>
+      </g>
+      <line x1="50" y1="270" x2="870" y2="270" stroke="#2A3B62" stroke-width="1"/>
+
+      <!-- Y ticks -->
+      <g font-family="IBM Plex Mono" font-size="10" fill="#6B7A95">
+        <text x="44" y="38" text-anchor="end">800k</text>
+        <text x="44" y="98" text-anchor="end">600k</text>
+        <text x="44" y="158" text-anchor="end">400k</text>
+        <text x="44" y="218" text-anchor="end">200k</text>
+        <text x="44" y="274" text-anchor="end">000</text>
+      </g>
+
+      <!-- Today divider -->
+      <line x1="254" y1="30" x2="254" y2="270" stroke="#22D3EE" stroke-width="1" stroke-dasharray="2 4" opacity="0.5"/>
+      <rect x="220" y="22" width="68" height="14" fill="#22D3EE" opacity="0.18"/>
+      <text x="254" y="32" font-family="IBM Plex Mono" font-size="9" font-weight="600" fill="#22D3EE" text-anchor="middle" letter-spacing="0.16em">// NOW</text>
+
+      <!-- ACTUAL bars -->
+      <g>
+        <rect x="65" y="54" width="38" height="216" fill="url(#actDark)"/>
+        <rect x="65" y="54" width="38" height="3" fill="#94A3B8"/>
+        <rect x="133" y="63" width="38" height="207" fill="url(#actDark)"/>
+        <rect x="133" y="63" width="38" height="3" fill="#94A3B8"/>
+        <rect x="201" y="58.5" width="38" height="211.5" fill="url(#actDark)"/>
+        <rect x="201" y="58.5" width="38" height="3" fill="#94A3B8"/>
+      </g>
+
+      <!-- Future bars: Firm (cyan) bottom + MRP (lime) top -->
+      <g filter="url(#glowCyan)">
+        <rect x="269" y="96" width="38" height="174" fill="url(#firmDark)"/>
+        <rect x="337" y="108" width="38" height="162" fill="url(#firmDark)"/>
+        <rect x="405" y="114" width="38" height="156" fill="url(#firmDark)"/>
+        <rect x="473" y="132" width="38" height="138" fill="url(#firmDark)"/>
+        <rect x="541" y="147" width="38" height="123" fill="url(#firmDark)"/>
+        <rect x="609" y="156" width="38" height="114" fill="url(#firmDark)"/>
+        <rect x="677" y="144" width="38" height="126" fill="url(#firmDark)"/>
+        <rect x="745" y="162" width="38" height="108" fill="url(#firmDark)"/>
+        <rect x="813" y="174" width="38" height="96" fill="url(#firmDark)"/>
+      </g>
+      <g>
+        <rect x="269" y="69" width="38" height="27" fill="url(#mrpDark)"/>
+        <rect x="337" y="75" width="38" height="33" fill="url(#mrpDark)"/>
+        <rect x="405" y="30" width="38" height="84" fill="url(#mrpDark)"/>
+        <rect x="473" y="66" width="38" height="66" fill="url(#mrpDark)"/>
+        <rect x="541" y="93" width="38" height="54" fill="url(#mrpDark)"/>
+        <rect x="609" y="84" width="38" height="72" fill="url(#mrpDark)"/>
+        <rect x="677" y="84" width="38" height="60" fill="url(#mrpDark)"/>
+        <rect x="745" y="108" width="38" height="54" fill="url(#mrpDark)"/>
+        <rect x="813" y="87" width="38" height="87" fill="url(#mrpDark)"/>
+      </g>
+
+      <!-- 1px top highlight on each segment -->
+      <g fill="#67E8F9" opacity="0.85">
+        <rect x="269" y="96" width="38" height="1.5"/><rect x="337" y="108" width="38" height="1.5"/><rect x="405" y="114" width="38" height="1.5"/>
+        <rect x="473" y="132" width="38" height="1.5"/><rect x="541" y="147" width="38" height="1.5"/><rect x="609" y="156" width="38" height="1.5"/>
+        <rect x="677" y="144" width="38" height="1.5"/><rect x="745" y="162" width="38" height="1.5"/><rect x="813" y="174" width="38" height="1.5"/>
+      </g>
+      <g fill="#BEF264" opacity="0.85">
+        <rect x="269" y="69" width="38" height="1.5"/><rect x="337" y="75" width="38" height="1.5"/><rect x="405" y="30" width="38" height="1.5"/>
+        <rect x="473" y="66" width="38" height="1.5"/><rect x="541" y="93" width="38" height="1.5"/><rect x="609" y="84" width="38" height="1.5"/>
+        <rect x="677" y="84" width="38" height="1.5"/><rect x="745" y="108" width="38" height="1.5"/><rect x="813" y="87" width="38" height="1.5"/>
+      </g>
+
+      <!-- Over-cap warning marker (Jul) -->
+      <line x1="403" y1="29" x2="445" y2="29" stroke="#F87171" stroke-width="2.5"/>
+      <text x="424" y="22" font-family="IBM Plex Mono" font-size="9" font-weight="600" fill="#F87171" text-anchor="middle" letter-spacing="0.12em">!OVER+5%</text>
+
+      <!-- Capacity reference line (per month, dashed amber) -->
+      <g stroke="#FBBF24" stroke-width="1.6" stroke-dasharray="5 3" fill="none" opacity="0.85">
+        <line x1="50" y1="48" x2="254" y2="48"/>
+        <line x1="254" y1="42" x2="458" y2="42"/>
+        <line x1="458" y1="54" x2="662" y2="54"/>
+        <line x1="662" y1="48" x2="870" y2="48"/>
+      </g>
+      <text x="876" y="51" font-family="IBM Plex Mono" font-size="10" fill="#FBBF24" font-weight="600">740k</text>
+
+      <!-- Demand line (magenta with glow) -->
+      <polyline filter="url(#glowMag)" fill="none" stroke="#F472B6" stroke-width="2"
+        points="84,66 152,60 220,54 288,69 356,54 424,30 492,63 560,96 628,84 696,75 764,108 832,90"/>
+      <g fill="#F472B6">
+        <circle cx="84" cy="66" r="2.5"/><circle cx="152" cy="60" r="2.5"/><circle cx="220" cy="54" r="2.5"/>
+        <circle cx="288" cy="69" r="2.5"/><circle cx="356" cy="54" r="2.5"/>
+        <circle cx="424" cy="30" r="3.5" fill="#F87171"/>
+        <circle cx="492" cy="63" r="2.5"/><circle cx="560" cy="96" r="2.5"/><circle cx="628" cy="84" r="2.5"/>
+        <circle cx="696" cy="75" r="2.5"/><circle cx="764" cy="108" r="2.5"/><circle cx="832" cy="90" r="2.5"/>
+      </g>
+
+      <!-- X axis labels -->
+      <g font-family="IBM Plex Mono" font-size="11" fill="#9CA9C2" text-anchor="middle" letter-spacing="0.1em">
+        <text x="84" y="290">FEB</text><text x="152" y="290">MAR</text><text x="220" y="290">APR</text>
+        <text x="288" y="290">MAY</text><text x="356" y="290">JUN</text>
+        <text x="424" y="290" fill="#F87171" font-weight="600">JUL</text>
+        <text x="492" y="290">AUG</text><text x="560" y="290">SEP</text><text x="628" y="290">OCT</text>
+        <text x="696" y="290">NOV</text><text x="764" y="290">DEC</text><text x="832" y="290">JAN</text>
+      </g>
+      <g font-family="IBM Plex Mono" font-size="9" fill="#6B7A95" text-anchor="middle">
+        <text x="84" y="304">26</text><text x="152" y="304">26</text><text x="220" y="304">26</text>
+        <text x="288" y="304">26</text><text x="356" y="304">26</text><text x="424" y="304">26</text>
+        <text x="492" y="304">26</text><text x="560" y="304">26</text><text x="628" y="304">26</text>
+        <text x="696" y="304">26</text><text x="764" y="304">26</text><text x="832" y="304">27</text>
+      </g>
+    </svg>
+  </div>
+
+  <!-- Risk table -->
+  <div class="card">
+    <div class="cardhead">
+      <div>
+        <h2>// LINE_RISK_SUMMARY</h2>
+        <div class="sub">14 lines · sorted by risk_score · horizon=6M</div>
+      </div>
+      <div class="right">high_risk_lines<span class="total mono" style="color:var(--red);text-shadow:0 0 12px var(--red-glow)">03</span></div>
+    </div>
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th>line_id</th><th>plant</th><th>risk</th><th class="r">peak_util</th><th>peak_period</th><th>labour</th><th class="r">demand_cap</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><b>A101</b></td><td class="mono">P1</td>
+          <td><span class="badge crit"><span class="d"></span>critical</span></td>
+          <td class="mono r num-warn">108%</td><td class="mono">JUL-26</td>
+          <td><span class="badge crit"><span class="d"></span>shortfall</span></td>
+          <td class="mono r num-warn">108%</td>
+        </tr>
+        <tr>
+          <td><b>A102</b></td><td class="mono">P1</td>
+          <td><span class="badge high"><span class="d"></span>high</span></td>
+          <td class="mono r num-mid">98%</td><td class="mono">JUL-26</td>
+          <td><span class="badge stable"><span class="d"></span>ok</span></td>
+          <td class="mono r">95%</td>
+        </tr>
+        <tr>
+          <td><b>A103</b></td><td class="mono">P1</td>
+          <td><span class="badge high"><span class="d"></span>high</span></td>
+          <td class="mono r num-mid">94%</td><td class="mono">JUL-26</td>
+          <td><span class="badge crit"><span class="d"></span>shortfall</span></td>
+          <td class="mono r">88%</td>
+        </tr>
+        <tr>
+          <td><b>A201</b></td><td class="mono">P2</td>
+          <td><span class="badge watch"><span class="d"></span>watch</span></td>
+          <td class="mono r">82%</td><td class="mono">JUL-26</td>
+          <td><span class="badge stable"><span class="d"></span>ok</span></td>
+          <td class="mono r">78%</td>
+        </tr>
+        <tr>
+          <td><b>A302</b></td><td class="mono">P3</td>
+          <td><span class="badge stable"><span class="d"></span>stable</span></td>
+          <td class="mono r num-good">65%</td><td class="mono">AUG-26</td>
+          <td><span class="badge stable"><span class="d"></span>ok</span></td>
+          <td class="mono r num-good">60%</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <footer>RCCP::ONE<span class="sep">·</span>GRAVESEND_UKP1<span class="sep">·</span>CYCLE=APR-26<span class="sep">·</span>OEE=55%<span class="sep">·</span>GENERATED=08-MAY-26</footer>
+</main>
+</div>
+</body>
+</html>

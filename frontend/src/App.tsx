@@ -4,7 +4,9 @@ import { AuthProvider, useAuth } from './contexts/AuthContext'
 import AppShell from './components/layout/AppShell'
 import LoginPage from './pages/LoginPage'
 import PlanningDataPage from './pages/PlanningDataPage'
-import RCCPDashboardPage from './pages/RCCPDashboardPage'
+import ExecutiveSummaryPage from './pages/ExecutiveSummaryPage'
+import BatchExportsPage from './pages/BatchExportsPage'
+import ScenariosPage from './pages/ScenariosPage'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth()
@@ -36,7 +38,9 @@ function AppRoutes() {
         }
       >
         <Route index element={<PlanningDataPage />} />
-        <Route path="rccp" element={<RCCPDashboardPage />} />
+        <Route path="executive-summary" element={<ExecutiveSummaryPage />} />
+        <Route path="scenarios" element={<ScenariosPage />} />
+        <Route path="exports" element={<BatchExportsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

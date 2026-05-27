@@ -223,6 +223,32 @@ FILE_SCHEMAS: dict = {
         "fk_checks": {},
         "min_rows": 0,  # Empty file valid — no changes this cycle
     },
+    "actual_production": {
+        # SAP MB51 goods receipts export (list download format — single header row)
+        "header_row": 1,
+        "data_start_row": 2,
+        "required": ["material", "quantity", "posting_date", "plant"],
+        "optional": [
+            "material_description", "movement_type", "storage_location",
+            "material_document", "document_date", "order", "batch",
+            "supplier", "reference", "customer", "sales_order",
+            "purchase_order", "user_name",
+        ],
+        "types": {
+            "material":       "str",
+            "quantity":       "decimal",
+            "posting_date":   "date",
+            "plant":          "str",
+            "movement_type":  "str",
+        },
+        "fk_checks": {
+            "plant": ("dbo.warehouses", "warehouse_code"),
+        },
+        "blocked_fk_checks": {
+            "material": ("dbo.items", "item_code"),
+        },
+        "min_rows": 1,
+    },
     "production_orders": {
         "header_row": 2,
         "data_start_row": 3,
@@ -561,47 +587,52 @@ def _stage5(cursor, conn: pyodbc.Connection, batch_file_id: int,
                 errors.append((row_num, col, "BLOCKED",
                                f"'{val}' not found in {table} ({pk_col})", str(val)))
 
-    # Soft FK checks — WARNING if value not found (file still imports)
-    # Emits a single summary WARNING to avoid hitting the 20-row overflow cap.
+    # Soft FK checks — WARNING, one row per unique missing value (deduped).
+    # Written directly (not through _emit_errors) so the full list is stored.
+    fk_summary_written = False
     for col, (table, pk_col) in schema.get("warning_fk_checks", {}).items():
         if col not in header_set:
             continue
         c2 = conn.cursor()
         c2.execute(f"SELECT {pk_col} FROM {table}")  # noqa: S608
         valid_values = {str(r[0]).strip() for r in c2.fetchall()}
-        missing = sorted(
+        missing = sorted({
             str(row_dict.get(col)).strip()
             for _, row_dict in data_rows
             if row_dict.get(col) and str(row_dict.get(col)).strip() not in valid_values
-        )
-        if missing:
-            sample = f"'{missing[0]}'"
-            errors.append((None, col, "WARNING",
-                           f"{len(missing)} material(s) not found in {table} ({pk_col}) "
-                           f"(e.g. {sample}) — upload sku_masterdata to fix",
-                           None))
+        })
+        for val in missing:
+            _write(cursor, batch_file_id, stage_num, stage_name, "WARNING",
+                   f"'{val}' not found in {table} ({pk_col}) — add to sku_masterdata to fix",
+                   field_name=col, sample_value=val)
+            fk_summary_written = True
 
-    # Hard FK summary checks — BLOCKED severity, one entry per unique missing value.
+    # Hard FK summary checks — BLOCKED, one row per unique missing value (deduped).
     for col, (table, pk_col) in schema.get("blocked_fk_checks", {}).items():
         if col not in header_set:
             continue
         c2 = conn.cursor()
         c2.execute(f"SELECT {pk_col} FROM {table}")  # noqa: S608
         valid_values = {str(r[0]).strip() for r in c2.fetchall()}
-        missing = sorted(
+        missing = sorted({
             str(row_dict.get(col)).strip()
             for _, row_dict in data_rows
             if row_dict.get(col) and str(row_dict.get(col)).strip() not in valid_values
-        )
-        if missing:
-            sample = f"'{missing[0]}'"
-            errors.append((None, col, "BLOCKED",
-                           f"{len(missing)} material(s) not found in {table} ({pk_col}) "
-                           f"(e.g. {sample}) — upload sku_masterdata before validating production_orders",
-                           None))
+        })
+        for val in missing:
+            _write(cursor, batch_file_id, stage_num, stage_name, "BLOCKED",
+                   f"'{val}' not found in {table} ({pk_col}) — add to sku_masterdata before validating",
+                   field_name=col, sample_value=val)
+            fk_summary_written = True
 
-    _emit_errors(cursor, batch_file_id, stage_num, stage_name, errors,
-                 pass_msg="All reference checks passed")
+    # Per-row errors (fk_checks) go through _emit_errors as before.
+    # PASS only if nothing was written by either path.
+    if errors:
+        _emit_errors(cursor, batch_file_id, stage_num, stage_name, errors,
+                     pass_msg="All reference checks passed")
+    elif not fk_summary_written:
+        _write(cursor, batch_file_id, stage_num, stage_name, "PASS",
+               "All reference checks passed")
 
 
 def _stage6(cursor, conn: pyodbc.Connection, batch_file_id: int, file_type: str,
@@ -733,6 +764,14 @@ def _stage6(cursor, conn: pyodbc.Connection, batch_file_id: int, file_type: str,
                 if val is not None and _is_valid_decimal(val) and float(val) < 0:
                     errors.append((row_num, "delivered_quantity_(gmein)", "BLOCKED",
                                    f"Delivered quantity cannot be negative: {val}", str(val)))
+
+    elif file_type == "actual_production":
+        if "quantity" in header_set:
+            for row_num, row_dict in data_rows:
+                val = row_dict.get("quantity")
+                if val is not None and _is_valid_decimal(val) and float(val) <= 0:
+                    errors.append((row_num, "quantity", "BLOCKED",
+                                   f"Quantity must be > 0: {val}", str(val)))
 
     _emit_errors(cursor, batch_file_id, stage_num, stage_name, errors,
                  pass_msg="All business rules passed")

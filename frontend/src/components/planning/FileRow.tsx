@@ -33,6 +33,10 @@ const FILE_META: Record<FileType, { label: string; description: string }> = {
     label: 'production_orders',
     description: 'Open production orders from SAP COOIS. LA (MRP proposals) and YPAC (released/firmed) order types.',
   },
+  actual_production: {
+    label: 'actual_production',
+    description: 'Goods receipts from SAP MB51 (MvT 101). Quantities in EA — converted to litres on publish. Used for actuals vs plan chart.',
+  },
 }
 
 function IssueList({ issues, total, colour }: { issues: string[]; total: number; colour: string }) {
@@ -161,8 +165,12 @@ export default function FileRow({ batchId, fileType, file, isLocked, index = 0 }
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className="font-mono text-xs font-semibold text-gray-900">{meta.label}</span>
               {fileType === 'portfolio_changes' && (
-                <span className="text-xs px-1.5 py-px rounded font-medium bg-indigo-50 text-indigo-600"
+                <span className="text-xs px-1.5 py-px rounded font-medium bg-[#E8EEF3] text-[#0C3C5D]"
                   style={{ fontSize: 9 }}>empty OK</span>
+              )}
+              {fileType === 'actual_production' && (
+                <span className="text-xs px-1.5 py-px rounded font-medium bg-gray-100 text-gray-500"
+                  style={{ fontSize: 9 }}>optional</span>
               )}
             </div>
             <div className="text-xs text-gray-400 mt-0.5 leading-tight" style={{ fontSize: 10 }}>
@@ -229,7 +237,7 @@ export default function FileRow({ batchId, fileType, file, isLocked, index = 0 }
             className="flex items-center gap-0.5 px-2 py-1 rounded-lg text-xs font-semibold transition-colors disabled:opacity-40 whitespace-nowrap"
             style={isPresent || isLocked
               ? { backgroundColor: '#F8FAFC', color: '#64748B', border: '1px solid #E2E8F0' }
-              : { backgroundColor: '#EEF2FF', color: '#4F46E5', border: '1px solid #C7D2FE' }
+              : { backgroundColor: '#EEF2FF', color: '#0C3C5D', border: '1px solid #C7D2FE' }
             }>
             {uploading
             ? <Loader2 className="w-3 h-3 animate-spin" />

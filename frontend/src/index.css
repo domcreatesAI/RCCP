@@ -1,1 +1,140 @@
 @import "tailwindcss";
+
+@theme {
+  /* Moove brand */
+  --color-moove-navy: #0C3C5D;
+  --color-moove-navy-2: #143F5C;
+  --color-moove-navy-3: #1F4E78;
+  --color-moove-navy-deep: #082A40;
+  --color-moove-navy-tint: #E8EEF3;
+  --color-moove-navy-tint-2: #D6E0E9;
+
+  --color-moove-lime: #AACD00;
+  --color-moove-lime-deep: #7B9400;
+  --color-moove-lime-tint: #F0F7CC;
+  --color-moove-lime-bright: #BFDD20;
+
+  --color-moove-sage: #B1CCBB;
+  --color-moove-sage-tint: #EDF4EF;
+
+  --color-moove-ink: #0F1A24;
+  --color-moove-ink-2: #3F4D5B;
+  --color-moove-ink-3: #6B7A8A;
+  --color-moove-ink-4: #9CABB9;
+
+  --color-moove-border: #E2E6EA;
+  --color-moove-border-2: #CCD3DA;
+  --color-moove-bg: #F7F7F5;
+
+  --font-sans: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, Monaco,
+    Consolas, monospace;
+}
+
+html,
+body,
+#root {
+  background: var(--color-moove-bg);
+  color: var(--color-moove-ink);
+  font-family: var(--font-sans);
+  font-feature-settings: "tnum" 1, "ss01" 1, "cv11" 1;
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.005em;
+}
+
+.font-mono,
+[class*="font-mono"] {
+  font-feature-settings: "tnum" 1, "zero" 1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/* Tabular numerics on every numeric-looking element */
+.tabnum {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+/* Smooth scroll for in-page navigation */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Print styles — used by the Executive Summary export */
+@page {
+  size: A4 landscape;
+  margin: 10mm 10mm 12mm 10mm;
+}
+
+@media print {
+  /* Preserve background colours and gradients in PDF output */
+  *,
+  *::before,
+  *::after {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  html,
+  body,
+  #root {
+    background: #ffffff !important;
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  /* Belt-and-braces: ensure no ancestor of <main> clips printable content,
+     even if AppShell adds new wrapper layers in the future. */
+  #root > *,
+  #root > * > * {
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
+    flex: none !important;
+  }
+
+  /* Hide app chrome */
+  aside,
+  header,
+  .print\:hidden {
+    display: none !important;
+  }
+
+  /* Let main content flow across pages instead of scrolling */
+  main {
+    padding: 0 !important;
+    overflow: visible !important;
+    height: auto !important;
+    flex: none !important;
+  }
+
+  /* Disable position/transform animations that look broken when paginated */
+  [data-framer-component-type],
+  [style*="transform"] {
+    transform: none !important;
+    opacity: 1 !important;
+  }
+
+  /* Don't split key blocks across page breaks */
+  .print-avoid-break,
+  table,
+  thead {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  thead {
+    display: table-header-group;
+  }
+
+  /* Slightly tighten paddings for print density */
+  .print-tight {
+    padding: 12px !important;
+  }
+
+  /* Force consistent font sizes */
+  .print-shrink-text {
+    font-size: 11px !important;
+  }
+}

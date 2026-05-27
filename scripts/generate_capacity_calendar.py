@@ -4,12 +4,14 @@ Generate a pre-filled Line Capacity Calendar Excel file for upload to RCCP One.
 Covers 01/01/2026 – 31/12/2030.
 One row per production line per day (14 lines × ~1826 days = ~25,564 rows).
 
-Non-working days:
-  - Saturdays and Sundays → is_working_day = 0, planned_hours = 0
-  - UK bank holidays      → is_working_day = 0, planned_hours = 0,
-                            public_holiday_hours = 7.0
+Shift pattern:
+  - Mon–Thu: is_working_day = 1, planned_hours = 8.5
+  - Fri:     is_working_day = 1, planned_hours = 6.0
+  - Sat/Sun: is_working_day = 0, planned_hours = 0
 
-Working days: is_working_day = 1, planned_hours = 7.0
+UK bank holidays: is_working_day = 0, planned_hours = 0,
+                  public_holiday_hours = hours lost for that weekday
+                  (8.5 if Mon–Thu, 6.0 if Fri, 0 if Sat/Sun)
 
 Run from the repo root:
     python scripts/generate_capacity_calendar.py
@@ -32,6 +34,19 @@ LINES = [
     "A401",
     "A501", "A502",
 ]
+
+# ---------------------------------------------------------------------------
+# Planned hours by weekday  (Mon=0 … Sun=6)
+# ---------------------------------------------------------------------------
+PLANNED_HOURS_BY_WEEKDAY = {
+    0: 8.5,  # Monday
+    1: 8.5,  # Tuesday
+    2: 8.5,  # Wednesday
+    3: 8.5,  # Thursday
+    4: 6.0,  # Friday
+    5: 0.0,  # Saturday
+    6: 0.0,  # Sunday
+}
 
 # ---------------------------------------------------------------------------
 # UK Bank Holidays 2026–2030
@@ -93,7 +108,7 @@ UK_BANK_HOLIDAYS = {
 # ---------------------------------------------------------------------------
 _HEADER_FILL = PatternFill("solid", fgColor="1E3A5F")
 _HEADER_FONT = Font(color="FFFFFF", bold=True, size=10)
-_DESC_FILL   = PatternFill("solid", fgColor="FFE066")   # amber — row 1 descriptions
+_DESC_FILL   = PatternFill("solid", fgColor="FFE066")
 _DESC_FONT   = Font(color="7A5700", italic=True, size=9)
 _BH_FILL     = PatternFill("solid", fgColor="FFF3CD")   # amber tint for bank holidays
 _WE_FILL     = PatternFill("solid", fgColor="F3F4F6")   # light grey for weekends
@@ -112,17 +127,16 @@ COLUMNS = [
     "notes",
 ]
 
-# Row 1 descriptions (validator ignores row 1 — leave in file for reference)
 DESCRIPTIONS = [
-    "Production line code (e.g. A101). Must match a line in the masterdata.",
-    "Date in DD/MM/YYYY format.",
+    "Production line code (e.g. A101, A202). Must match a line in the masterdata.",
+    "Date in DD/MM/YYYY format (e.g. 01/03/2026).",
     "1 = working day, 0 = non-working day (weekend, bank holiday).",
-    "Total planned production hours (0–24). Review and adjust per line/shift pattern.",
-    "Scheduled maintenance time (hours). Optional — leave 0 if none.",
+    "Total planned production hours for this line on this date (0–24). Required.",
+    "Scheduled maintenance time (hours). Required. Must be ≥ 0 — enter 0 if none.",
     "Public holiday loss (hours). Optional.",
     "Other planned downtime (hours). Optional.",
     "Any other losses not covered above (hours). Optional.",
-    "Free text notes. Optional.",
+    "Free text notes for this entry. Optional.",
 ]
 
 COL_WIDTHS = {
@@ -153,7 +167,7 @@ def generate() -> None:
         cell.fill      = _DESC_FILL
         cell.alignment = _LEFT
 
-    # Row 2: column keys — what the validator reads
+    # Row 2: column keys
     for col_idx, col in enumerate(COLUMNS, start=1):
         cell = ws.cell(row=2, column=col_idx, value=col)
         cell.font      = _HEADER_FONT
@@ -166,29 +180,33 @@ def generate() -> None:
     row_num = 3
     current = start
     while current <= end:
-        is_weekend    = current.weekday() >= 5          # Sat=5, Sun=6
+        weekday       = current.weekday()          # 0=Mon … 6=Sun
+        is_weekend    = weekday >= 5
         is_bank_hol   = current in UK_BANK_HOLIDAYS
         is_working    = not is_weekend and not is_bank_hol
 
+        # Hours this weekday would normally carry (used for bank holiday loss)
+        normal_hours  = PLANNED_HOURS_BY_WEEKDAY[weekday]
+        planned_hours = normal_hours if is_working else 0.0
+        bh_hours      = normal_hours if is_bank_hol else 0.0   # hours lost to bank holiday
+
+        notes = ""
+        if is_bank_hol:
+            notes = "Bank holiday"
+        elif is_weekend:
+            notes = "Weekend"
+
         for line in LINES:
             ws.cell(row=row_num, column=1, value=line)
-            # Write date as DD/MM/YYYY string so the upload format matches
             ws.cell(row=row_num, column=2, value=current.strftime("%d/%m/%Y"))
             ws.cell(row=row_num, column=3, value=1 if is_working else 0)
-            ws.cell(row=row_num, column=4, value=7.0 if is_working else 0.0)
-            ws.cell(row=row_num, column=5, value=0)    # maintenance_hours
-            ws.cell(row=row_num, column=6, value=7.0 if is_bank_hol else 0)  # public_holiday_hours
-            ws.cell(row=row_num, column=7, value=0)    # planned_downtime_hours
-            ws.cell(row=row_num, column=8, value=0)    # other_loss_hours
-
-            notes = ""
-            if is_bank_hol:
-                notes = "Bank holiday"
-            elif is_weekend:
-                notes = "Weekend"
+            ws.cell(row=row_num, column=4, value=planned_hours)
+            ws.cell(row=row_num, column=5, value=0)          # maintenance_hours
+            ws.cell(row=row_num, column=6, value=bh_hours)   # public_holiday_hours
+            ws.cell(row=row_num, column=7, value=0)          # planned_downtime_hours
+            ws.cell(row=row_num, column=8, value=0)          # other_loss_hours
             ws.cell(row=row_num, column=9, value=notes)
 
-            # Shade non-working rows for readability
             if is_bank_hol:
                 for c in range(1, 10):
                     ws.cell(row=row_num, column=c).fill = _BH_FILL
@@ -200,9 +218,9 @@ def generate() -> None:
 
         current += timedelta(days=1)
 
-    # Summary sheet
+    # Info sheet
     ws2 = wb.create_sheet("Info")
-    ws2.column_dimensions["A"].width = 60
+    ws2.column_dimensions["A"].width = 70
     info = [
         "RCCP One — Line Capacity Calendar 2026–2030",
         "",
@@ -211,25 +229,26 @@ def generate() -> None:
         f"Date range: 01/01/2026 – 31/12/2030",
         f"Total rows: {row_num - 3:,}",
         "",
-        "Non-working day rules applied:",
-        "  - Saturdays and Sundays → is_working_day=0, planned_hours=0",
-        "  - UK bank holidays 2026–2030 → is_working_day=0, planned_hours=0,",
-        "                                   public_holiday_hours=7.0",
+        "Shift pattern applied:",
+        "  Mon–Thu:  8.5 hours / day (planned_hours = 8.5)",
+        "  Friday:   6.0 hours / day (planned_hours = 6.0)",
+        "  Sat/Sun:  non-working     (is_working_day = 0, planned_hours = 0)",
+        "",
+        "UK bank holidays: is_working_day=0, planned_hours=0,",
+        "  public_holiday_hours = hours that day would normally carry",
+        "  (8.5 if Mon–Thu falls on BH, 6.0 if Friday falls on BH)",
         "",
         "Amber rows = UK bank holidays",
         "Grey rows  = weekends",
         "",
         "BEFORE UPLOADING — review and adjust:",
-        "  - planned_hours for lines with shorter/longer shifts",
         "  - maintenance_hours for scheduled maintenance windows",
         "  - Any site-specific shutdowns (e.g. factory closure weeks)",
+        "  - Lines with different shift patterns (adjust planned_hours per row)",
     ]
     for i, line in enumerate(info, start=1):
         cell = ws2.cell(row=i, column=1, value=line)
-        if i == 1:
-            cell.font = Font(bold=True, size=12)
-        else:
-            cell.font = Font(size=10)
+        cell.font      = Font(bold=(i == 1), size=12 if i == 1 else 10)
         cell.alignment = _LEFT
 
     out_dir = os.path.join(os.path.dirname(__file__), "..", "uploads")
@@ -238,7 +257,8 @@ def generate() -> None:
 
     wb.save(out_path)
     print(f"Saved: {os.path.abspath(out_path)}")
-    print(f"Rows: {row_num - 3:,}  ({len(LINES)} lines × {(end - start).days + 1} days)")
+    print(f"Rows:  {row_num - 3:,}  ({len(LINES)} lines × {(end - start).days + 1} days)")
+    print(f"Shift: Mon–Thu 8.5h | Fri 6.0h | Sat–Sun 0h")
 
 
 if __name__ == "__main__":
