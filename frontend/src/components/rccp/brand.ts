@@ -109,6 +109,14 @@ export function focusMonthPeriod(planCycleDate: string): string {
   return addMonths(cyclePeriod(planCycleDate), FOCUS_MONTH_OFFSET)
 }
 
+/** Site OEE headline derived from the per-line OEE: a single % when uniform, else a range. */
+export function oeeBaselineLabel(lines: RCCPLine[]): string {
+  const vals = [...new Set(lines.map(l => Math.round((l.oee_target ?? 0.55) * 100)))].sort((a, b) => a - b)
+  if (vals.length === 0) return '—'
+  if (vals.length === 1) return `${vals[0]}%`
+  return `${vals[0]}–${vals[vals.length - 1]}%`
+}
+
 export function sortLinesByCode<T extends { line_code: string }>(lines: T[]): T[] {
   return [...lines].sort((a, b) => {
     const ai = LINE_ORDER.indexOf(a.line_code)

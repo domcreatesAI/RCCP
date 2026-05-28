@@ -113,9 +113,13 @@ def build_verification_workbook(dash: dict, horizon_months: int = 12) -> Workboo
             "capacity": capacity, "sop": sop,
         })
 
+    forward_list = [_add_months(cycle_period, i) for i in range(horizon_months)]
+    cogs = float(dash.get("settings", {}).get("cogs_opex_per_litre") or 0.12)
+
     wb = Workbook()
-    _build_summary_sheet(wb.active, summary_rows, dash["batch_id"], cycle_period, horizon_months)
-    _build_detail_sheet(wb.create_sheet("Monthly Detail"), detail_rows)
+    _build_summary_sheet(wb.active, summary_rows, dash["batch_id"], cycle_period, horizon_months, cogs)
+    _build_monthly_summary_sheet(wb.create_sheet("Capacity & Headcount"), lines, forward_list)
+    _build_detail_sheet(wb.create_sheet("Monthly Detail"), detail_rows, cogs)
     return wb
 
 
@@ -137,7 +141,38 @@ def _num(cell, value, *, bold=False, color=INK):
     cell.font = Font(name="Calibri", size=11, bold=bold, color=color)
 
 
-def _build_summary_sheet(ws, rows, batch_id, cycle_period, horizon_months):
+def _pct(cell, value, *, color=INK):
+    if value is None:
+        cell.value = "—"
+    else:
+        cell.value = round(value)
+        cell.number_format = '0"%"'
+    cell.alignment = Alignment(horizontal="right")
+    cell.font = Font(name="Calibri", size=11, color=color)
+
+
+def _dec(cell, value, *, color=INK):
+    """One-decimal number (for averaged headcount)."""
+    if value is None:
+        cell.value = "—"
+    else:
+        cell.value = round(value, 1)
+        cell.number_format = "#,##0.0"
+    cell.alignment = Alignment(horizontal="right")
+    cell.font = Font(name="Calibri", size=11, color=color)
+
+
+def _money(cell, value, *, bold=False, color=INK):
+    if value is None:
+        cell.value = "—"
+    else:
+        cell.value = round(value)
+        cell.number_format = '"£"#,##0'
+    cell.alignment = Alignment(horizontal="right")
+    cell.font = Font(name="Calibri", size=11, bold=bold, color=color)
+
+
+def _build_summary_sheet(ws, rows, batch_id, cycle_period, horizon_months, cogs):
     ws.title = "Per Line"
     ws.sheet_view.showGridLines = False
 
@@ -145,11 +180,13 @@ def _build_summary_sheet(ws, rows, batch_id, cycle_period, horizon_months):
     ws["A1"].font = Font(name="Calibri", size=15, bold=True, color=NAVY)
     ws["A2"] = (f"Batch {batch_id}  ·  plan cycle {cycle_period}  ·  "
                 f"filled = past actuals (MB51)  ·  planned/firmed/capacity/S&OP = forward {horizon_months}M  ·  "
+                f"production cost = (firmed + planned) × £{cogs:.2f}/L  ·  "
                 f"generated {datetime.now():%d %b %Y %H:%M}")
     ws["A2"].font = Font(name="Calibri", size=9, italic=True, color="6B7A8A")
 
     headers = ["Line", "Plant", "Filled volume", "Volume planned",
-               "Volume firmed", "Capacity", "S&OP forecast"]
+               "Volume firmed", "Capacity", "S&OP forecast", "Production cost (£)"]
+    ncol = len(headers)
     header_row = 4
     for c, h in enumerate(headers, start=1):
         cell = ws.cell(row=header_row, column=c, value=h)
@@ -168,7 +205,8 @@ def _build_summary_sheet(ws, rows, batch_id, cycle_period, horizon_months):
         _num(ws.cell(row=r, column=5), row["firmed"])
         _num(ws.cell(row=r, column=6), row["capacity"])
         _num(ws.cell(row=r, column=7), row["sop"])
-        for c in range(1, 8):
+        _money(ws.cell(row=r, column=8), (row["firmed"] + row["planned"]) * cogs)
+        for c in range(1, ncol + 1):
             ws.cell(row=r, column=c).border = BORDER
         for k in totals:
             totals[k] += row[k]
@@ -181,20 +219,22 @@ def _build_summary_sheet(ws, rows, batch_id, cycle_period, horizon_months):
     _num(ws.cell(row=r, column=5), totals["firmed"], bold=True, color=NAVY)
     _num(ws.cell(row=r, column=6), totals["capacity"], bold=True, color=NAVY)
     _num(ws.cell(row=r, column=7), totals["sop"], bold=True, color=NAVY)
-    for c in range(1, 8):
+    _money(ws.cell(row=r, column=8), (totals["firmed"] + totals["planned"]) * cogs, bold=True, color=NAVY)
+    for c in range(1, ncol + 1):
         cell = ws.cell(row=r, column=c)
         cell.fill = PatternFill("solid", fgColor=LIME_TINT)
         cell.border = Border(top=Side(style="thin", color=NAVY))
 
-    for i, w in enumerate([10, 10, 16, 16, 16, 16, 16], start=1):
+    for i, w in enumerate([10, 10, 16, 16, 16, 16, 16, 18], start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
     ws.freeze_panes = "A5"
 
 
-def _build_detail_sheet(ws, rows):
+def _build_detail_sheet(ws, rows, cogs):
     ws.sheet_view.showGridLines = False
     headers = ["Line", "Plant", "Period", "Window", "Filled volume",
-               "Volume planned", "Volume firmed", "Capacity", "S&OP forecast"]
+               "Volume planned", "Volume firmed", "Capacity", "S&OP forecast", "Production cost (£)"]
+    ncol = len(headers)
     for c, h in enumerate(headers, start=1):
         cell = ws.cell(row=1, column=c, value=h)
         cell.font = Font(name="Calibri", size=11, bold=True, color=WHITE)
@@ -218,11 +258,57 @@ def _build_detail_sheet(ws, rows):
         _num(ws.cell(row=r, column=7), row["firmed"])
         _num(ws.cell(row=r, column=8), row["capacity"])
         _num(ws.cell(row=r, column=9), row["sop"])
-        for c in range(1, 10):
+        _money(ws.cell(row=r, column=10), (row["firmed"] + row["planned"]) * cogs)
+        for c in range(1, ncol + 1):
             ws.cell(row=r, column=c).border = BORDER
         r += 1
 
-    for i, w in enumerate([10, 10, 12, 11, 16, 16, 16, 14, 16], start=1):
+    for i, w in enumerate([10, 10, 12, 11, 16, 16, 16, 14, 16, 18], start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
     ws.freeze_panes = "A2"
-    ws.auto_filter.ref = f"A1:I{r - 1}"
+    ws.auto_filter.ref = f"A1:{get_column_letter(ncol)}{r - 1}"
+
+
+def _build_monthly_summary_sheet(ws, lines, periods):
+    """Line × month summary of capacity drivers and headcount (forward horizon)."""
+    ws.sheet_view.showGridLines = False
+    ws["A1"] = "Capacity & Headcount — by line, by month"
+    ws["A1"].font = Font(name="Calibri", size=15, bold=True, color=NAVY)
+    ws["A2"] = ("Available capacity @ OEE and headcount (required vs planned average) over the forward 12 months. "
+                "HC is the total per line (line operators + team leaders); shortfall ≥1 FTE shown in red.")
+    ws["A2"].font = Font(name="Calibri", size=9, italic=True, color="6B7A8A")
+
+    headers = ["Line", "Plant", "Month", "Working days", "Capacity (L)", "Capacity (h)",
+               "Utilisation", "HC required", "HC planned (avg)", "HC shortfall"]
+    header_row = 4
+    for c, h in enumerate(headers, start=1):
+        cell = ws.cell(row=header_row, column=c, value=h)
+        cell.font = Font(name="Calibri", size=11, bold=True, color=WHITE)
+        cell.fill = PatternFill("solid", fgColor=NAVY)
+        cell.alignment = Alignment(horizontal="left" if c <= 3 else "right", vertical="center")
+        cell.border = Border(bottom=Side(style="thin", color=NAVY))
+
+    r = header_row + 1
+    for l in lines:
+        bym = {m["period"]: m for m in l["monthly"]}
+        for p in periods:
+            m = bym.get(p)
+            ws.cell(row=r, column=1, value=l["line_code"]).font = Font(bold=True, color=NAVY, size=10)
+            ws.cell(row=r, column=2, value=l["plant_code"]).font = Font(color=INK, size=10)
+            ws.cell(row=r, column=3, value=p).font = Font(color=INK, size=10)
+            _num(ws.cell(row=r, column=4), m.get("working_days") if m else None)
+            _num(ws.cell(row=r, column=5), m.get("available_litres") if m else None)
+            _num(ws.cell(row=r, column=6), m.get("available_hours") if m else None)
+            _pct(ws.cell(row=r, column=7), m.get("utilisation_pct") if m else None)
+            _num(ws.cell(row=r, column=8), m.get("hc_required") if m else None)
+            _dec(ws.cell(row=r, column=9), m.get("hc_planned_avg") if m else None)
+            short = (m.get("hc_shortfall") if m else None)
+            _dec(ws.cell(row=r, column=10), short, color="C2410C" if (short or 0) >= 1 else INK)
+            for c in range(1, 11):
+                ws.cell(row=r, column=c).border = BORDER
+            r += 1
+
+    for i, w in enumerate([10, 9, 11, 13, 14, 13, 12, 13, 17, 14], start=1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+    ws.freeze_panes = "D5"
+    ws.auto_filter.ref = f"A{header_row}:J{r - 1}"

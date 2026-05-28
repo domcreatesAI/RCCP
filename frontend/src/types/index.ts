@@ -164,6 +164,10 @@ export interface RCCPUnassignedOrder {
   order_count: number
 }
 
+export interface RCCPSettings {
+  cogs_opex_per_litre: number    // £ per litre produced (OEE is per-line, see RCCPLine.oee_target)
+}
+
 export interface RCCPDashboard {
   batch_id: number
   plan_cycle_date: string
@@ -176,6 +180,7 @@ export interface RCCPDashboard {
   unassigned_orders: RCCPUnassignedOrder[]
   plant_support_requirements: Record<string, RCCPPlantSupportRole[]>
   resource_type_rates: Record<string, number>  // role_code → standard_hourly_rate
+  settings: RCCPSettings
 }
 
 export interface User {

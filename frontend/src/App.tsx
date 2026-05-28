@@ -7,6 +7,7 @@ import PlanningDataPage from './pages/PlanningDataPage'
 import ExecutiveSummaryPage from './pages/ExecutiveSummaryPage'
 import BatchExportsPage from './pages/BatchExportsPage'
 import ScenariosPage from './pages/ScenariosPage'
+import SettingsPage from './pages/SettingsPage'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth()
@@ -41,6 +42,7 @@ function AppRoutes() {
         <Route path="executive-summary" element={<ExecutiveSummaryPage />} />
         <Route path="scenarios" element={<ScenariosPage />} />
         <Route path="exports" element={<BatchExportsPage />} />
+        <Route path="settings" element={<SettingsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

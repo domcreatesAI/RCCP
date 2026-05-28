@@ -80,6 +80,13 @@ def _to_hours(
 def compute_dashboard(conn, batch_id: int, allowed_statuses: tuple[str, ...] = ("PUBLISHED",)) -> dict:
     cursor = conn.cursor()
 
+    # Stable config from app_settings (code defaults apply if a row is absent).
+    # OEE is per-line (dbo.lines.oee_target); 0.55 is only a safety net for a line
+    # with no value at all.
+    from app.services import settings_service
+    DEFAULT_OEE_FALLBACK = 0.55
+    cogs_per_litre = settings_service.get_float(conn, "cogs_opex_per_litre", 0.12)
+
     # ── 1. Verify batch is PUBLISHED ──────────────────────────────────────────
     cursor.execute(
         "SELECT batch_id, batch_name, status, plan_cycle_date FROM dbo.import_batches WHERE batch_id = ?",
@@ -256,7 +263,7 @@ def compute_dashboard(conn, batch_id: int, allowed_statuses: tuple[str, ...] = (
             "plant_code": r.plant_code,
             "pool_code": r.labour_pool_code,
             "pool_max_concurrent": r.max_concurrent_lines,
-            "oee_target": float(r.oee_target) if r.oee_target else 0.55,
+            "oee_target": float(r.oee_target) if r.oee_target else DEFAULT_OEE_FALLBACK,
             "available_mins_per_day": float(r.available_mins_per_day) if r.available_mins_per_day else 420.0,
         }
 
@@ -814,4 +821,7 @@ def compute_dashboard(conn, batch_id: int, allowed_statuses: tuple[str, ...] = (
         "unassigned_orders": unassigned_out,
         "plant_support_requirements": plant_support_out,  # plant_code → [{role_code, required, monthly}]
         "resource_type_rates": resource_type_rates,        # role_code → standard_hourly_rate
+        "settings": {
+            "cogs_opex_per_litre": cogs_per_litre,
+        },
     }

@@ -13,7 +13,7 @@ import { getDashboard, downloadVerificationExcel } from '../api/rccp'
 import type { Batch, RCCPLine, RCCPMonthlyBucket, UnitMode } from '../types'
 import NextMonthSpotlight from '../components/rccp/NextMonthSpotlight'
 import LineRiskRadar from '../components/rccp/LineRiskRadar'
-import { HIDDEN_LINE_CODES } from '../components/rccp/brand'
+import { HIDDEN_LINE_CODES, oeeBaselineLabel } from '../components/rccp/brand'
 
 // ─── Brand tokens ─────────────────────────────────────────────────────────────
 const C = {
@@ -332,7 +332,8 @@ function buildChartData(
       if (d !== null && d !== undefined) { demand += d; anyDem = true }
       if (a !== null && a !== undefined) { avail += a; anyAvail = true }
     }
-    row.demand    = anyDem   ? demand : null
+    // S&OP demand is forward-only — don't plot it across past months (it's just 0 there).
+    row.demand    = isActual ? null : (anyDem ? demand : null)
     row.available = anyAvail ? avail  : null
     return row
   })
@@ -783,6 +784,9 @@ export default function ExecutiveSummaryPage() {
   const overallUtil    = totAvail > 0 ? Math.round((totProd / totAvail) * 100) : null
   const demandCoverage = totAvail > 0 ? Math.round((totDemand / totAvail) * 100) : null
 
+  // OEE baseline derived from the per-line OEE (single % when uniform, else a range).
+  const oeeLabel = oeeBaselineLabel(allLines)
+
   const hasActuals = allLines.some(l => l.monthly.some(m => m.actual_litres !== null))
 
   // Auto-generated commentary — recomputes when horizon, unit, or data changes
@@ -876,7 +880,7 @@ export default function ExecutiveSummaryPage() {
               Capacity Executive Summary
             </h1>
             <p className="mt-2 text-[13.5px] max-w-[640px] leading-relaxed" style={{ color: C.ink2 }}>
-              <strong style={{ color: C.navy, fontWeight: 600 }}>Gravesend UKP1</strong>{allLines.length > 0 ? ` · ${allLines.length} filling lines` : ''} · OEE baseline 55%.
+              <strong style={{ color: C.navy, fontWeight: 600 }}>Gravesend UKP1</strong>{allLines.length > 0 ? ` · ${allLines.length} filling lines` : ''} · OEE baseline {oeeLabel}.
               {dashboard && (<> Plan cycle <span className="font-mono font-semibold text-[12.5px]" style={{ color: C.navy }}>{cycleShort}</span>.</>)}
               {linesAtRisk > 0 && (
                 <> <strong style={{ color: C.navy, fontWeight: 600 }}>{linesAtRisk} line{linesAtRisk > 1 ? 's' : ''} flagged at risk</strong>.</>
@@ -1280,7 +1284,7 @@ export default function ExecutiveSummaryPage() {
             <span style={{ color: C.ink4 }}>·</span>
             <span>Plan cycle {cycleLabel}</span>
             <span style={{ color: C.ink4 }}>·</span>
-            <span>OEE baseline 55%</span>
+            <span>OEE baseline {oeeLabel}</span>
             <span style={{ color: C.ink4 }}>·</span>
             <span>Generated {new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
           </p>

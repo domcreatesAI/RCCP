@@ -10,6 +10,7 @@ const PAGE_TITLES: Record<string, string> = {
   '/executive-summary': 'Executive Summary',
   '/scenarios': 'Scenarios',
   '/exports': 'Batch Exports',
+  '/settings': 'Settings',
 }
 
 const STATUS_PILL: Record<string, { bg: string; text: string }> = {

@@ -17,7 +17,7 @@ const navItems: NavItem[] = [
   { label: 'Executive Summary', path: '/executive-summary', badge: 'P4', icon: FileText },
   { label: 'Scenarios',         path: '/scenarios',         badge: 'P3', icon: GitBranch },
   { label: 'Batch Exports',     path: '/exports',           badge: 'XLS', icon: Download },
-  { label: 'Config & Masterdata', phase: 'Phase 5',         badge: 'P5', icon: SlidersHorizontal },
+  { label: 'Settings',          path: '/settings',          badge: 'P5', icon: SlidersHorizontal },
 ]
 
 function initials(name: string) {

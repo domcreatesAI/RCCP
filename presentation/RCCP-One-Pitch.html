@@ -1,0 +1,468 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>RCCP One — Proposal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --navy:#0C3C5D; --navy2:#143F5C; --navy-deep:#082A40; --navy-tint:#E8EEF3;
+    --lime:#AACD00; --lime-deep:#7B9400; --lime-tint:#F0F7CC;
+    --sage:#B1CCBB; --sage-tint:#EDF4EF;
+    --ink:#0F1A24; --ink2:#3F4D5B; --ink3:#6B7A8A; --ink4:#9CABB9;
+    --border:#E2E6EA; --border2:#CCD3DA; --bg:#F7F7F5;
+    --amber:#B45309; --amber-tint:#FEF3C7; --red:#C2410C; --red-tint:#FEE4D5; --green:#166534;
+    --sans:"Geist",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+    --mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:#5b6770;font-family:var(--sans);color:var(--ink);-webkit-font-smoothing:antialiased;letter-spacing:-0.005em;padding:24px 0;}
+  .deck{display:flex;flex-direction:column;align-items:center;gap:22px;}
+
+  .slide{
+    position:relative;width:297mm;height:210mm;background:var(--bg);overflow:hidden;
+    padding:18mm 20mm 16mm;display:flex;flex-direction:column;
+    box-shadow:0 10px 40px rgba(0,0,0,0.3);
+  }
+  /* chrome */
+  .eyebrow{display:inline-flex;align-items:center;gap:9px;font-size:11px;font-weight:600;
+    text-transform:uppercase;letter-spacing:0.16em;color:var(--ink3);}
+  .eyebrow .num{font-family:var(--mono);color:var(--lime-deep);background:var(--lime-tint);
+    border:1px solid var(--lime);border-radius:4px;padding:2px 7px;font-size:10px;letter-spacing:0.1em;}
+  h1.title{font-size:34px;font-weight:700;color:var(--navy);letter-spacing:-0.028em;line-height:1.05;
+    display:flex;align-items:center;gap:14px;margin-top:8px;}
+  h1.title .bar{width:6px;height:38px;border-radius:3px;background:linear-gradient(180deg,var(--lime),var(--lime-deep));box-shadow:0 0 12px rgba(170,205,0,.4);}
+  .sub{font-size:15px;color:var(--ink2);margin-top:10px;max-width:200mm;line-height:1.5;}
+  .foot{position:absolute;left:20mm;right:20mm;bottom:9mm;display:flex;align-items:center;
+    justify-content:space-between;font-size:10.5px;color:var(--ink4);border-top:1px solid var(--border);padding-top:7px;}
+  .foot .moove{font-weight:800;color:var(--navy);letter-spacing:-0.03em;}
+  .foot .mono{font-family:var(--mono);}
+  .body{flex:1;margin-top:22px;}
+
+  /* wordmark */
+  .moove-mark{font-weight:800;letter-spacing:-0.04em;}
+  .rccp-badge{font-family:var(--mono);font-size:11px;font-weight:600;text-transform:uppercase;
+    letter-spacing:0.18em;color:var(--lime);background:rgba(170,205,0,.12);
+    border:1px solid rgba(170,205,0,.35);border-radius:4px;padding:3px 9px;}
+
+  /* cards / grids */
+  .grid{display:grid;gap:14px;}
+  .g3{grid-template-columns:repeat(3,1fr);} .g2{grid-template-columns:1fr 1fr;} .g4{grid-template-columns:repeat(4,1fr);}
+  .card{background:#fff;border:1px solid var(--border);border-radius:14px;padding:18px 20px;}
+  .card h3{font-size:15px;color:var(--navy);font-weight:600;margin-bottom:6px;letter-spacing:-0.01em;}
+  .card p{font-size:12.5px;color:var(--ink2);line-height:1.5;}
+  .card .tag{font-family:var(--mono);font-size:10px;color:var(--ink3);text-transform:uppercase;letter-spacing:.08em;}
+  .accent-rail{position:relative;padding-left:16px;}
+  .accent-rail::before{content:"";position:absolute;left:0;top:2px;bottom:2px;width:4px;border-radius:3px;background:linear-gradient(180deg,var(--navy),var(--navy2));}
+
+  /* flow steps */
+  .flow{display:flex;align-items:stretch;gap:0;margin-top:6px;}
+  .step{flex:1;background:#fff;border:1px solid var(--border);border-radius:12px;padding:14px 16px;position:relative;}
+  .step .k{font-family:var(--mono);font-size:10px;color:var(--lime-deep);font-weight:600;}
+  .step h4{font-size:13.5px;color:var(--navy);font-weight:600;margin:4px 0 3px;}
+  .step p{font-size:11px;color:var(--ink3);line-height:1.45;}
+  .arrow{display:flex;align-items:center;justify-content:center;width:26px;color:var(--ink4);font-size:18px;flex-shrink:0;}
+
+  /* comparison */
+  table.cmp{width:100%;border-collapse:collapse;font-size:12.5px;}
+  table.cmp th{text-align:left;padding:10px 14px;font-size:11px;text-transform:uppercase;letter-spacing:.08em;}
+  table.cmp thead th:nth-child(1){color:var(--ink3);}
+  table.cmp thead th:nth-child(2){color:var(--red);}
+  table.cmp thead th:nth-child(3){color:var(--navy);}
+  table.cmp td{padding:10px 14px;border-top:1px solid var(--border);vertical-align:top;line-height:1.4;}
+  table.cmp td:nth-child(1){font-weight:600;color:var(--navy);width:20%;}
+  table.cmp td:nth-child(2){color:var(--ink3);width:38%;}
+  table.cmp td:nth-child(3){color:var(--ink);width:42%;}
+  table.cmp tr td:nth-child(3){background:rgba(170,205,0,.06);}
+  .chk{color:var(--lime-deep);font-weight:700;}
+
+  ul.clean{list-style:none;display:flex;flex-direction:column;gap:9px;}
+  ul.clean li{display:flex;gap:10px;font-size:13px;color:var(--ink2);line-height:1.45;}
+  ul.clean li .dot{flex-shrink:0;width:7px;height:7px;border-radius:50%;background:var(--lime);margin-top:6px;box-shadow:0 0 0 3px rgba(170,205,0,.18);}
+
+  /* phase columns */
+  .phase{border-radius:16px;padding:20px 22px;border:1px solid var(--border);background:#fff;}
+  .phase.now{border-color:rgba(170,205,0,.5);box-shadow:0 0 0 3px rgba(170,205,0,.08);}
+  .phase .ph-k{font-family:var(--mono);font-size:11px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;}
+  .phase h3{font-size:18px;color:var(--navy);font-weight:700;margin:4px 0 2px;letter-spacing:-0.015em;}
+  .phase .goal{font-size:12px;color:var(--ink3);margin-bottom:14px;}
+  .dept{display:flex;gap:10px;padding:9px 0;border-top:1px dashed var(--border2);}
+  .dept:first-of-type{border-top:none;}
+  .dept .name{font-weight:600;color:var(--navy);font-size:12.5px;width:34%;flex-shrink:0;}
+  .dept .what{font-size:12px;color:var(--ink2);line-height:1.4;}
+
+  .pill{display:inline-block;font-family:var(--mono);font-size:10px;font-weight:600;padding:3px 9px;border-radius:20px;text-transform:uppercase;letter-spacing:.08em;}
+  .pill.now{background:var(--lime-tint);color:var(--lime-deep);border:1px solid var(--lime);}
+  .pill.next{background:var(--navy-tint);color:var(--navy);border:1px solid var(--border2);}
+
+  /* architecture boxes */
+  .layer{display:flex;gap:12px;align-items:stretch;margin-bottom:12px;}
+  .layer .lbl{width:120px;flex-shrink:0;display:flex;align-items:center;font-size:11px;font-weight:600;
+    text-transform:uppercase;letter-spacing:.08em;color:var(--ink3);}
+  .layer .boxes{flex:1;display:flex;gap:10px;}
+  .abox{flex:1;background:#fff;border:1px solid var(--border);border-radius:10px;padding:11px 14px;}
+  .abox.navy{background:var(--navy);border-color:var(--navy);}
+  .abox.navy .t,.abox.navy .d{color:#fff;}
+  .abox .t{font-size:12.5px;font-weight:600;color:var(--navy);}
+  .abox .d{font-size:10.5px;color:var(--ink3);margin-top:2px;line-height:1.35;}
+  .conn{text-align:center;color:var(--ink4);font-size:16px;margin:-4px 0 8px;}
+
+  .kv{display:grid;grid-template-columns:150px 1fr;gap:7px 16px;font-size:12.5px;}
+  .kv .k{font-weight:600;color:var(--navy);}
+  .kv .v{color:var(--ink2);line-height:1.45;}
+
+  /* title slide */
+  .title-slide{background:radial-gradient(120% 90% at 100% 0%,#1F4E78 0%,var(--navy) 45%,var(--navy-deep) 100%);
+    color:#fff;justify-content:center;}
+  .title-slide .glow{position:absolute;right:-80px;top:-60px;width:340px;height:340px;border-radius:50%;
+    background:radial-gradient(circle,rgba(170,205,0,.22),transparent 70%);}
+  .title-slide .glow2{position:absolute;left:-60px;bottom:60px;width:260px;height:260px;border-radius:50%;
+    background:radial-gradient(circle,rgba(177,204,187,.12),transparent 70%);}
+  .title-slide h1{font-size:64px;font-weight:800;letter-spacing:-0.035em;line-height:1;}
+  .title-slide .tg{font-size:19px;color:rgba(255,255,255,.82);margin-top:16px;max-width:190mm;line-height:1.5;}
+  .title-slide .meta{margin-top:46px;display:flex;flex-direction:column;gap:5px;font-size:13px;color:rgba(255,255,255,.7);}
+  .title-slide .meta .lead{color:var(--lime);font-weight:600;font-size:14px;}
+  .title-slide .topmark{position:absolute;top:18mm;left:20mm;display:flex;align-items:center;gap:12px;}
+
+  /* divider */
+  .divider{background:linear-gradient(135deg,var(--navy2),var(--navy-deep));color:#fff;justify-content:center;}
+  .divider .glow{position:absolute;right:-60px;bottom:-60px;width:300px;height:300px;border-radius:50%;background:radial-gradient(circle,rgba(170,205,0,.16),transparent 70%);}
+  .divider h1{font-size:46px;font-weight:800;letter-spacing:-0.03em;display:flex;align-items:center;gap:16px;}
+  .divider .bar{width:6px;height:52px;background:var(--lime);border-radius:3px;}
+  .divider p{font-size:16px;color:rgba(255,255,255,.78);margin-top:14px;max-width:180mm;line-height:1.5;}
+
+  .note{font-size:11px;color:var(--ink4);margin-top:14px;font-style:italic;}
+  .lead-actions{font-size:13px;color:var(--ink2);}
+
+  @media print{
+    @page{size:A4 landscape;margin:0;}
+    body{background:#fff;padding:0;}
+    .deck{gap:0;}
+    .slide{box-shadow:none;page-break-after:always;break-after:page;}
+    .slide:last-child{page-break-after:auto;}
+    *{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;}
+    .screen-only{display:none !important;}
+  }
+</style>
+</head>
+<body>
+<div class="screen-only" style="max-width:297mm;margin:0 auto 16px;color:#fff;font-family:var(--sans);font-size:13px;opacity:.9;">
+  Tip — to make the PDF: <strong>Print</strong> (Ctrl/Cmd&nbsp;P) → Destination <strong>Save as PDF</strong> → Layout <strong>Landscape</strong> → Margins <strong>None</strong> → uncheck “Headers and footers”.
+</div>
+<div class="deck">
+
+  <!-- 1 · TITLE -->
+  <section class="slide title-slide">
+    <span class="glow"></span><span class="glow2"></span>
+    <div class="topmark">
+      <span class="moove-mark" style="color:#fff;font-size:26px;">moove</span>
+      <span class="rccp-badge">RCCP</span>
+    </div>
+    <div>
+      <h1>RCCP&nbsp;One</h1>
+      <p class="tg">Rough-Cut Capacity Planning — from a spreadsheet on one laptop to a validated, single source of truth for the whole site.</p>
+      <div class="meta">
+        <span class="lead">Proposed &amp; led by Dominik Sady · Capacity Planning</span>
+        <span>Gravesend · UKP1</span>
+        <span class="mono" style="font-family:var(--mono);">For management review &amp; discussion</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2 · PROBLEM -->
+  <section class="slide">
+    <div class="eyebrow"><span class="num">01</span> Where we are today</div>
+    <h1 class="title"><span class="bar"></span>Capacity planning lives in a spreadsheet</h1>
+    <p class="sub">It works — until it doesn’t. The current process is manual, fragile, and impossible to audit. As volume and complexity grow, the risk grows with it.</p>
+    <div class="body">
+      <div class="grid g3">
+        <div class="card"><span class="tag">Trust</span><h3>No validation</h3><p>Bad or mistyped data flows straight into the plan. Nothing checks it before decisions are made.</p></div>
+        <div class="card"><span class="tag">Versions</span><h3>Which file is current?</h3><p>Copies multiply across inboxes and drives. No single, agreed “published” plan.</p></div>
+        <div class="card"><span class="tag">Effort</span><h3>Slow &amp; manual</h3><p>Hours of rebuilding every cycle. Time spent maintaining the sheet, not analysing the plan.</p></div>
+        <div class="card"><span class="tag">Insight</span><h3>No real scenarios</h3><p>“What if we add overtime?” means another tab and more formulas — not a quick, reliable answer.</p></div>
+        <div class="card"><span class="tag">Audit</span><h3>No history</h3><p>No record of who changed what, or what last month’s plan actually said.</p></div>
+        <div class="card"><span class="tag">Continuity</span><h3>Key-person risk</h3><p>The logic lives in one person’s head and one fragile file. If they’re away, planning stalls.</p></div>
+      </div>
+    </div>
+    <div class="foot"><span class="moove">moove</span><span>RCCP One · proposal</span><span class="mono">01</span></div>
+  </section>
+
+  <!-- 3 · WHAT IT IS -->
+  <section class="slide">
+    <div class="eyebrow"><span class="num">02</span> The solution</div>
+    <h1 class="title"><span class="bar"></span>One validated system, fed straight from SAP</h1>
+    <p class="sub">RCCP One ingests the SAP exports we already produce, checks them, locks a published plan, and turns it into clear capacity decisions — in minutes, not days.</p>
+    <div class="body">
+      <div class="flow">
+        <div class="step"><span class="k">01 · INGEST</span><h4>Upload SAP exports</h4><p>Demand, orders, stock, capacity, headcount, portfolio — the files we already pull.</p></div>
+        <div class="arrow">→</div>
+        <div class="step"><span class="k">02 · VALIDATE</span><h4>7-stage checks</h4><p>Structure, mapping, types, references, business rules. Bad data is blocked, not buried.</p></div>
+        <div class="arrow">→</div>
+        <div class="step"><span class="k">03 · PUBLISH</span><h4>Lock a baseline</h4><p>One published plan at a time. Immutable, versioned, and dated.</p></div>
+        <div class="arrow">→</div>
+        <div class="step"><span class="k">04 · DECIDE</span><h4>Dashboards &amp; scenarios</h4><p>Capacity vs the order book, line-by-line risk, and what-if on hours &amp; OEE.</p></div>
+      </div>
+      <div class="card accent-rail" style="margin-top:18px;">
+        <p style="font-size:13.5px;color:var(--ink2);"><strong style="color:var(--navy);">The core principle:</strong> there is always exactly one published, validated plan that everyone works from — and a full, dated history of every cycle behind it.</p>
+      </div>
+    </div>
+    <div class="foot"><span class="moove">moove</span><span>RCCP One · proposal</span><span class="mono">02</span></div>
+  </section>
+
+  <!-- 4 · BENEFITS -->
+  <section class="slide">
+    <div class="eyebrow"><span class="num">03</span> Why it beats the spreadsheet</div>
+    <h1 class="title"><span class="bar"></span>The same data, but trusted and shared</h1>
+    <div class="body">
+      <table class="cmp">
+        <thead><tr><th></th><th>The spreadsheet today</th><th>RCCP One</th></tr></thead>
+        <tbody>
+          <tr><td>Data quality</td><td>Manual entry, unchecked</td><td><span class="chk">✓</span> 7-stage validation — publish is blocked on bad data</td></tr>
+          <tr><td>Source of truth</td><td>Many files, unclear which is live</td><td><span class="chk">✓</span> One published baseline, versioned &amp; dated</td></tr>
+          <tr><td>Capacity logic</td><td>Hidden formulas, hard to trust</td><td><span class="chk">✓</span> Transparent engine: L/min × OEE × hours</td></tr>
+          <tr><td>Scenarios</td><td>New tab, more formulas</td><td><span class="chk">✓</span> Live what-if — extra hours / OEE, per line</td></tr>
+          <tr><td>Executive view</td><td>Static, manually formatted</td><td><span class="chk">✓</span> Branded dashboard + one-click PDF &amp; Excel</td></tr>
+          <tr><td>Audit &amp; history</td><td>None</td><td><span class="chk">✓</span> Every cycle archived — who, what, when</td></tr>
+          <tr><td>Continuity</td><td>One laptop, one person</td><td><span class="chk">✓</span> Shared system on the company network</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="foot"><span class="moove">moove</span><span>RCCP One · proposal</span><span class="mono">03</span></div>
+  </section>
+
+  <!-- 5 · WALKTHROUGH -->
+  <section class="slide">
+    <div class="eyebrow"><span class="num">04</span> A quick tour</div>
+    <h1 class="title"><span class="bar"></span>Four screens, one workflow</h1>
+    <p class="sub">Built to be self-explanatory — a planner runs the cycle; an exec reads the summary in 30 seconds.</p>
+    <div class="body">
+      <div class="grid g2">
+        <div class="card"><span class="tag">Planner</span><h3>1 · Planning Data</h3><p>Upload the SAP files, run validation, fix at source, then publish a locked baseline. The control room for each cycle.</p></div>
+        <div class="card"><span class="tag">Executive</span><h3>2 · Executive Summary</h3><p>“Are we OK next month?” at a glance — a planning-month verdict, a 12-month outlook, per-plant capacity, a line-risk radar, and an editable commentary. Export to PDF.</p></div>
+        <div class="card"><span class="tag">Planner / Ops</span><h3>3 · Scenarios — Capacity Advisor</h3><p>Where capacity falls short of the order book, simulate the extra hours (or OEE) each line needs — and see how much of the plan that covers.</p></div>
+        <div class="card"><span class="tag">Everyone</span><h3>4 · Batch Exports</h3><p>Every published &amp; archived cycle, with a one-click verification workbook for cross-checking the figures.</p></div>
+      </div>
+    </div>
+    <div class="foot"><span class="moove">moove</span><span>RCCP One · proposal</span><span class="mono">04</span></div>
+  </section>
+
+  <!-- 6 · GOVERNANCE -->
+  <section class="slide">
+    <div class="eyebrow"><span class="num">05</span> Governance &amp; the monthly cycle</div>
+    <h1 class="title"><span class="bar"></span>A clear, repeatable monthly rhythm</h1>
+    <div class="body">
+      <div class="flow" style="margin-bottom:18px;">
+        <div class="step"><span class="k">S&amp;OP</span><h4>Demand in</h4><p>Latest demand forecast.</p></div><div class="arrow">→</div>
+        <div class="step"><span class="k">MANUFACTURING</span><h4>Capacity &amp; HC</h4><p>Line speeds, OEE, headcount.</p></div><div class="arrow">→</div>
+        <div class="step"><span class="k">PLANNER</span><h4>Upload &amp; validate</h4><p>Checks must pass.</p></div><div class="arrow">→</div>
+        <div class="step"><span class="k">PLANNER</span><h4>Review &amp; scenario</h4><p>Resolve any gaps.</p></div><div class="arrow">→</div>
+        <div class="step"><span class="k">PUBLISH</span><h4>Lock baseline</h4><p>One agreed plan.</p></div><div class="arrow">→</div>
+        <div class="step"><span class="k">EXEC</span><h4>Sign-off</h4><p>Approve &amp; act.</p></div>
+      </div>
+      <div class="grid g2">
+        <div class="card"><h3>Roles</h3>
+          <div class="kv" style="margin-top:6px;">
+            <span class="k">Data owners</span><span class="v">S&amp;OP (demand) · Manufacturing (capacity, headcount) · Product (portfolio)</span>
+            <span class="k">Validate &amp; run</span><span class="v">Capacity Planning (this role) — owns the cycle &amp; the model</span>
+            <span class="k">Approve</span><span class="v">Operations / Site leadership — sign off the published plan</span>
+          </div>
+        </div>
+        <div class="card"><h3>Control gates</h3>
+          <ul class="clean" style="margin-top:6px;">
+            <li><span class="dot"></span>Publish only when validation is clean — no exceptions.</li>
+            <li><span class="dot"></span>Exactly one active baseline at any time.</li>
+            <li><span class="dot"></span>Corrections = fix the source file &amp; re-upload — every version is kept.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <div class="foot"><span class="moove">moove</span><span>RCCP One · proposal</span><span class="mono">05</span></div>
+  </section>
+
+  <!-- 7 · ROLLOUT -->
+  <section class="slide">
+    <div class="eyebrow"><span class="num">06</span> Who’s involved, and when</div>
+    <h1 class="title"><span class="bar"></span>A two-phase rollout</h1>
+    <p class="sub">Phase 1 proves the model with the teams who own the inputs the app already uses. Phase 2 widens the constraints and adds the money — each step is a defined enhancement.</p>
+    <div class="body">
+      <div class="grid g2">
+        <div class="phase now">
+          <span class="ph-k" style="color:var(--lime-deep);">PHASE 1 · NOW &nbsp;<span class="pill now">Trust the model</span></span>
+          <h3>Validate capacity &amp; portfolio</h3>
+          <p class="goal">Replace placeholder inputs with signed-off numbers.</p>
+          <div class="dept"><span class="name">Manufacturing</span><span class="what">Line fill-speeds, OEE targets, headcount &amp; resources, working calendar.</span></div>
+          <div class="dept"><span class="name">Product</span><span class="what">Portfolio &amp; SKU lifecycle — what’s coming in and going out.</span></div>
+          <div class="dept"><span class="name">S&amp;OP <span style="color:var(--ink4);font-weight:500;">(aligned)</span></span><span class="what">Demand is the spine — kept aligned even though it already flows in.</span></div>
+        </div>
+        <div class="phase">
+          <span class="ph-k" style="color:var(--navy);">PHASE 2 · NEXT &nbsp;<span class="pill next">Widen + cost</span></span>
+          <h3>Constraints, cost &amp; stock</h3>
+          <p class="goal">Each unlocks a new capability in the app.</p>
+          <div class="dept"><span class="name">Warehouse</span><span class="what">→ Warehouse-space check: planned production vs pallet positions.</span></div>
+          <div class="dept"><span class="name">Finance</span><span class="what">→ Cost of capacity: turn “extra hours” into £ for approval.</span></div>
+          <div class="dept"><span class="name">Inventory</span><span class="what">→ Forward stock projection: opening stock + production − demand → cover.</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="foot"><span class="moove">moove</span><span>RCCP One · proposal</span><span class="mono">06</span></div>
+  </section>
+
+  <!-- 8 · THE ASK -->
+  <section class="slide">
+    <div class="eyebrow"><span class="num">07</span> What I’m asking for</div>
+    <h1 class="title"><span class="bar"></span>Next steps</h1>
+    <div class="body">
+      <div class="grid g2" style="align-items:start;">
+        <div>
+          <ul class="clean" style="font-size:14px;">
+            <li><span class="dot"></span><span><strong style="color:var(--navy);">Endorse the approach</strong> — RCCP One as the single capacity-planning system, replacing the spreadsheet.</span></li>
+            <li><span class="dot"></span><span><strong style="color:var(--navy);">Green-light Phase 1 workshops</strong> with Manufacturing &amp; Product to validate the inputs.</span></li>
+            <li><span class="dot"></span><span><strong style="color:var(--navy);">Agree governance</strong> — roles, the monthly cadence, and the publish/approve gates.</span></li>
+            <li><span class="dot"></span><span><strong style="color:var(--navy);">Sponsor Phase 2 scope</strong> — bring in Warehouse, Finance &amp; Inventory once the model is trusted.</span></li>
+          </ul>
+        </div>
+        <div class="card accent-rail">
+          <h3>Indicative timeline</h3>
+          <div class="kv" style="margin-top:8px;">
+            <span class="k">Weeks 1–2</span><span class="v">Walk-through &amp; sign-off; Phase-1 data workshops booked.</span>
+            <span class="k">Weeks 3–4</span><span class="v">Manufacturing &amp; Product inputs validated; first trusted cycle published.</span>
+            <span class="k">Month 2+</span><span class="v">Govern monthly; scope Phase 2 enhancements.</span>
+          </div>
+          <p class="note">RCCP One already runs end-to-end today — this is about adoption, governance, and the data behind it, not building from scratch.</p>
+        </div>
+      </div>
+    </div>
+    <div class="foot"><span class="moove">moove</span><span>RCCP One · proposal</span><span class="mono">07</span></div>
+  </section>
+
+  <!-- DIVIDER · APPENDIX -->
+  <section class="slide divider">
+    <span class="glow"></span>
+    <h1><span class="bar"></span>Appendix</h1>
+    <p>Technical specification — for IT awareness. Architecture, data flow, security, hosting &amp; the data model.</p>
+  </section>
+
+  <!-- A1 · ARCHITECTURE -->
+  <section class="slide">
+    <div class="eyebrow"><span class="num">A1</span> Technical · Architecture</div>
+    <h1 class="title"><span class="bar"></span>A standard, three-tier web app</h1>
+    <p class="sub">Conventional, well-supported components. Runs entirely inside the company network — not a public SaaS product.</p>
+    <div class="body" style="margin-top:14px;">
+      <div class="layer"><div class="lbl">Presentation</div><div class="boxes">
+        <div class="abox"><div class="t">React + TypeScript</div><div class="d">Vite build, Tailwind styling, Recharts for charts</div></div>
+        <div class="abox"><div class="t">Served as static files</div><div class="d">Any web server / the API host</div></div>
+      </div></div>
+      <div class="conn">▲ &nbsp; HTTPS / JSON (JWT-authenticated) &nbsp; ▼</div>
+      <div class="layer"><div class="lbl">Application</div><div class="boxes">
+        <div class="abox navy"><div class="t">FastAPI (Python)</div><div class="d">REST API · auth · validation pipeline · RCCP capacity engine</div></div>
+        <div class="abox"><div class="t">Excel I/O</div><div class="d">openpyxl — ingest SAP exports, generate workbooks</div></div>
+      </div></div>
+      <div class="conn">▲ &nbsp; pyodbc (ODBC Driver 17) &nbsp;·&nbsp; local filesystem &nbsp; ▼</div>
+      <div class="layer"><div class="lbl">Data</div><div class="boxes">
+        <div class="abox"><div class="t">SQL Server</div><div class="d">Masterdata, workflow &amp; planning data; computed views</div></div>
+        <div class="abox"><div class="t">File store</div><div class="d">Uploaded source files on disk; paths recorded in the DB</div></div>
+      </div></div>
+    </div>
+    <div class="foot"><span class="moove">moove</span><span>RCCP One · technical appendix</span><span class="mono">A1</span></div>
+  </section>
+
+  <!-- A2 · DATA FLOW -->
+  <section class="slide">
+    <div class="eyebrow"><span class="num">A2</span> Technical · Data flow &amp; integration</div>
+    <h1 class="title"><span class="bar"></span>SAP in, decisions out</h1>
+    <div class="body">
+      <div class="flow" style="margin-bottom:16px;">
+        <div class="step"><span class="k">SAP</span><h4>Standard exports</h4><p>COOIS, MB52, PIR, MB51 &amp; co. — Excel files we already produce.</p></div><div class="arrow">→</div>
+        <div class="step"><span class="k">UPLOAD</span><h4>Per cycle</h4><p>Files attached to a planning batch.</p></div><div class="arrow">→</div>
+        <div class="step"><span class="k">VALIDATE</span><h4>7 stages</h4><p>Structure → rules. Stored with results.</p></div><div class="arrow">→</div>
+        <div class="step"><span class="k">ENGINE</span><h4>RCCP compute</h4><p>Capacity vs order book, per line × month.</p></div><div class="arrow">→</div>
+        <div class="step"><span class="k">OUT</span><h4>Dashboards / files</h4><p>Screen, PDF, Excel.</p></div>
+      </div>
+      <div class="grid g2">
+        <div class="card"><h3>Batch inputs (per cycle)</h3><p>Demand plan · production orders · master stock · line capacity calendar · headcount plan · portfolio changes <span style="color:var(--ink4);">(+ actual production for past-vs-plan)</span>.</p></div>
+        <div class="card"><h3>Masterdata (managed separately)</h3><p>Lines &amp; plants · items / SKUs · line fill-speeds · line &amp; plant resource requirements · warehouse capacity. Full-replace uploads, validated on entry.</p></div>
+      </div>
+      <p class="note">Integration is file-based today (the SAP exports). A direct SAP interface is possible later but is not required to deliver value now.</p>
+    </div>
+    <div class="foot"><span class="moove">moove</span><span>RCCP One · technical appendix</span><span class="mono">A2</span></div>
+  </section>
+
+  <!-- A3 · SECURITY -->
+  <section class="slide">
+    <div class="eyebrow"><span class="num">A3</span> Technical · Security &amp; access</div>
+    <h1 class="title"><span class="bar"></span>Internal, authenticated, auditable</h1>
+    <div class="body">
+      <div class="grid g2" style="align-items:start;">
+        <div class="card"><h3>Access control</h3>
+          <ul class="clean" style="margin-top:6px;">
+            <li><span class="dot"></span>Username + password login, issuing a signed token (JWT / HS256).</li>
+            <li><span class="dot"></span>Two roles: <strong>admin</strong> (full) and <strong>user</strong> (planning workflow).</li>
+            <li><span class="dot"></span>Passwords hashed (bcrypt) — never stored in plain text.</li>
+          </ul>
+        </div>
+        <div class="card"><h3>Data &amp; network</h3>
+          <ul class="clean" style="margin-top:6px;">
+            <li><span class="dot"></span>Runs on the company network — <strong>not</strong> exposed to the public internet.</li>
+            <li><span class="dot"></span>Planning data never leaves UKP1 infrastructure.</li>
+            <li><span class="dot"></span>Database access via a dedicated SQL login; secrets held in environment config / the deployment runbook, not in code.</li>
+          </ul>
+        </div>
+      </div>
+      <div class="card accent-rail" style="margin-top:14px;">
+        <p style="font-size:12.5px;color:var(--ink2);"><strong style="color:var(--navy);">Auditability:</strong> every upload, validation result and published baseline is recorded with the user and timestamp — a complete history of who changed what, and when.</p>
+      </div>
+    </div>
+    <div class="foot"><span class="moove">moove</span><span>RCCP One · technical appendix</span><span class="mono">A3</span></div>
+  </section>
+
+  <!-- A4 · HOSTING -->
+  <section class="slide">
+    <div class="eyebrow"><span class="num">A4</span> Technical · Hosting, deployment &amp; continuity</div>
+    <h1 class="title"><span class="bar"></span>Low footprint, easy to support</h1>
+    <div class="body">
+      <div class="grid g2" style="align-items:start;">
+        <div class="card"><h3>Environment</h3>
+          <div class="kv" style="margin-top:6px;">
+            <span class="k">Host</span><span class="v">Windows VM on the UKP1 network</span>
+            <span class="k">Runtime</span><span class="v">Python (FastAPI via uvicorn) + a static React build</span>
+            <span class="k">Database</span><span class="v">SQL Server (existing company instance)</span>
+            <span class="k">Dependencies</span><span class="v">ODBC Driver 17 for SQL Server; Python &amp; Node toolchains</span>
+          </div>
+        </div>
+        <div class="card"><h3>Operations &amp; continuity</h3>
+          <ul class="clean" style="margin-top:6px;">
+            <li><span class="dot"></span><strong>Backups:</strong> standard SQL Server backups + the uploads folder.</li>
+            <li><span class="dot"></span><strong>Restore / move:</strong> redeploy from source + restore the DB — documented step-by-step.</li>
+            <li><span class="dot"></span><strong>Footprint:</strong> single small VM; no external services or licences.</li>
+            <li><span class="dot"></span><strong>Source control:</strong> code in Git; reproducible builds.</li>
+          </ul>
+        </div>
+      </div>
+      <p class="note">What IT would need to provide: a Windows VM (or container host) on the network, a SQL Server database &amp; login, and a backup schedule. A deployment runbook already exists.</p>
+    </div>
+    <div class="foot"><span class="moove">moove</span><span>RCCP One · technical appendix</span><span class="mono">A4</span></div>
+  </section>
+
+  <!-- A5 · DATA MODEL -->
+  <section class="slide">
+    <div class="eyebrow"><span class="num">A5</span> Technical · Data model (high level)</div>
+    <h1 class="title"><span class="bar"></span>How the data is organised</h1>
+    <div class="body">
+      <div class="grid g3">
+        <div class="card"><span class="tag">Reference</span><h3>Masterdata</h3><p>Lines, plants, items/SKUs, pack types, labour pools, fill-speeds, line &amp; plant resource requirements, warehouse capacity. Changes slowly; managed separately.</p></div>
+        <div class="card"><span class="tag">Per cycle</span><h3>Planning data</h3><p>Production orders, demand plan, master stock, capacity calendar, headcount plan, portfolio changes, actuals. Scoped to each batch and versioned.</p></div>
+        <div class="card"><span class="tag">Process</span><h3>Workflow</h3><p>Import batches, uploaded files, validation results, published baselines (plan versions). The audit trail.</p></div>
+      </div>
+      <div class="card accent-rail" style="margin-top:14px;">
+        <p style="font-size:12.5px;color:var(--ink2);"><strong style="color:var(--navy);">Computed, never stored:</strong> derived figures — net capacity hours, litres-per-minute, allocated stock — are calculated in database views so the numbers are always consistent and can’t drift.</p>
+      </div>
+    </div>
+    <div class="foot"><span class="moove">moove</span><span>RCCP One · technical appendix</span><span class="mono">A5</span></div>
+  </section>
+
+</div>
+</body>
+</html>

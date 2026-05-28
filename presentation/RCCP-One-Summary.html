@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>RCCP One — Benefits & Governance</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --navy:#0C3C5D; --navy2:#143F5C; --navy-deep:#082A40; --navy-tint:#E8EEF3;
+    --lime:#AACD00; --lime-deep:#7B9400; --lime-tint:#F0F7CC;
+    --sage:#B1CCBB; --ink:#0F1A24; --ink2:#3F4D5B; --ink3:#6B7A8A; --ink4:#9CABB9;
+    --border:#E2E6EA; --border2:#CCD3DA; --bg:#F7F7F5; --amber:#B45309; --red:#C2410C;
+    --sans:"Geist",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+    --mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:#5b6770;font-family:var(--sans);color:var(--ink);-webkit-font-smoothing:antialiased;letter-spacing:-0.005em;padding:24px 0;}
+  .deck{display:flex;flex-direction:column;align-items:center;gap:22px;}
+  .slide{position:relative;width:297mm;height:210mm;background:var(--bg);overflow:hidden;
+    padding:16mm 20mm 14mm;display:flex;flex-direction:column;box-shadow:0 10px 40px rgba(0,0,0,.3);}
+
+  /* header chrome with the real logo */
+  .head{display:flex;align-items:center;justify-content:space-between;}
+  .brand{display:flex;align-items:center;gap:12px;}
+  .brand img.logo{height:34px;width:auto;display:block;}
+  .rccp-badge{font-family:var(--mono);font-size:11px;font-weight:600;text-transform:uppercase;
+    letter-spacing:0.18em;color:var(--lime-deep);background:var(--lime-tint);
+    border:1px solid var(--lime);border-radius:4px;padding:3px 9px;}
+  .head .eyebrow{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.16em;color:var(--ink3);}
+  .rule{height:3px;border-radius:3px;margin:14px 0 0;background:linear-gradient(90deg,var(--lime),rgba(170,205,0,0));}
+
+  h1.title{font-size:32px;font-weight:700;color:var(--navy);letter-spacing:-0.026em;line-height:1.06;margin-top:18px;
+    display:flex;align-items:center;gap:13px;}
+  h1.title .bar{width:6px;height:34px;border-radius:3px;background:linear-gradient(180deg,var(--lime),var(--lime-deep));box-shadow:0 0 12px rgba(170,205,0,.4);}
+  .body{flex:1;margin-top:20px;}
+
+  .grid{display:grid;gap:14px;}
+  .g3{grid-template-columns:repeat(3,1fr);} .g2{grid-template-columns:1fr 1fr;}
+  .card{background:#fff;border:1px solid var(--border);border-radius:14px;padding:18px 20px;}
+  .card .ico{width:30px;height:30px;border-radius:8px;background:var(--navy-tint);color:var(--navy);
+    display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;margin-bottom:10px;}
+  .card h3{font-size:15px;color:var(--navy);font-weight:600;margin-bottom:5px;letter-spacing:-0.01em;}
+  .card p{font-size:12.5px;color:var(--ink2);line-height:1.5;}
+
+  .contrast{margin-top:16px;background:linear-gradient(135deg,#FAFCF9,#F4F8F0);border:1px solid var(--border);
+    border-radius:14px;padding:14px 20px;position:relative;padding-left:24px;font-size:13px;color:var(--ink2);}
+  .contrast::before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:4px;border-radius:3px;background:linear-gradient(180deg,var(--lime),var(--navy));}
+
+  /* flow */
+  .flow{display:flex;align-items:stretch;}
+  .step{flex:1;background:#fff;border:1px solid var(--border);border-radius:12px;padding:12px 13px;}
+  .step .k{font-family:var(--mono);font-size:9.5px;color:var(--lime-deep);font-weight:600;letter-spacing:.04em;}
+  .step h4{font-size:12.5px;color:var(--navy);font-weight:600;margin:4px 0 2px;}
+  .step p{font-size:10.5px;color:var(--ink3);line-height:1.4;}
+  .arrow{display:flex;align-items:center;justify-content:center;width:22px;color:var(--ink4);font-size:16px;flex-shrink:0;}
+
+  ul.clean{list-style:none;display:flex;flex-direction:column;gap:8px;}
+  ul.clean li{display:flex;gap:9px;font-size:12px;color:var(--ink2);line-height:1.4;}
+  ul.clean li .dot{flex-shrink:0;width:6px;height:6px;border-radius:50%;background:var(--lime);margin-top:5px;box-shadow:0 0 0 3px rgba(170,205,0,.18);}
+  .kv{display:grid;grid-template-columns:128px 1fr;gap:6px 12px;font-size:12px;margin-top:4px;}
+  .kv .k{font-weight:600;color:var(--navy);} .kv .v{color:var(--ink2);line-height:1.4;}
+
+  .phase{border-radius:12px;border:1px solid var(--border);padding:13px 16px;background:#fff;}
+  .phase.now{border-color:rgba(170,205,0,.5);box-shadow:0 0 0 3px rgba(170,205,0,.08);}
+  .phase .ph-k{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;}
+  .phase h4{font-size:14px;color:var(--navy);font-weight:700;margin:3px 0 1px;letter-spacing:-0.01em;}
+  .phase .goal{font-size:11px;color:var(--ink3);margin-bottom:8px;}
+  .phase .d{font-size:11.5px;color:var(--ink2);line-height:1.45;}
+  .phase .d strong{color:var(--navy);}
+  .pill{display:inline-block;font-family:var(--mono);font-size:9px;font-weight:600;padding:2px 8px;border-radius:20px;text-transform:uppercase;letter-spacing:.08em;}
+  .pill.now{background:var(--lime-tint);color:var(--lime-deep);border:1px solid var(--lime);}
+  .pill.next{background:var(--navy-tint);color:var(--navy);border:1px solid var(--border2);}
+  .sectlabel{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--ink3);margin:0 0 8px;}
+
+  .foot{position:absolute;left:20mm;right:20mm;bottom:8mm;display:flex;align-items:center;justify-content:space-between;
+    font-size:10.5px;color:var(--ink4);border-top:1px solid var(--border);padding-top:7px;}
+  .foot .moove{font-weight:800;color:var(--navy);letter-spacing:-0.03em;}
+  .foot .mono{font-family:var(--mono);}
+
+  @media print{
+    @page{size:A4 landscape;margin:0;}
+    body{background:#fff;padding:0;}
+    .deck{gap:0;}
+    .slide{box-shadow:none;page-break-after:always;break-after:page;}
+    .slide:last-child{page-break-after:auto;}
+    *{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;}
+    .screen-only{display:none !important;}
+  }
+</style>
+</head>
+<body>
+<div class="screen-only" style="max-width:297mm;margin:0 auto 16px;color:#fff;font-size:13px;opacity:.9;font-family:var(--sans);">
+  Tip — make the PDF: <strong>Print</strong> (Ctrl/Cmd&nbsp;P) → <strong>Save as PDF</strong> → <strong>Landscape</strong> → Margins <strong>None</strong> → untick “Headers and footers”.
+</div>
+<div class="deck">
+
+  <!-- SLIDE 1 · BENEFITS -->
+  <section class="slide">
+    <div class="head">
+      <div class="brand"><img class="logo" src="moove-logo.png" alt="moove" /><span class="rccp-badge">RCCP</span></div>
+      <span class="eyebrow">RCCP One · Benefits</span>
+    </div>
+    <div class="rule"></div>
+
+    <h1 class="title"><span class="bar"></span>From a spreadsheet to a trusted capacity system</h1>
+
+    <div class="body">
+      <div class="grid g3">
+        <div class="card"><div class="ico">1</div><h3>Single source of truth</h3><p>One published, versioned plan everyone works from — no more “which file is current?”</p></div>
+        <div class="card"><div class="ico">2</div><h3>Validated, not assumed</h3><p>Every upload passes 7 automated checks; publishing is blocked on bad data.</p></div>
+        <div class="card"><div class="ico">3</div><h3>Transparent capacity</h3><p>Capacity = L/min × OEE × hours. No hidden formulas — the logic is visible and consistent.</p></div>
+        <div class="card"><div class="ico">4</div><h3>Live scenarios</h3><p>Simulate extra hours (or OEE) per line and see exactly how much of the order book it meets.</p></div>
+        <div class="card"><div class="ico">5</div><h3>Exec-ready in one click</h3><p>Branded dashboard with a planning-month verdict, plus instant PDF and Excel exports.</p></div>
+        <div class="card"><div class="ico">6</div><h3>Auditable &amp; shared</h3><p>Every cycle archived with who &amp; when. Runs on the network — no key-person, single-laptop risk.</p></div>
+      </div>
+      <div class="contrast">
+        Replaces a manual, unchecked spreadsheet that lives on one laptop — <strong style="color:var(--navy);">same data, now trusted, shared and fast.</strong>
+      </div>
+    </div>
+
+    <div class="foot"><span class="moove">moove</span><span>RCCP One · Capacity Planning · UKP1</span><span class="mono">Benefits</span></div>
+  </section>
+
+  <!-- SLIDE 2 · PROCESS & GOVERNANCE -->
+  <section class="slide">
+    <div class="head">
+      <div class="brand"><img class="logo" src="moove-logo.png" alt="moove" /><span class="rccp-badge">RCCP</span></div>
+      <span class="eyebrow">RCCP One · Process &amp; Governance</span>
+    </div>
+    <div class="rule"></div>
+
+    <h1 class="title"><span class="bar"></span>A clear monthly rhythm, rolled out in two phases</h1>
+
+    <div class="body">
+      <!-- monthly process -->
+      <p class="sectlabel">The monthly cycle</p>
+      <div class="flow">
+        <div class="step"><span class="k">S&amp;OP</span><h4>Demand in</h4><p>Latest demand forecast</p></div><div class="arrow">→</div>
+        <div class="step"><span class="k">MANUFACTURING</span><h4>Capacity &amp; HC</h4><p>Speeds, OEE, headcount</p></div><div class="arrow">→</div>
+        <div class="step"><span class="k">PLANNER</span><h4>Upload &amp; validate</h4><p>Checks must pass</p></div><div class="arrow">→</div>
+        <div class="step"><span class="k">PLANNER</span><h4>Review &amp; scenario</h4><p>Resolve any gaps</p></div><div class="arrow">→</div>
+        <div class="step"><span class="k">PUBLISH</span><h4>Lock baseline</h4><p>One agreed plan</p></div><div class="arrow">→</div>
+        <div class="step"><span class="k">EXEC</span><h4>Sign-off</h4><p>Approve &amp; act</p></div>
+      </div>
+
+      <div class="grid g2" style="margin-top:16px;align-items:start;">
+        <!-- governance -->
+        <div class="card">
+          <p class="sectlabel" style="margin-bottom:6px;">Governance</p>
+          <div class="kv">
+            <span class="k">Data owners</span><span class="v">S&amp;OP (demand) · Manufacturing (capacity, headcount) · Product (portfolio)</span>
+            <span class="k">Run &amp; validate</span><span class="v">Capacity Planning — owns the cycle &amp; the model</span>
+            <span class="k">Approve</span><span class="v">Site / Operations leadership</span>
+          </div>
+          <p class="sectlabel" style="margin:12px 0 6px;">Control gates</p>
+          <ul class="clean">
+            <li><span class="dot"></span>Publish only when validation is clean.</li>
+            <li><span class="dot"></span>Exactly one active baseline at a time.</li>
+            <li><span class="dot"></span>Corrections = re-upload — every version kept.</li>
+          </ul>
+        </div>
+
+        <!-- phases -->
+        <div>
+          <p class="sectlabel">Phased rollout</p>
+          <div class="phase now" style="margin-bottom:10px;">
+            <span class="ph-k" style="color:var(--lime-deep);">Phase 1 · Now &nbsp;<span class="pill now">Trust the model</span></span>
+            <h4>Manufacturing + Product</h4>
+            <p class="goal">Validate the inputs the app already uses.</p>
+            <p class="d"><strong>Manufacturing:</strong> line speeds, OEE, headcount. &nbsp;<strong>Product:</strong> portfolio &amp; SKU lifecycle. &nbsp;<strong>S&amp;OP</strong> kept aligned (demand spine).</p>
+          </div>
+          <div class="phase">
+            <span class="ph-k" style="color:var(--navy);">Phase 2 · Next &nbsp;<span class="pill next">Widen + cost</span></span>
+            <h4>Warehouse · Finance · Inventory</h4>
+            <p class="goal">Each unlocks a new capability.</p>
+            <p class="d"><strong>Warehouse:</strong> space check. &nbsp;<strong>Finance:</strong> cost of extra capacity. &nbsp;<strong>Inventory:</strong> forward stock projection.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="foot"><span class="moove">moove</span><span>RCCP One · Capacity Planning · UKP1</span><span class="mono">Process &amp; Governance</span></div>
+  </section>
+
+</div>
+</body>
+</html>

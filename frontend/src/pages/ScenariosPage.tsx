@@ -2,19 +2,24 @@ import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { motion } from 'motion/react'
 import {
-  Clock, RotateCcw, RefreshCw, AlertCircle, CheckCircle2, AlertTriangle, ArrowRight,
+  Clock, RotateCcw, RefreshCw, AlertCircle, CheckCircle2, AlertTriangle, ArrowRight, PoundSterling,
 } from 'lucide-react'
 import { listBatches } from '../api/batches'
 import { getDashboard } from '../api/rccp'
-import { C, rollingMonths, shortMonth, shortYear, monthLabel, focusMonthPeriod, sortLinesByCode, HIDDEN_LINE_CODES } from '../components/rccp/brand'
+import { C, rollingMonths, shortMonth, shortYear, monthLabel, focusMonthPeriod, sortLinesByCode, HIDDEN_LINE_CODES, oeeBaselineLabel } from '../components/rccp/brand'
 import type { Batch, RCCPLine } from '../types'
 
 // Capacity = L/min × OEE × hours. Only OEE or hours raise it. We size to the
 // firm+MRP order book and let the planner allocate extra HOURS per line to see
 // how much of each line's plan that covers. OEE (55% baseline) is a fixed
 // assumption shown only as an alternative.
-const OEE_BASELINE = 55
 const OEE_MAX = 85
+
+function fmtGBP(v: number): string {
+  if (Math.abs(v) >= 1_000_000) return `£${(v / 1_000_000).toFixed(2)}M`
+  if (Math.abs(v) >= 1_000) return `£${(v / 1_000).toFixed(0)}k`
+  return `£${Math.round(v)}`
+}
 
 function kL(litres: number): string {
   const v = litres / 1000
@@ -101,12 +106,7 @@ export default function ScenariosPage() {
   const hasNoPublished = !isLoading && batches.length > 0 && !batches.some(b => b.status === 'PUBLISHED')
   const allLines = sortLinesByCode((dashboard?.lines ?? []).filter(l => !HIDDEN_LINE_CODES.includes(l.line_code)))
 
-  // 12-month total extra hours to fully clear the order book everywhere.
-  let annualNeeded = 0
-  for (const l of allLines) for (const p of months) {
-    const r = analyseMonth(l, p)
-    annualNeeded += r.neededH
-  }
+  const cogs = dashboard?.settings?.cogs_opex_per_litre ?? 0.12
 
   const rows = selectedMonth
     ? allLines.map(l => analyseMonth(l, selectedMonth)).sort((a, b) => (b.util ?? -1) - (a.util ?? -1))
@@ -117,7 +117,7 @@ export default function ScenariosPage() {
   const monthAllocated = shortRows.reduce((s, r) => s + Math.min(alloc[r.line.line_code] ?? 0, r.neededH), 0)
 
   // Site plan-met % for the selected month (met litres ÷ order-book litres).
-  let metLitres = 0, orderLitres = 0
+  let metLitres = 0, orderLitres = 0, baseLitres = 0, gapLitres = 0
   for (const r of rows) {
     if (!selectedMonth) break
     const m = r.line.monthly.find(x => x.period === selectedMonth)
@@ -125,11 +125,16 @@ export default function ScenariosPage() {
     const avail = m?.available_litres ?? 0
     if (order <= 0) continue
     orderLitres += order
+    baseLitres += Math.min(order, avail)
+    gapLitres += Math.max(0, order - avail)
     const extra = Math.min(alloc[r.line.line_code] ?? 0, r.neededH)
     const newAvail = r.hclock > 0 ? avail * (1 + extra / r.hclock) : avail
     metLitres += Math.min(order, newAvail)
   }
   const siteMet = orderLitres > 0 ? Math.round((metLitres / orderLitres) * 100) : 100
+  // COGS @ £/L: the cost of the extra production the hours create.
+  const allocatedHoursCost = (metLitres - baseLitres) * cogs   // cost of the hours allocated so far
+  const fullClearCost = gapLitres * cogs                       // cost to run all hours needed to clear the month
 
   const covered = shortRows.length === 0
   const verdict = covered
@@ -148,7 +153,7 @@ export default function ScenariosPage() {
           Scenarios — Capacity Advisor
         </h1>
         <p className="mt-2 text-[13.5px] max-w-[700px] leading-relaxed" style={{ color: C.ink2 }}>
-          Capacity only rises with <strong style={{ color: C.navy, fontWeight: 600 }}>hours</strong> or OEE — not by adding products to a line.
+          Capacity only rises with <strong style={{ color: C.navy, fontWeight: 600 }}>hours</strong> or OEE.
           Pick a month and allocate extra production hours per line to see how much of the firm + MRP order book each one can meet.
         </p>
       </motion.div>
@@ -233,10 +238,10 @@ export default function ScenariosPage() {
                       +{Math.round(monthNeeded).toLocaleString()}<span className="text-[12px] ml-0.5" style={{ color: C.ink3 }}>h</span>
                     </div>
                   </div>
-                  <div className="rounded-xl px-4 py-2.5 text-right" style={{ background: '#fff', border: `1px solid ${C.border}` }}>
-                    <div className="text-[10.5px] font-medium" style={{ color: C.ink3 }}>Extra hours · 12-mo</div>
-                    <div className="text-[22px] font-semibold leading-none tabnum mt-1" style={{ color: C.ink2 }}>
-                      +{Math.round(annualNeeded).toLocaleString()}<span className="text-[12px] ml-0.5" style={{ color: C.ink3 }}>h</span>
+                  <div className="rounded-xl px-4 py-2.5 text-right" style={{ background: C.limeTint, border: `1px solid ${C.lime}` }}>
+                    <div className="text-[10.5px] font-medium" style={{ color: C.limeDeep }}>Cost to clear · {shortMonth(selectedMonth)}</div>
+                    <div className="text-[22px] font-semibold leading-none tabnum mt-1" style={{ color: C.navy }}>
+                      {fmtGBP(fullClearCost)}
                     </div>
                   </div>
                 </div>
@@ -248,6 +253,16 @@ export default function ScenariosPage() {
                   <span>
                     To fully meet {monthLabel(selectedMonth)}: {shortRows.map(r => `${r.line.line_code} +${Math.round(r.neededH)} h`).join(', ')}.
                     {monthAllocated > 0 && <> Allocated <strong style={{ color: C.navy }}>+{Math.round(monthAllocated).toLocaleString()} h</strong> → site plan met <strong style={{ color: siteMet >= 100 ? C.limeDeep : C.amber }}>{siteMet}%</strong> ({kL(metLitres)} / {kL(orderLitres)} kL).</>}
+                  </span>
+                </p>
+              )}
+
+              {gapLitres > 0 && (
+                <p className="flex items-start gap-1.5 text-[12.5px] mt-2" style={{ color: C.ink2 }}>
+                  <PoundSterling className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" style={{ color: C.ink3 }} strokeWidth={2.2} />
+                  <span>
+                    Running the hours to fully clear {monthLabel(selectedMonth)} would cost ≈ <strong style={{ color: C.navy }}>{fmtGBP(fullClearCost)}</strong> (extra production × £{cogs.toFixed(2)}/L)
+                    {allocatedHoursCost > 0 && <> · your allocated hours so far ≈ <strong style={{ color: C.navy }}>{fmtGBP(allocatedHoursCost)}</strong></>}.
                   </span>
                 </p>
               )}
@@ -280,9 +295,9 @@ export default function ScenariosPage() {
             <table className="w-full">
               <thead>
                 <tr style={{ borderBottom: `1px solid ${C.border}` }}>
-                  {['Line', 'Load', 'Extra needed', 'Allocate hours', 'Plan met', 'or OEE'].map((h, i) => (
+                  {['Line', 'Load', 'Extra needed', 'Allocate hours', 'Cost (£)', 'Plan met', 'or OEE'].map((h, i) => (
                     <th key={h} className="text-[11px] font-semibold uppercase tracking-wider pb-2.5 pr-4"
-                      style={{ color: C.ink3, textAlign: i === 1 || i === 2 || i === 4 || i === 5 ? 'right' : 'left' }}>{h}</th>
+                      style={{ color: C.ink3, textAlign: i === 0 || i === 3 ? 'left' : 'right' }}>{h}</th>
                   ))}
                 </tr>
               </thead>
@@ -297,6 +312,7 @@ export default function ScenariosPage() {
                   const metColor = met >= 100 ? C.limeDeep : met >= 75 ? '#A16207' : C.amber
                   const producedL = r.orderLitres <= 0 ? 0
                     : Math.min(r.orderLitres, r.availLitres * (r.hclock > 0 ? (1 + allocated / r.hclock) : 1))
+                  const lineCost = r.short && r.hclock > 0 ? (allocated / r.hclock) * r.availLitres * cogs : 0
                   return (
                     <tr key={code} style={{ borderBottom: `1px solid ${C.border}` }}>
                       <td className="py-3 pr-4">
@@ -323,6 +339,9 @@ export default function ScenariosPage() {
                           <span className="text-[12px]" style={{ color: C.ink4 }}>—</span>
                         )}
                       </td>
+                      <td className="py-3 pr-4 text-right font-mono text-[12.5px] tabnum" style={{ color: r.short ? C.navy : C.ink4 }}>
+                        {r.short && !r.noCapacity ? fmtGBP(lineCost) : '—'}
+                      </td>
                       <td className="py-3 pr-4 text-right">
                         <div className="font-mono font-semibold text-[12.5px] tabnum" style={{ color: r.hasData ? metColor : C.ink4 }}>
                           {r.hasData ? `${met}%` : '—'}
@@ -344,7 +363,7 @@ export default function ScenariosPage() {
 
             <p className="text-[11.5px] mt-3 flex items-center gap-1.5" style={{ color: C.ink4 }}>
               <Clock className="w-3 h-3" />
-              "Extra needed" = total production hours to fully meet that line's order book this month (at {OEE_BASELINE}% OEE).
+              "Extra needed" = total production hours to fully meet that line's order book this month (at {oeeBaselineLabel(allLines)} OEE).
               "or OEE" is the alternative — lift OEE instead of adding hours. Lines below 100% already fit.
             </p>
           </motion.div>
