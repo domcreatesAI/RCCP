@@ -67,13 +67,32 @@ export type PeriodSlice = '18M' | '12M' | '6M' | '3M' | '1M'
 export interface RCCPKPIs {
   critical_lines: number
   high_lines: number
-  overall_utilisation_pct: number | null
+  overall_utilisation_pct: number | null              // theoretical: Σ production / Σ available
+  overall_plan_feasibility_pct?: number | null        // Σ min(prod, avail) / Σ production — actionable
   total_gap_litres: number | null
   lines_with_labour_shortfall: number
   lines_with_no_data: number
   total_gap_hours: number | null
   peak_util_pct: number | null
   peak_util_period: string | null
+}
+
+export interface RCCPLossBreakdown {
+  maintenance: number
+  planned_downtime: number
+  public_holiday: number
+  other_loss: number
+}
+
+export interface RCCPHcException {
+  scope: 'LINE' | 'PLANT'
+  code: string                 // line_code or plant_code
+  role: string | null
+  start: string
+  end: string
+  delta: number                // signed
+  delta_prorated: number       // signed, weighted to overlap_working_days / month_working_days
+  reason: string | null
 }
 
 export interface RCCPMonthlyBucket {
@@ -98,10 +117,16 @@ export interface RCCPMonthlyBucket {
   actual_hours: number | null
   // actuals
   actual_litres: number | null
-  // headcount
+  // headcount — hc_planned_avg is the EFFECTIVE figure (standard + prorated exceptions).
+  // hc_planned_standard is the raw Sheet-1 figure before adjustments.
   hc_required: number | null
   hc_planned_avg: number | null
+  hc_planned_standard?: number | null
   hc_shortfall: number | null
+  hc_exceptions?: RCCPHcException[]
+  // planned downtime (annotation — does not subtract from available_hours)
+  loss_hours?: number
+  loss_breakdown?: RCCPLossBreakdown
 }
 
 
@@ -112,8 +137,11 @@ export interface RCCPHCRole {
 
 export interface RCCPPlantSupportMonthly {
   period: string
-  hc_planned_avg: number | null
+  hc_planned_avg: number | null            // effective (standard + exceptions)
+  hc_planned_standard?: number | null      // raw Sheet-2 value before exceptions
   hc_shortfall: number | null
+  hc_exceptions?: RCCPHcException[]
+  working_days?: number                    // plant operating envelope; used to convert FTE → role-hours
 }
 
 export interface RCCPPlantSupportRole {
@@ -168,6 +196,16 @@ export interface RCCPSettings {
   cogs_opex_per_litre: number    // £ per litre produced (OEE is per-line, see RCCPLine.oee_target)
 }
 
+export interface RCCPPortfolioChange {
+  item_code: string | null
+  change_type: 'NEW_LAUNCH' | 'DISCONTINUE' | 'REFORMULATION' | 'LINE_CHANGE' | 'OTHER'
+  effective_date: string | null
+  effective_period: string | null   // 'YYYY-MM'
+  description: string | null
+  impact_notes: string | null
+  line_code: string | null          // routing line (items.primary_line_code), if the SKU is set up
+}
+
 export interface RCCPDashboard {
   batch_id: number
   plan_cycle_date: string
@@ -178,6 +216,7 @@ export interface RCCPDashboard {
   kpis: RCCPKPIs
   lines: RCCPLine[]
   unassigned_orders: RCCPUnassignedOrder[]
+  portfolio_changes: RCCPPortfolioChange[]
   plant_support_requirements: Record<string, RCCPPlantSupportRole[]>
   resource_type_rates: Record<string, number>  // role_code → standard_hourly_rate
   settings: RCCPSettings

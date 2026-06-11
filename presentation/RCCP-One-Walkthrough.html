@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>RCCP One — Walkthrough &amp; Feedback</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --navy:#0C3C5D; --navy2:#143F5C; --navy-deep:#082A40; --navy-tint:#E8EEF3;
+    --lime:#AACD00; --lime-deep:#7B9400; --lime-tint:#F0F7CC;
+    --sage:#B1CCBB; --ink:#0F1A24; --ink2:#3F4D5B; --ink3:#6B7A8A; --ink4:#9CABB9;
+    --border:#E2E6EA; --border2:#CCD3DA; --bg:#F7F7F5; --amber:#B45309; --amber-tint:#FEF3C7;
+    --sans:"Geist",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+    --mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:#5b6770;font-family:var(--sans);color:var(--ink);-webkit-font-smoothing:antialiased;letter-spacing:-0.005em;padding:24px 0;}
+  .deck{display:flex;flex-direction:column;align-items:center;gap:24px;}
+  .slide{position:relative;width:297mm;height:210mm;background:var(--bg);overflow:hidden;
+    padding:15mm 18mm 13mm;display:flex;flex-direction:column;box-shadow:0 10px 40px rgba(0,0,0,.3);}
+
+  .head{display:flex;align-items:center;justify-content:space-between;}
+  .brand{display:flex;align-items:center;gap:12px;}
+  .brand img.logo{height:32px;width:auto;display:block;}
+  .rccp-badge{font-family:var(--mono);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.18em;
+    color:var(--lime-deep);background:var(--lime-tint);border:1px solid var(--lime);border-radius:4px;padding:3px 9px;}
+  .head .eyebrow{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.16em;color:var(--ink3);}
+  .rule{height:3px;border-radius:3px;margin:12px 0 0;background:linear-gradient(90deg,var(--lime),rgba(170,205,0,0));}
+
+  h1.title{font-size:30px;font-weight:700;color:var(--navy);letter-spacing:-0.026em;line-height:1.05;margin-top:16px;display:flex;align-items:center;gap:13px;}
+  h1.title .bar{width:6px;height:32px;border-radius:3px;background:linear-gradient(180deg,var(--lime),var(--lime-deep));box-shadow:0 0 12px rgba(170,205,0,.4);}
+  .sub{font-size:13.5px;color:var(--ink2);margin-top:8px;}
+
+  /* Stage flow */
+  .flow{display:flex;align-items:stretch;gap:0;margin-top:18px;}
+  .stage{flex:1;background:#fff;border:1px solid var(--border);border-radius:14px;padding:14px 14px 12px;position:relative;display:flex;flex-direction:column;}
+  .stage .top{display:flex;align-items:center;gap:9px;margin-bottom:2px;}
+  .stage .num{width:26px;height:26px;border-radius:8px;background:var(--navy);color:#fff;font-weight:800;font-size:14px;
+    display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+  .stage h3{font-size:14.5px;font-weight:700;color:var(--navy);letter-spacing:-0.015em;}
+  .stage .when{font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--lime-deep);margin-bottom:8px;padding-left:35px;}
+  .stage .label{font-family:var(--mono);font-size:8.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--ink3);margin-top:8px;margin-bottom:4px;}
+  .stage ul{list-style:none;display:flex;flex-direction:column;gap:5px;}
+  .stage li{display:flex;gap:7px;font-size:11px;color:var(--ink2);line-height:1.35;}
+  .stage li .o{font-weight:600;color:var(--navy);}
+  .stage li .dot{flex-shrink:0;width:5px;height:5px;border-radius:50%;background:var(--lime);margin-top:5px;}
+  .arrow{display:flex;align-items:center;justify-content:center;width:24px;color:var(--ink4);font-size:20px;flex-shrink:0;}
+
+  /* Footer strip */
+  .foot-callout{margin-top:14px;display:flex;align-items:center;gap:10px;background:linear-gradient(135deg,#FAFCF9,#F4F8F0);
+    border:1px solid var(--border);border-radius:12px;padding:11px 18px;position:relative;padding-left:22px;}
+  .foot-callout::before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:4px;border-radius:3px;background:linear-gradient(180deg,var(--lime),var(--navy));}
+  .foot-callout .ico{font-size:20px;color:var(--lime-deep);}
+  .foot-callout p{font-size:12px;color:var(--ink2);}
+  .foot-callout strong{color:var(--navy);}
+
+  /* Slide 2 — feedback prompts */
+  .topic-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;margin-top:18px;}
+  .topic{background:#fff;border:1px solid var(--border);border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;}
+  .topic h3{font-size:14.5px;font-weight:700;color:var(--navy);letter-spacing:-0.015em;display:flex;align-items:center;gap:10px;}
+  .topic h3 .pill{font-family:var(--mono);font-size:9.5px;font-weight:700;letter-spacing:.08em;color:var(--lime-deep);background:var(--lime-tint);border:1px solid var(--lime);border-radius:10px;padding:2px 8px;text-transform:uppercase;}
+  .topic ul{list-style:none;display:flex;flex-direction:column;gap:6px;margin-top:9px;}
+  .topic li{display:flex;gap:8px;font-size:11.5px;color:var(--ink2);line-height:1.4;}
+  .topic li::before{content:"?";flex-shrink:0;width:14px;height:14px;border-radius:50%;background:var(--navy-tint);color:var(--navy);font-family:var(--mono);font-size:9.5px;font-weight:700;display:flex;align-items:center;justify-content:center;margin-top:1.5px;}
+
+  .foot{position:absolute;left:18mm;right:18mm;bottom:7mm;display:flex;align-items:center;justify-content:space-between;
+    font-size:10.5px;color:var(--ink4);border-top:1px solid var(--border);padding-top:7px;}
+  .foot .moove{font-weight:800;color:var(--navy);letter-spacing:-0.03em;}
+  .foot .mono{font-family:var(--mono);}
+
+  @media print{
+    @page{size:A4 landscape;margin:0;}
+    body{background:#fff;padding:0;}
+    .deck{gap:0;}
+    .slide{box-shadow:none;page-break-after:always;}
+    .slide:last-child{page-break-after:auto;}
+    *{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;}
+    .screen-only{display:none !important;}
+  }
+</style>
+</head>
+<body>
+<div class="screen-only" style="max-width:297mm;margin:0 auto 14px;color:#fff;font-size:13px;opacity:.9;font-family:var(--sans);">
+  Tip — make the PDF: <strong>Print</strong> (Ctrl/Cmd&nbsp;P) → <strong>Save as PDF</strong> → <strong>Landscape</strong> → Margins <strong>None</strong> → untick "Headers and footers".
+</div>
+<div class="deck">
+
+  <!-- ─────────────────────────────────────────────────────────────────────── -->
+  <!-- Slide 1 — Walkthrough                                                   -->
+  <!-- ─────────────────────────────────────────────────────────────────────── -->
+  <section class="slide">
+    <div class="head">
+      <div class="brand"><img class="logo" src="moove-logo.png" alt="moove" /><span class="rccp-badge">RCCP</span></div>
+      <span class="eyebrow">Walkthrough &amp; Feedback</span>
+    </div>
+    <div class="rule"></div>
+
+    <h1 class="title"><span class="bar"></span>How I'll use RCCP One — one cycle, end to end</h1>
+    <p class="sub">From the planner's seat — what I do, what I see, what I decide. The order is the same every month.</p>
+
+    <!-- 4-stage flow -->
+    <div class="flow">
+
+      <div class="stage">
+        <div class="top"><span class="num">1</span><h3>Collect inputs</h3></div>
+        <div class="when">WD 1–3 · Manufacturing + S&amp;OP</div>
+        <div class="label">What lands on my desk</div>
+        <ul>
+          <li><span class="dot"></span><span><span class="o">line_capacity_calendar</span> — operating days, planned hours, maintenance / downtime per line</span></li>
+          <li><span class="dot"></span><span><span class="o">headcount_plan</span> — standard crew per line + plant-shared roles + this cycle's known absences</span></li>
+          <li><span class="dot"></span><span><span class="o">SAP exports</span> — demand (PIR), orders (COOIS), stock (MB52), actuals (MB51), portfolio</span></li>
+        </ul>
+      </div>
+      <div class="arrow">→</div>
+
+      <div class="stage">
+        <div class="top"><span class="num">2</span><h3>Upload &amp; validate</h3></div>
+        <div class="when">WD 4–5 · Planning (me)</div>
+        <div class="label">What I do</div>
+        <ul>
+          <li><span class="dot"></span>Open a new batch, drop all 6 files</li>
+          <li><span class="dot"></span>Run the <span class="o">7-stage validation</span> — template, mapping, types, FK, business rules, cross-file</li>
+          <li><span class="dot"></span>Fix at source &amp; re-upload anything <span class="o">BLOCKED</span></li>
+          <li><span class="dot"></span><span class="o">Publish</span> the candidate baseline</li>
+        </ul>
+      </div>
+      <div class="arrow">→</div>
+
+      <div class="stage">
+        <div class="top"><span class="num">3</span><h3>Review · Exec Summary</h3></div>
+        <div class="when">Mid-month · RCCP meeting</div>
+        <div class="label">What we see together</div>
+        <ul>
+          <li><span class="dot"></span>12-month KPIs · lines at risk · site util · demand vs capacity</li>
+          <li><span class="dot"></span>Per-plant <span class="o">Capacity vs Actuals</span> charts (lime dot = new launch)</li>
+          <li><span class="dot"></span><span class="o">People fit</span> — heads not hours · standard → effective with exception reasons</li>
+          <li><span class="dot"></span><span class="o">Planned downtime</span> grid · portfolio changes · auto-commentary</li>
+        </ul>
+      </div>
+      <div class="arrow">→</div>
+
+      <div class="stage">
+        <div class="top"><span class="num">4</span><h3>Scenarios &amp; sign-off</h3></div>
+        <div class="when">By month-end · approvers</div>
+        <div class="label">What we decide</div>
+        <ul>
+          <li><span class="dot"></span>Pick a planning month · slide extra hours per line</li>
+          <li><span class="dot"></span>See <span class="o">cost £</span> (extra litres × £0.12/L) and the <span class="o">crew implication</span> per role</li>
+          <li><span class="dot"></span><span class="o">ELT / Site Ops</span> approve · baseline locks</li>
+          <li><span class="dot"></span>If the review changes inputs → Planning corrects → re-publishes a new candidate</li>
+        </ul>
+      </div>
+
+    </div>
+
+    <!-- Bottom callout — the one-line summary I'll lead with -->
+    <div class="foot-callout">
+      <span class="ico">&#9758;</span>
+      <p>The pitch in one sentence: <strong>one validated plan per month, one published baseline, one set of numbers the whole site debates</strong> — with the &quot;people fit&quot; and &quot;planned downtime&quot; answers visible up-front, not pieced together in spreadsheets.</p>
+    </div>
+
+    <div class="foot"><span class="moove">moove</span><span>RCCP One · Walkthrough · UKP1</span><span class="mono">1 / 2</span></div>
+  </section>
+
+  <!-- ─────────────────────────────────────────────────────────────────────── -->
+  <!-- Slide 2 — Discussion prompts                                            -->
+  <!-- ─────────────────────────────────────────────────────────────────────── -->
+  <section class="slide">
+    <div class="head">
+      <div class="brand"><img class="logo" src="moove-logo.png" alt="moove" /><span class="rccp-badge">RCCP</span></div>
+      <span class="eyebrow">Walkthrough &amp; Feedback</span>
+    </div>
+    <div class="rule"></div>
+
+    <h1 class="title"><span class="bar"></span>What I'd like your feedback on</h1>
+    <p class="sub">Four areas I care about — react to anything that feels off, missing, or over-engineered. Plain words are welcome.</p>
+
+    <div class="topic-grid">
+
+      <div class="topic">
+        <h3>Headcount &amp; people fit <span class="pill">core</span></h3>
+        <ul>
+          <li>Does the panel <strong>answer &quot;have I got enough crew?&quot;</strong> at a glance — without you doing maths?</li>
+          <li>Sheet&nbsp;1 (line standard) + Sheet&nbsp;2 (plant shared) + Sheet&nbsp;3 (this cycle's exceptions) — workable for Manufacturing to maintain?</li>
+          <li><strong>DATA NEEDED</strong> vs <strong>SHORTFALL</strong> distinction — does it land?</li>
+          <li>Heads, not hours — right unit for this question?</li>
+        </ul>
+      </div>
+
+      <div class="topic">
+        <h3>Line availability <span class="pill">calendar</span></h3>
+        <ul>
+          <li>Planned maintenance &amp; downtime sit on the <strong>line capacity calendar</strong> — feasible to maintain per cycle?</li>
+          <li>The <strong>Planned downtime</strong> grid (line × 12 months) — does it surface what you need for the meeting?</li>
+          <li>Partial-day losses captured via <span style="font-family:var(--mono)">planned_hours</span> — clear enough?</li>
+        </ul>
+      </div>
+
+      <div class="topic">
+        <h3>Capacity &amp; scenarios <span class="pill">decisions</span></h3>
+        <ul>
+          <li>12-month outlook + planning-month spotlight — right horizon for sign-off?</li>
+          <li>Per-line hour slider with <strong>£0.12/L</strong> flat cost and crew implications — actionable for OT / extra shift calls?</li>
+          <li>What's missing to make &quot;approve this plan&quot; obvious?</li>
+        </ul>
+      </div>
+
+      <div class="topic">
+        <h3>Governance &amp; trust <span class="pill">process</span></h3>
+        <ul>
+          <li>One published baseline per cycle + corrections re-published — practical for the cadence we run?</li>
+          <li>Audit trail — every batch, every file version kept. Enough for sign-off / disputes?</li>
+          <li>Anything you'd remove? Anything you'd want before we ship?</li>
+        </ul>
+      </div>
+
+    </div>
+
+    <!-- Closing prompt -->
+    <div class="foot-callout">
+      <span class="ico">&#9998;</span>
+      <p><strong>Format I'd like:</strong> walk through the live app on each section together · 5 minutes per panel · capture anything that feels wrong, unclear, or missing. I'll fold the feedback into the next iteration and circle back before we go wider.</p>
+    </div>
+
+    <div class="foot"><span class="moove">moove</span><span>RCCP One · Walkthrough · UKP1</span><span class="mono">2 / 2</span></div>
+  </section>
+
+</div>
+</body>
+</html>

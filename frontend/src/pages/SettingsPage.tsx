@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'motion/react'
-import { SlidersHorizontal, RefreshCw, AlertCircle, Lock, Pencil, Check, X, Gauge } from 'lucide-react'
+import { SlidersHorizontal, RefreshCw, AlertCircle, Lock, Pencil, Check, X, Gauge, Database, Plug, AlertTriangle } from 'lucide-react'
 import { listSettings, updateSetting, listLineOee, updateLineOee, type AppSetting } from '../api/settings'
+import { getDbConfig, testDbConfig, updateDbConfig } from '../api/db_config'
 import { C } from '../components/rccp/brand'
 
 // Stored value → display string (percent stored as fraction, currency as £/unit).
@@ -101,6 +102,149 @@ function SettingRow({ s, canEdit, onSaved }: { s: AppSetting; canEdit: boolean; 
         {err && <span className="text-[11px]" style={{ color: C.red }}>{err}</span>}
       </div>
     </div>
+  )
+}
+
+function DbConnectionSection() {
+  const { data, isLoading, refetch } = useQuery({ queryKey: ['db-config'], queryFn: getDbConfig })
+  const current = data?.server ?? ''
+  const canEdit = data?.can_edit ?? false
+
+  const [draft, setDraft] = useState('')
+  const [testState, setTestState] = useState<'idle' | 'testing' | 'ok' | 'fail'>('idle')
+  const [testMsg, setTestMsg] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [saveErr, setSaveErr] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (current && !draft) setDraft(current)
+  }, [current, draft])
+
+  const dirty = draft.trim() !== '' && draft.trim() !== current
+  // Save is only enabled after a successful test against the dirty value.
+  const canSave = canEdit && dirty && testState === 'ok'
+
+  // Any edit invalidates the previous test
+  function onChange(v: string) {
+    setDraft(v)
+    setTestState('idle')
+    setTestMsg(null)
+    setSaveErr(null)
+  }
+
+  async function runTest() {
+    setTestState('testing'); setTestMsg(null); setSaveErr(null)
+    try {
+      await testDbConfig(draft.trim())
+      setTestState('ok')
+      setTestMsg('Connection succeeded — Save is now enabled.')
+    } catch (e) {
+      setTestState('fail')
+      setTestMsg((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? 'Test failed')
+    }
+  }
+
+  async function save() {
+    setSaving(true); setSaveErr(null)
+    try {
+      await updateDbConfig(draft.trim())
+      setTestState('idle')
+      setTestMsg('Saved. New connections will use the new server immediately.')
+      await refetch()
+    } catch (e) {
+      setSaveErr((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? 'Could not save')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (isLoading) return null
+
+  return (
+    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.12 }} className="mt-6">
+      <div className="flex items-center gap-2 mb-2.5">
+        <Database className="w-3.5 h-3.5" style={{ color: C.navy }} />
+        <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: C.ink3 }}>Database connection</span>
+      </div>
+
+      <div className="bg-white rounded-xl px-5 py-4" style={{ border: `1px solid ${C.border}` }}>
+        <div className="flex items-start justify-between gap-5 flex-wrap">
+          <div className="min-w-0 max-w-[560px]">
+            <div className="text-[14px] font-semibold" style={{ color: C.navy }}>SQL Server host</div>
+            <p className="text-[12.5px] mt-1 leading-relaxed" style={{ color: C.ink2 }}>
+              The IP or hostname of the SQL Server holding the RCCP database. Change this if IT renumbers the server. The database name, user and password are kept in <span className="font-mono text-[11.5px]">backend/.env</span> — edit those there if they ever change too.
+            </p>
+            <div className="font-mono text-[10.5px] mt-1.5" style={{ color: C.ink4 }}>
+              env key: DB_SERVER · current: {current || '—'}
+            </div>
+          </div>
+
+          <div className="flex flex-col items-end gap-2" style={{ minWidth: 280 }}>
+            {canEdit ? (
+              <>
+                <div className="flex items-center rounded-lg overflow-hidden w-full" style={{ border: `1px solid ${C.border2}` }}>
+                  <input
+                    type="text"
+                    value={draft}
+                    onChange={e => onChange(e.target.value)}
+                    placeholder="e.g. 172.17.136.4"
+                    className="flex-1 px-3 py-1.5 text-[13px] font-mono focus:outline-none"
+                    style={{ color: C.ink }}
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={runTest}
+                    disabled={!dirty || testState === 'testing'}
+                    className="inline-flex items-center gap-1.5 text-[12px] px-2.5 py-1.5 rounded-lg disabled:opacity-40"
+                    style={{ border: `1px solid ${C.border}`, color: C.ink2 }}
+                  >
+                    {testState === 'testing'
+                      ? <RefreshCw className="w-3 h-3 animate-spin" />
+                      : <Plug className="w-3 h-3" />}
+                    {testState === 'testing' ? 'Testing…' : 'Test connection'}
+                  </button>
+                  <button
+                    onClick={save}
+                    disabled={!canSave || saving}
+                    className="inline-flex items-center gap-1.5 text-[12px] px-3 py-1.5 rounded-lg text-white disabled:opacity-40"
+                    style={{ background: C.navy }}
+                  >
+                    {saving ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                    {saving ? 'Saving…' : 'Save'}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <span className="font-mono text-[13px] font-semibold" style={{ color: C.navy }}>{current || '—'}</span>
+            )}
+            {testState === 'ok' && testMsg && (
+              <span className="text-[11px] flex items-center gap-1" style={{ color: C.limeDeep }}>
+                <Check className="w-3 h-3" /> {testMsg}
+              </span>
+            )}
+            {testState === 'fail' && testMsg && (
+              <span className="text-[11px] flex items-start gap-1 max-w-[280px]" style={{ color: C.red }}>
+                <X className="w-3 h-3 mt-px flex-shrink-0" /> <span className="break-words">{testMsg}</span>
+              </span>
+            )}
+            {saveErr && <span className="text-[11px]" style={{ color: C.red }}>{saveErr}</span>}
+          </div>
+        </div>
+
+        {canEdit && (
+          <div
+            className="mt-4 flex items-start gap-2 px-3 py-2.5 rounded-lg"
+            style={{ background: C.amberLight, border: `1px solid #FCD34D` }}
+          >
+            <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-px" style={{ color: C.amber }} />
+            <p className="text-[11.5px]" style={{ color: C.amber }}>
+              You must <strong>Test connection</strong> before Save is enabled. Saving a bad host locks the app out until <span className="font-mono text-[11px]">backend/.env</span> is edited on the server directly.
+            </p>
+          </div>
+        )}
+      </div>
+    </motion.div>
   )
 }
 
@@ -272,6 +416,8 @@ export default function SettingsPage() {
       ))}
 
       {!isLoading && !error && <LineOeeSection canEdit={canEdit} onSaved={onSaved} />}
+
+      {!isLoading && !error && <DbConnectionSection />}
 
       <p className="text-[11.5px] mt-8" style={{ color: C.ink4 }}>
         Changes apply to new calculations immediately — reopen a dashboard to see them reflected. More parameters

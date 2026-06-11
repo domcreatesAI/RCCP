@@ -43,21 +43,20 @@ TEMPLATES: dict[str, dict] = {
     "headcount_plan": {
         "title": "Headcount Plan",
         "description": (
-            "Planned operator headcount per production line per day. "
-            "One row per line per date. shift_code, available_hours and notes are optional."
+            "Planned operator headcount per production line per month. "
+            "One row per line per month — use the 1st of the month for plan_month (e.g. 01/05/2026 for May). "
+            "Plant-shared roles (forklift, materials handler, etc.) live on the 'Plant Support' sheet."
         ),
         "columns": [
-            ("line_code",         "Line Code",          "Production line code (e.g. A101). Must match a line in the masterdata.",         "A101"),
-            ("plan_date",         "Plan Date",          "Date in DD/MM/YYYY format (e.g. 01/03/2026).",                                  "01/03/2026"),
-            ("planned_headcount", "Planned Headcount",  "Number of operators planned for this line on this date. Required. Must be ≥ 0.", "4"),
-            ("shift_code",        "Shift Code",         "Optional shift identifier (e.g. DAY, NIGHT, A, B). Leave blank if not used.",    "DAY"),
-            ("available_hours",   "Available Hours",    "Total labour hours available (headcount × shift hours). Required. Must be ≥ 0.", "28.0"),
-            ("notes",             "Notes",              "Free text notes. Optional.",                                                     ""),
+            ("line_code",         "Line Code",          "Production line code (e.g. A101). Must match a line in the masterdata.",                                 "A101"),
+            ("plan_month",        "Plan Month",         "1st of the month in DD/MM/YYYY format (e.g. 01/05/2026 for May 2026). Required.",                          "01/05/2026"),
+            ("planned_headcount", "Planned Headcount",  "Total operators available for this line that month, summed across all roles (LINE_OP + TEAM_LEADER). Required. Must be ≥ 0.", "4"),
+            ("notes",             "Notes",              "Free text notes (e.g. '2 leavers in June'). Optional.",                                                    ""),
         ],
         "sample_rows": [
-            ["A101", "01/03/2026", 4, "DAY",   28.0, ""],
-            ["A101", "02/03/2026", 0, "",      0,    "Weekend — no staffing"],
-            ["A202", "01/03/2026", 3, "DAY",   21.0, ""],
+            ["A101", "01/05/2026", 4, ""],
+            ["A101", "01/06/2026", 4, ""],
+            ["A202", "01/05/2026", 3, ""],
         ],
     },
     "portfolio_changes": {
@@ -455,10 +454,10 @@ def generate_template(file_type: str) -> bytes:
     # --- Plant Support sheet (headcount_plan only) ---
     if file_type == "headcount_plan":
         ps_cols = [
-            ("plant_code",          "Plant Code",          "Plant code matching masterdata (e.g. P1, P2).",                         "P1"),
-            ("resource_type_code",  "Role Code",           "Resource type code from masterdata (e.g. Forklift_Driver).",             "Forklift_Driver"),
-            ("plan_date",           "Plan Date",           "Date in DD/MM/YYYY format.",                                             "01/03/2026"),
-            ("planned_headcount",   "Planned Headcount",   "Number of staff planned for this plant-level role on this date. ≥ 0.",   "2"),
+            ("plant_code",          "Plant Code",          "Plant code matching masterdata (e.g. 'Plant 1', 'Plant 2').",                          "Plant 1"),
+            ("resource_type_code",  "Role Code",           "Resource type code from masterdata (e.g. FORKLIFT_DRIVER, MATERIAL_HANDLER, ROBOT_OPERATOR, TECHNICIAN).", "FORKLIFT_DRIVER"),
+            ("plan_month",          "Plan Month",          "1st of the month in DD/MM/YYYY format (e.g. 01/05/2026 for May).",                     "01/05/2026"),
+            ("planned_headcount",   "Planned Headcount",   "Number of staff planned for this plant-level role that month. ≥ 0.",                   "2"),
         ]
         ws2 = wb.create_sheet("Plant Support")
 
@@ -479,9 +478,9 @@ def generate_template(file_type: str) -> bytes:
 
         # Sample rows
         sample_rows2 = [
-            ["P1", "Forklift_Driver",    "01/03/2026", 2],
-            ["P1", "Forklift_Driver",    "02/03/2026", 0],
-            ["P1", "Materials_Handler",  "01/03/2026", 3],
+            ["Plant 1", "FORKLIFT_DRIVER",  "01/05/2026", 2],
+            ["Plant 1", "MATERIAL_HANDLER", "01/05/2026", 2],
+            ["Plant 3", "ROBOT_OPERATOR",   "01/05/2026", 4],
         ]
         for row_offset, sample_row in enumerate(sample_rows2, start=3):
             for col_idx, val in enumerate(sample_row, start=1):
@@ -489,10 +488,56 @@ def generate_template(file_type: str) -> bytes:
                 cell.font = _SAMPLE_FONT
                 cell.alignment = _LEFT
 
-        ps_widths = {"plant_code": 14, "resource_type_code": 24, "plan_date": 16, "planned_headcount": 20}
+        ps_widths = {"plant_code": 14, "resource_type_code": 24, "plan_month": 16, "planned_headcount": 20}
         for col_idx, (key, *_) in enumerate(ps_cols, start=1):
             ws2.column_dimensions[get_column_letter(col_idx)].width = ps_widths.get(key, 18)
         ws2.freeze_panes = "A3"
+
+        # --- Exceptions sheet (planned absences vs the standard headcount) ---
+        ex_cols = [
+            ("line_code",          "Line Code",           "Production line code (e.g. A101). Required for line-role exceptions; leave blank when entering a plant-shared exception.", "A101"),
+            ("plant_code",         "Plant Code",          "Plant code (e.g. 'Plant 1'). Required for plant-shared role exceptions; leave blank for line exceptions.",                  ""),
+            ("resource_type_code", "Role Code",           "Required for PLANT rows. Optional for LINE rows — leave blank to apply the delta across all line roles proportionally.",       ""),
+            ("start_date",         "Start Date",          "First affected date in DD/MM/YYYY format.",                                                                                  "15/05/2026"),
+            ("end_date",           "End Date",            "Last affected date in DD/MM/YYYY format (inclusive). Same as start for a one-day event.",                                    "19/05/2026"),
+            ("delta_headcount",    "Delta Headcount",     "Change vs the standard headcount during the date range. Negative for absences (e.g. −1 = one person out).",                "-1"),
+            ("reason",             "Reason",              "Free text: annual leave, sickness, training, etc. Surfaces on the People Fit panel.",                                       "Annual leave"),
+        ]
+        ws3 = wb.create_sheet("Exceptions")
+
+        # Row 1: descriptions
+        for col_idx, (_key, _label, desc, _sample) in enumerate(ex_cols, start=1):
+            cell = ws3.cell(row=1, column=col_idx, value=desc)
+            cell.font = _DESC_FONT
+            cell.fill = _DESC_FILL
+            cell.alignment = _LEFT
+
+        # Row 2: column keys
+        for col_idx, (key, _label, _desc, _sample) in enumerate(ex_cols, start=1):
+            cell = ws3.cell(row=2, column=col_idx, value=key)
+            cell.font = _HEADER_FONT
+            cell.fill = _HEADER_FILL
+            cell.alignment = _CENTER
+            cell.border = _THIN_BORDER
+
+        # Sample rows
+        sample_rows3 = [
+            ["A101", "",        "",                "15/05/2026", "19/05/2026", -1,   "Annual leave"],
+            ["",     "Plant 1", "FORKLIFT_DRIVER", "01/05/2026", "31/05/2026", -0.5, "Long-term sick"],
+        ]
+        for row_offset, sample_row in enumerate(sample_rows3, start=3):
+            for col_idx, val in enumerate(sample_row, start=1):
+                cell = ws3.cell(row=row_offset, column=col_idx, value=val)
+                cell.font = _SAMPLE_FONT
+                cell.alignment = _LEFT
+
+        ex_widths = {
+            "line_code": 14, "plant_code": 14, "resource_type_code": 24,
+            "start_date": 14, "end_date": 14, "delta_headcount": 18, "reason": 36,
+        }
+        for col_idx, (key, *_) in enumerate(ex_cols, start=1):
+            ws3.column_dimensions[get_column_letter(col_idx)].width = ex_widths.get(key, 18)
+        ws3.freeze_panes = "A3"
 
     # --- Instructions sheet ---
     wi = wb.create_sheet("Instructions")

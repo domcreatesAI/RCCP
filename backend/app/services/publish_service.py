@@ -182,7 +182,7 @@ def _check_publish_gate(conn: pyodbc.Connection, batch_id: int) -> list[str]:
 def _clear_planning_data(conn: pyodbc.Connection, batch_id: int) -> None:
     cursor = conn.cursor()
     for table in ("master_stock", "demand_plan", "line_capacity_calendar",
-                  "headcount_plan", "plant_headcount_plan",
+                  "headcount_plan", "plant_headcount_plan", "headcount_exceptions",
                   "portfolio_changes", "production_orders", "actual_production"):
         cursor.execute(f"DELETE FROM dbo.{table} WHERE batch_id = ?", batch_id)  # noqa: S608
 
@@ -210,7 +210,7 @@ def _load_workbook(stored_path: str, header_row: int):
     """Open workbook and return (ws, headers, data_rows)."""
     schema = FILE_SCHEMAS  # just for header_row / data_start_row lookup
     wb = openpyxl.load_workbook(stored_path, read_only=True, data_only=True)
-    ws = wb.active
+    ws = wb.worksheets[0]
     headers = get_headers(ws, header_row)
     return ws, headers
 
@@ -227,7 +227,7 @@ def _import_file(
     data_start_row = schema.get("data_start_row", header_row + 1)
 
     wb = openpyxl.load_workbook(stored_path, read_only=True, data_only=True)
-    ws = wb.active
+    ws = wb.worksheets[0]
     headers = get_headers(ws, header_row)
     data_rows = get_data_rows(ws, headers, data_start_row)
 
@@ -253,6 +253,16 @@ def _import_file(
             headers2 = get_headers(sheet2, header_row=2)
             data_rows2 = get_data_rows(sheet2, headers2, start_row=3)
             _import_plant_headcount(conn, batch_id, data_rows2)
+
+        # Sheet 3 — Exceptions (known absences vs the standard)
+        sheet3 = next(
+            (wb[s] for s in wb.sheetnames if 'exception' in s.lower()),
+            None,
+        )
+        if sheet3 is not None:
+            headers3 = get_headers(sheet3, header_row=2)
+            data_rows3 = get_data_rows(sheet3, headers3, start_row=3)
+            _import_headcount_exceptions(conn, batch_id, data_rows3)
 
 
 # ---------------------------------------------------------------------------
@@ -388,12 +398,17 @@ def _import_line_capacity_calendar(conn, batch_id, headers, data_rows, plan_cycl
 
 
 def _import_plant_headcount(conn, batch_id, data_rows):
+    """Import plant-shared role headcount.
+
+    Accepts either monthly format (plan_month = 1st of month) or legacy daily
+    format (plan_date). Stored value goes into plant_headcount_plan.plan_date.
+    """
     cursor = conn.cursor()
     batch = []
     for row_num, row in data_rows:
         plant_code = _str(row.get("plant_code"))
         role_code  = _str(row.get("resource_type_code"))
-        plan_dt    = to_date(row.get("plan_date"))
+        plan_dt    = to_date(row.get("plan_month")) or to_date(row.get("plan_date"))
         if not plant_code or not role_code or plan_dt is None:
             continue
         headcount = _dec(row.get("planned_headcount")) or 0.0
@@ -412,14 +427,71 @@ def _import_plant_headcount(conn, batch_id, data_rows):
         )
 
 
+def _import_headcount_exceptions(conn, batch_id, data_rows):
+    """Import known absence events from Sheet 3 of headcount_plan.xlsx.
+
+    Each row carries either line_code OR plant_code (not both), an optional
+    role_code, a date range, a signed delta and an optional reason. The engine
+    prorates these against working days to compute the effective monthly
+    headcount.
+    """
+    cursor = conn.cursor()
+    batch = []
+    for row_num, row in data_rows:
+        line_code  = _str(row.get("line_code"))
+        plant_code = _str(row.get("plant_code"))
+        role_code  = _str(row.get("resource_type_code"))
+        start_dt   = to_date(row.get("start_date"))
+        end_dt     = to_date(row.get("end_date"))
+        delta      = _dec(row.get("delta_headcount"))
+        reason     = _str(row.get("reason"))
+
+        # Need at least one scope and a date range and a delta
+        if not (line_code or plant_code) or start_dt is None or end_dt is None or delta is None:
+            continue
+        # Mutually exclusive
+        if line_code and plant_code:
+            continue
+
+        batch.append((
+            batch_id,
+            line_code or None,
+            plant_code or None,
+            role_code or None,
+            start_dt, end_dt,
+            float(delta),
+            reason,
+            row_num,
+        ))
+
+    if batch:
+        cursor.fast_executemany = True
+        cursor.executemany(
+            """
+            INSERT INTO dbo.headcount_exceptions
+                (batch_id, line_code, plant_code, resource_type_code,
+                 start_date, end_date, delta_headcount, reason, source_row_number)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            batch,
+        )
+
+
 def _import_headcount_plan(conn, batch_id, headers, data_rows, plan_cycle_date):
+    """Import line-level planned headcount.
+
+    Accepts either the new monthly format (plan_month = 1st of month) or the
+    legacy daily format (plan_date). Stored value goes into
+    headcount_plan.plan_date. The engine averages by month, so single-row-
+    per-month entries work fine.
+    """
     header_set = set(headers)
     cursor = conn.cursor()
 
     batch = []
     for row_num, row in data_rows:
         line_code = _str(row.get("line_code"))
-        plan_dt = to_date(row.get("plan_date"))
+        plan_dt = to_date(row.get("plan_month")) or to_date(row.get("plan_date"))
         if not line_code or plan_dt is None:
             continue
 

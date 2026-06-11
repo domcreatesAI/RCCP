@@ -180,7 +180,7 @@ export default function ScenariosPage() {
 
       {dashboard && !isLoading && selectedMonth && (
         <>
-          {/* Month picker */}
+          {/* Month picker + rate toggle */}
           <motion.div
             initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }}
             className="bg-white rounded-2xl px-4 py-3 mt-6 flex items-center gap-2 flex-wrap"
@@ -313,11 +313,18 @@ export default function ScenariosPage() {
                   const producedL = r.orderLitres <= 0 ? 0
                     : Math.min(r.orderLitres, r.availLitres * (r.hclock > 0 ? (1 + allocated / r.hclock) : 1))
                   const lineCost = r.short && r.hclock > 0 ? (allocated / r.hclock) * r.availLitres * cogs : 0
+                  const crewParts = r.line.hc_roles.map(rr => `${rr.required} × ${rr.role_code}`).join(' · ')
+                  const allocCrew = allocated > 0
+                    ? r.line.hc_roles.map(rr => `${rr.required} × ${Math.round(allocated)}h ${rr.role_code}`).join(' · ')
+                    : null
                   return (
                     <tr key={code} style={{ borderBottom: `1px solid ${C.border}` }}>
                       <td className="py-3 pr-4">
                         <span className="font-semibold" style={{ color: C.navy }}>{code}</span>
                         <span className="text-[11px] ml-2" style={{ color: C.ink4 }}>{r.line.plant_code}</span>
+                        {crewParts && (
+                          <div className="text-[10.5px] font-mono mt-0.5" style={{ color: C.ink4 }}>{crewParts}</div>
+                        )}
                       </td>
                       <td className="py-3 pr-4 text-right font-mono font-semibold text-[12.5px] tabnum" style={{ color: loadColor }}>
                         {r.util != null ? `${r.util}%` : r.noCapacity ? 'no cap.' : '—'}
@@ -328,13 +335,18 @@ export default function ScenariosPage() {
                       </td>
                       <td className="py-3 pr-4">
                         {r.short && !r.noCapacity ? (
-                          <div className="flex items-center gap-2">
-                            <input type="range" min={0} max={Math.ceil(r.neededH)} step={1}
-                              value={allocated}
-                              onChange={e => setLine(code, Number(e.target.value))}
-                              className="w-[150px]" style={{ accentColor: C.navy }} />
-                            <span className="font-mono text-[12px] tabnum w-[52px]" style={{ color: C.ink2 }}>+{Math.round(allocated)} h</span>
-                          </div>
+                          <>
+                            <div className="flex items-center gap-2">
+                              <input type="range" min={0} max={Math.ceil(r.neededH)} step={1}
+                                value={allocated}
+                                onChange={e => setLine(code, Number(e.target.value))}
+                                className="w-[150px]" style={{ accentColor: C.navy }} />
+                              <span className="font-mono text-[12px] tabnum w-[52px]" style={{ color: C.ink2 }}>+{Math.round(allocated)} h</span>
+                            </div>
+                            {allocCrew && (
+                              <div className="text-[10.5px] font-mono mt-1" style={{ color: C.limeDeep }}>Crew: {allocCrew}</div>
+                            )}
+                          </>
                         ) : (
                           <span className="text-[12px]" style={{ color: C.ink4 }}>—</span>
                         )}
@@ -361,10 +373,13 @@ export default function ScenariosPage() {
               </tbody>
             </table>
 
-            <p className="text-[11.5px] mt-3 flex items-center gap-1.5" style={{ color: C.ink4 }}>
+            <p className="text-[11.5px] mt-3 flex items-center gap-1.5 flex-wrap" style={{ color: C.ink4 }}>
               <Clock className="w-3 h-3" />
-              "Extra needed" = total production hours to fully meet that line's order book this month (at {oeeBaselineLabel(allLines)} OEE).
-              "or OEE" is the alternative — lift OEE instead of adding hours. Lines below 100% already fit.
+              <span>
+                "Extra needed" = total production hours to fully meet that line's order book this month (at {oeeBaselineLabel(allLines)} OEE).
+                Cost = extra litres × £{cogs.toFixed(2)}/L.
+                Crew = the per-line headcount requirement × the hours allocated — tell Manufacturing what they need to staff for.
+              </span>
             </p>
           </motion.div>
         </>

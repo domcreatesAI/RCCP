@@ -1,6 +1,12 @@
 import { CheckCircle2, AlertTriangle, AlertOctagon, ArrowRight } from 'lucide-react'
-import type { RCCPLine } from '../../types'
-import { C, focusVerdict, focusMonthPeriod, monthLabel, type Verdict } from './brand'
+import type { RCCPLine, RCCPPlantSupportRole } from '../../types'
+import { C, focusVerdict, focusMonthPeriod, monthLabel, fteSummary, type Verdict } from './brand'
+
+function fmtL(v: number): string {
+  if (Math.abs(v) >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}ML`
+  if (Math.abs(v) >= 1_000) return `${(v / 1_000).toFixed(0)}kL`
+  return `${Math.round(v)}L`
+}
 
 const VERDICT_STYLE: Record<Verdict, { accent: string; bg: string; text: string; icon: React.ElementType; label: string }> = {
   'ON TRACK': { accent: C.lime, bg: C.limeTint, text: C.limeDeep, icon: CheckCircle2, label: 'ON TRACK' },
@@ -8,33 +14,62 @@ const VERDICT_STYLE: Record<Verdict, { accent: string; bg: string; text: string;
   'CRITICAL': { accent: C.red, bg: C.redLight, text: C.red, icon: AlertOctagon, label: 'CRITICAL' },
 }
 
-function StatChip({ label, value, suffix = '', tone }: {
-  label: string; value: string | number; suffix?: string; tone: 'navy' | 'amber' | 'red' | 'lime'
+function StatChip({ label, value, suffix = '', tone, sub, tooltip }: {
+  label: string; value: string | number; suffix?: string; tone: 'navy' | 'amber' | 'red' | 'lime'; sub?: string; tooltip?: string
 }) {
   const color = tone === 'red' ? C.red : tone === 'amber' ? C.amber : tone === 'lime' ? C.limeDeep : C.navy
   return (
-    <div className="rounded-xl px-3.5 py-2.5 bg-white" style={{ border: `1px solid ${C.border}` }}>
-      <div className="text-[10.5px] font-medium mb-1" style={{ color: C.ink3 }}>{label}</div>
+    <div
+      className="rounded-xl px-3.5 py-2.5 bg-white"
+      style={{ border: `1px solid ${C.border}` }}
+      title={tooltip}
+    >
+      <div className="text-[10.5px] font-medium mb-1 flex items-center gap-1" style={{ color: C.ink3 }}>
+        {label}
+        {tooltip && <span className="opacity-60 cursor-help" style={{ fontSize: 9 }}>ⓘ</span>}
+      </div>
       <div className="text-[20px] font-semibold leading-none tabnum" style={{ color, letterSpacing: '-0.02em' }}>
         {value}<span className="text-[12px] font-medium ml-px" style={{ color: C.ink3 }}>{suffix}</span>
       </div>
+      {sub && (
+        <div className="text-[10.5px] font-mono mt-1 tabnum" style={{ color: C.ink4 }}>{sub}</div>
+      )}
     </div>
   )
 }
 
+function fmtGBP(v: number): string {
+  if (Math.abs(v) >= 1_000_000) return `£${(v / 1_000_000).toFixed(2)}M`
+  if (Math.abs(v) >= 1_000) return `£${(v / 1_000).toFixed(0)}k`
+  return `£${Math.round(v)}`
+}
+
 export default function NextMonthSpotlight({
-  lines, planCycleDate, onSelectLine,
+  lines, planCycleDate, onSelectLine, plantSupport, cogsPerLitre = 0.12,
 }: {
   lines: RCCPLine[]
   planCycleDate: string
   onSelectLine?: (code: string | null) => void
+  plantSupport?: Record<string, RCCPPlantSupportRole[]>
+  cogsPerLitre?: number
 }) {
   if (!lines.length) return null
 
   const focus = focusMonthPeriod(planCycleDate)
-  const { verdict, siteUtil, demandCov, over, short } = focusVerdict(lines, focus)
+  const fv = focusVerdict(lines, focus)
+  const { verdict, planFeasibility, siteUtilTheoretical, demandCov, over, short,
+          productionTotal, firmTotal, plannedTotal,
+          deliverableLitres, shortfallLitres, theoreticalCapacity, demandTotal } = fv
   const vs = VERDICT_STYLE[verdict]
   const Icon = vs.icon
+
+  // FTE-equivalent headcount summary for this focus month
+  const fte = plantSupport ? fteSummary(lines, plantSupport, focus) : null
+  const fteTooltip = fte && fte.monthHours > 0
+    ? `1 FTE = one person working a standard month. This month: ${fte.workingDays} working days × ${Math.round(fte.monthHours / fte.workingDays)}h shift = ${Math.round(fte.monthHours)}h. Captures part-time, overtime, and partial-month operation that head-counts hide.`
+    : '1 FTE = one person working a standard month (calendar-derived). Captures part-time, overtime, and partial-month operation that head-counts hide.'
+
+  const costToClear = shortfallLitres > 0 ? shortfallLitres * cogsPerLitre : 0
 
   // Recommended action
   let recommendation: string | null = null
@@ -94,18 +129,106 @@ export default function NextMonthSpotlight({
             </span>
           </div>
 
-          {/* Stat chips */}
+          {/* 4 stat tiles */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 flex-1 min-w-[300px]">
-            <StatChip label="Site utilisation" value={siteUtil ?? '—'} suffix={siteUtil != null ? '%' : ''}
-              tone={siteUtil != null && siteUtil >= 100 ? 'red' : siteUtil != null && siteUtil >= 90 ? 'amber' : 'navy'} />
-            <StatChip label="Demand vs capacity" value={demandCov ?? '—'} suffix={demandCov != null ? '%' : ''}
-              tone={demandCov != null && demandCov > 100 ? 'red' : 'navy'} />
-            <StatChip label="Over capacity" value={over.length}
-              tone={over.length > 0 ? 'red' : 'lime'} />
-            <StatChip label="Short-staffed" value={short.length}
-              tone={short.length > 0 ? 'amber' : 'lime'} />
+            {/* 1. Production plan — what we're committing to make */}
+            <StatChip
+              label="Production plan"
+              value={productionTotal > 0 ? fmtL(productionTotal) : '—'}
+              tone="navy"
+              sub={productionTotal > 0
+                ? `firm ${fmtL(firmTotal)} · MRP ${fmtL(plannedTotal)}`
+                : undefined}
+            />
+            {/* 2. Plan feasibility — the actionable headline */}
+            <StatChip
+              label="Plan feasibility"
+              value={planFeasibility ?? '—'}
+              suffix={planFeasibility != null ? '%' : ''}
+              tone={planFeasibility != null && planFeasibility < 90 ? 'red'
+                : planFeasibility != null && planFeasibility < 100 ? 'amber'
+                : 'lime'}
+              sub={productionTotal > 0
+                ? `${fmtL(deliverableLitres)} of ${fmtL(productionTotal)} deliverable`
+                : undefined}
+              tooltip="% of the plan that fits in current per-line capacity. Below 100% means some demand can't be made on the lines as-is."
+            />
+            {/* 3. Volume to clear — the gap + cost */}
+            <StatChip
+              label="Volume to clear"
+              value={shortfallLitres > 0 ? fmtL(shortfallLitres) : '—'}
+              tone={shortfallLitres > 0 ? 'amber' : 'lime'}
+              sub={shortfallLitres > 0
+                ? `~${fmtGBP(costToClear)} estimated OT cost`
+                : 'plan fits in capacity'}
+              tooltip={`Production volume that exceeds current per-line capacity. Cost estimate = shortfall litres × £${cogsPerLitre.toFixed(2)}/L COGS — covers running overtime or an extra shift to clear it.`}
+            />
+            {/* 4. Headcount — FTE gap */}
+            {fte && fte.needed != null ? (
+              (() => {
+                const headcountSub = fte.planned == null
+                  ? `${fte.needed.toFixed(1)} FTE needed`
+                  : fte.gap != null && fte.gap >= 1
+                    ? `Need ${fte.needed.toFixed(1)}, planned ${fte.planned.toFixed(1)} — ${Math.round(fte.gap)} more FTE required`
+                    : fte.gap != null && fte.gap <= -1
+                      ? `Need ${fte.needed.toFixed(1)}, planned ${fte.planned.toFixed(1)} — ${Math.round(-fte.gap)} FTE surplus`
+                      : `Need ${fte.needed.toFixed(1)}, planned ${fte.planned.toFixed(1)} — fully covered`
+                return (
+                  <StatChip
+                    label="Headcount"
+                    value={fte.gap != null && fte.gap > 0
+                      ? `−${fte.gap.toFixed(1)}`
+                      : fte.gap != null && fte.gap < 0
+                        ? `+${(-fte.gap).toFixed(1)}`
+                        : '0'}
+                    suffix=" FTE"
+                    tone={fte.gap != null && fte.gap >= 1 ? 'amber'
+                      : fte.gap != null && fte.gap <= -1 ? 'lime'
+                      : 'navy'}
+                    sub={headcountSub}
+                    tooltip={fteTooltip}
+                  />
+                )
+              })()
+            ) : (
+              <StatChip
+                label="Short-staffed"
+                value={short.length}
+                tone={short.length > 0 ? 'amber' : 'lime'}
+                tooltip="Lines with a material labour shortfall (≥ 1 FTE gap) in the planning month."
+              />
+            )}
           </div>
         </div>
+
+        {/* Theoretical-max sub-line — the optimisation lever */}
+        {siteUtilTheoretical != null && theoreticalCapacity != null && productionTotal > 0 && (
+          <p className="text-[11px] mt-2" style={{ color: C.ink4 }}>
+            Theoretical capacity used <span className="font-mono font-semibold tabnum" style={{ color: C.ink3 }}>{siteUtilTheoretical}%</span> ({fmtL(productionTotal)} of {fmtL(theoreticalCapacity)} raw — what you'd see if mix could rebalance freely across lines).
+          </p>
+        )}
+
+        {/* FTE definition — visible explainer */}
+        {fte && fte.monthHours > 0 && (
+          <div
+            className="mt-2 px-3 py-2 rounded-lg flex items-start gap-2"
+            style={{ background: C.navyTint, border: `1px solid ${C.border}` }}
+          >
+            <span
+              className="inline-flex items-center justify-center rounded-full flex-shrink-0 font-mono font-bold"
+              style={{ width: 16, height: 16, background: C.navy, color: '#fff', fontSize: 10, marginTop: 1 }}
+              aria-hidden
+            >
+              i
+            </span>
+            <p className="text-[11.5px]" style={{ color: C.ink2 }}>
+              <strong style={{ color: C.navy }}>FTE = full-time equivalent.</strong>
+              {' '}One FTE = one person working a standard month — for {monthLabel(focus)} that's{' '}
+              <span className="font-mono font-semibold tabnum" style={{ color: C.navy }}>{fte.workingDays} working days × {Math.round(fte.monthHours / Math.max(fte.workingDays, 1))}h shift = {Math.round(fte.monthHours)}h</span>.
+              Captures part-time, overtime and partial-month operation that head-counts hide. <em>−2 FTE</em> means we need 2 more people-months of work than the headcount plan currently covers.
+            </p>
+          </div>
+        )}
 
         {/* Named offenders + recommendation */}
         <div className="mt-4 pt-3.5 flex flex-col gap-2" style={{ borderTop: `1px solid ${C.border}` }}>

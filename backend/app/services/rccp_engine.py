@@ -105,10 +105,15 @@ def compute_dashboard(conn, batch_id: int, allowed_statuses: tuple[str, ...] = (
         plan_cycle_date = plan_cycle_date.date()
 
     # ── 2. Load capacity calendar ──────────────────────────────────────────────
-    # vw_line_capacity_with_net provides net_theoretical_hours per line per day.
-    # oee_target and available_mins_per_day are loaded separately in step 7 (lines_meta).
+    # planned_hours (if set) is Manufacturing's explicit operating envelope for
+    # that day — i.e. hours scheduled after planned losses. The loss columns
+    # explain *why* the figure differs from the line's standard, and feed the
+    # planned-downtime panel.
     cursor.execute("""
-        SELECT line_code, calendar_date, is_working_day
+        SELECT line_code, calendar_date, is_working_day,
+               planned_hours,
+               maintenance_hours, public_holiday_hours,
+               planned_downtime_hours, other_loss_hours
         FROM dbo.vw_line_capacity_with_net
         WHERE batch_id = ?
     """, batch_id)
@@ -249,6 +254,30 @@ def compute_dashboard(conn, batch_id: int, allowed_statuses: tuple[str, ...] = (
             d = d.date()
         plant_hc_plan[(r.plant_code, r.resource_type_code, str(d))] = float(r.planned)
 
+    # Headcount exceptions (Sheet 3) — known absences applied as deltas
+    cursor.execute("""
+        SELECT line_code, plant_code, resource_type_code,
+               CAST(start_date AS DATE) AS start_date,
+               CAST(end_date   AS DATE) AS end_date,
+               delta_headcount, reason
+        FROM dbo.headcount_exceptions
+        WHERE batch_id = ?
+    """, batch_id)
+    headcount_exceptions: list[dict] = []
+    for r in cursor.fetchall():
+        sd, ed = r.start_date, r.end_date
+        if hasattr(sd, 'date'): sd = sd.date()
+        if hasattr(ed, 'date'): ed = ed.date()
+        headcount_exceptions.append({
+            "line_code":  r.line_code,
+            "plant_code": r.plant_code,
+            "role_code":  r.resource_type_code,
+            "start":      sd,
+            "end":        ed,
+            "delta":      float(r.delta_headcount),
+            "reason":     r.reason,
+        })
+
     # ── 7. Load lines list (for plant + pool info) ─────────────────────────────
     cursor.execute("""
         SELECT l.line_code, l.plant_code, l.labour_pool_code,
@@ -298,29 +327,186 @@ def compute_dashboard(conn, batch_id: int, allowed_statuses: tuple[str, ...] = (
     horizon_months_set = set(horizon_months)
     week_set = set(horizon_weeks)
 
-    # ── 9. Build working-day calendar: line × period → {working_days, oee, mins} ──
-    # OEE and available_mins come from lines_meta (loaded in step 7).
-    line_period_days: dict[tuple, dict] = defaultdict(lambda: {"working_days": 0, "oee": 0.55, "mins": 420.0})
-    line_week_days:   dict[tuple, dict] = defaultdict(lambda: {"working_days": 0, "oee": 0.55, "mins": 420.0})
+    # ── 9. Build per-period operating envelope per line ───────────────────────
+    # For each day:
+    #   effective_mins = 0                                                   if is_working_day = 0
+    #                  = planned_hours × 60                                  if planned_hours is set
+    #                  = masterdata available_mins_per_day                   otherwise (legacy default)
+    #
+    # Loss columns (maintenance, planned downtime, public holiday, other) are
+    # NOT subtracted from the envelope — `planned_hours` is the authoritative
+    # net figure. The loss columns are itemised reasons, surfaced separately
+    # on the Planned-Downtime panel.
+    line_period_days: dict[tuple, dict] = defaultdict(
+        lambda: {"working_days": 0, "effective_mins": 0.0, "oee": 0.55}
+    )
+    line_week_days:   dict[tuple, dict] = defaultdict(
+        lambda: {"working_days": 0, "effective_mins": 0.0, "oee": 0.55}
+    )
+    # Per-line per-period planned loss hours (sum of all four loss categories)
+    line_period_losses: dict[tuple, float] = defaultdict(float)
+    # Optional per-category breakdown (for hover tooltips on the panel)
+    line_period_losses_breakdown: dict[tuple, dict] = defaultdict(
+        lambda: {"maintenance": 0.0, "planned_downtime": 0.0, "public_holiday": 0.0, "other_loss": 0.0}
+    )
+    # Per-line working dates — used by the headcount-exception prorate
+    line_working_dates: dict[str, set[date]] = defaultdict(set)
+
+    def _to_float(v) -> float:
+        return float(v) if v is not None else 0.0
+
     for r in capacity_rows:
         cal_date = r.calendar_date
         if hasattr(cal_date, 'date'):
             cal_date = cal_date.date()
         meta = lines_meta.get(r.line_code, {})
+        mins_default = meta.get("available_mins_per_day", 420.0)
+        oee = meta.get("oee_target", 0.55)
+
+        # Effective minutes for this day under the rule above
+        if not r.is_working_day:
+            effective_mins = 0.0
+        elif r.planned_hours is not None:
+            effective_mins = max(0.0, float(r.planned_hours) * 60.0)
+        else:
+            effective_mins = mins_default
+
+        # Loss hours for downtime panel (independent of effective_mins)
+        loss_m = _to_float(r.maintenance_hours)
+        loss_p = _to_float(r.planned_downtime_hours)
+        loss_h = _to_float(r.public_holiday_hours)
+        loss_o = _to_float(r.other_loss_hours)
+        loss_total = loss_m + loss_p + loss_h + loss_o
+
+        if r.is_working_day:
+            line_working_dates[r.line_code].add(cal_date)
+
         p = _period(cal_date)
         if p in horizon_months_set:
             key = (r.line_code, p)
             if r.is_working_day:
                 line_period_days[key]["working_days"] += 1
-            line_period_days[key]["oee"] = meta.get("oee_target", 0.55)
-            line_period_days[key]["mins"] = meta.get("available_mins_per_day", 420.0)
+            line_period_days[key]["effective_mins"] += effective_mins
+            line_period_days[key]["oee"] = oee
+            line_period_losses[key] += loss_total
+            bd = line_period_losses_breakdown[key]
+            bd["maintenance"]      += loss_m
+            bd["planned_downtime"] += loss_p
+            bd["public_holiday"]   += loss_h
+            bd["other_loss"]       += loss_o
+
         ws = _week_str(cal_date)
         if ws in week_set:
             wkey = (r.line_code, ws)
             if r.is_working_day:
                 line_week_days[wkey]["working_days"] += 1
-            line_week_days[wkey]["oee"] = meta.get("oee_target", 0.55)
-            line_week_days[wkey]["mins"] = meta.get("available_mins_per_day", 420.0)
+            line_week_days[wkey]["effective_mins"] += effective_mins
+            line_week_days[wkey]["oee"] = oee
+
+    # ── 9b. Prorated headcount exceptions ─────────────────────────────────────
+    # For each exception, find the working-day overlap with every horizon month
+    # and produce a prorated delta:
+    #     prorated_delta = delta × (overlap_working_days / month_working_days)
+    # Aggregate the deltas per (line/plant, role, period). Keep an audit list
+    # of the underlying events so the People Fit panel can show the reasons.
+    from datetime import timedelta as _timedelta
+
+    # Per-plant union of working dates (any line in the plant operating that day)
+    plant_working_dates: dict[str, set[date]] = defaultdict(set)
+    for lc, dates in line_working_dates.items():
+        plant_code_of_line = (lines_meta.get(lc) or {}).get("plant_code")
+        if plant_code_of_line:
+            plant_working_dates[plant_code_of_line] |= dates
+
+    def _month_window(period: str) -> tuple[date, date]:
+        year, month = int(period[:4]), int(period[5:7])
+        if month == 12:
+            nxt = date(year + 1, 1, 1)
+        else:
+            nxt = date(year, month + 1, 1)
+        return date(year, month, 1), nxt - _timedelta(days=1)
+
+    def _count_working_in_range(dates: set[date], start: date, end: date) -> int:
+        return sum(1 for d in dates if start <= d <= end)
+
+    # (line, role, period) → adjustment (signed FTE deltas applied to that role)
+    line_role_adjustments: dict[tuple, float] = defaultdict(float)
+    # (line, period) → list[exception detail dict] for UI
+    line_exception_detail: dict[tuple, list[dict]] = defaultdict(list)
+    # (plant, role, period) → adjustment
+    plant_role_adjustments: dict[tuple, float] = defaultdict(float)
+    plant_exception_detail: dict[tuple, list[dict]] = defaultdict(list)
+
+    for exc in headcount_exceptions:
+        sd, ed = exc["start"], exc["end"]
+        if sd is None or ed is None or ed < sd:
+            continue
+        delta = exc["delta"]
+        if delta == 0:
+            continue
+
+        for period in horizon_months:
+            month_start, month_end = _month_window(period)
+            overlap_start = max(sd, month_start)
+            overlap_end   = min(ed, month_end)
+            if overlap_end < overlap_start:
+                continue
+
+            if exc["line_code"]:
+                lc = exc["line_code"]
+                working_dates = line_working_dates.get(lc, set())
+                month_wd = sum(1 for d in working_dates if month_start <= d <= month_end)
+                if month_wd == 0:
+                    continue
+                overlap_wd = _count_working_in_range(working_dates, overlap_start, overlap_end)
+                if overlap_wd == 0:
+                    continue
+                prorated = delta * (overlap_wd / month_wd)
+
+                roles_on_line = line_hc_roles.get(lc, [])
+                total_req = sum(r["required"] for r in roles_on_line) or 0
+                if exc["role_code"]:
+                    # Apply only to the named role
+                    line_role_adjustments[(lc, exc["role_code"], period)] += prorated
+                elif total_req > 0:
+                    # Distribute across roles proportionally to per-line requirement
+                    for r in roles_on_line:
+                        share = prorated * (r["required"] / total_req)
+                        line_role_adjustments[(lc, r["role_code"], period)] += share
+
+                line_exception_detail[(lc, period)].append({
+                    "scope":  "LINE",
+                    "code":   lc,
+                    "role":   exc["role_code"],
+                    "start":  str(sd),
+                    "end":    str(ed),
+                    "delta":  delta,
+                    "delta_prorated": round(prorated, 2),
+                    "reason": exc["reason"],
+                })
+
+            elif exc["plant_code"] and exc["role_code"]:
+                pc = exc["plant_code"]
+                working_dates = plant_working_dates.get(pc, set())
+                month_wd = sum(1 for d in working_dates if month_start <= d <= month_end)
+                if month_wd == 0:
+                    continue
+                overlap_wd = _count_working_in_range(working_dates, overlap_start, overlap_end)
+                if overlap_wd == 0:
+                    continue
+                prorated = delta * (overlap_wd / month_wd)
+                plant_role_adjustments[(pc, exc["role_code"], period)] += prorated
+
+                plant_exception_detail[(pc, period)].append({
+                    "scope":  "PLANT",
+                    "code":   pc,
+                    "role":   exc["role_code"],
+                    "start":  str(sd),
+                    "end":    str(ed),
+                    "delta":  delta,
+                    "delta_prorated": round(prorated, 2),
+                    "reason": exc["reason"],
+                })
 
     # ── 10. Production orders → required litres per line × period ─────────────
     # Routing: always use items.primary_line_code (from sku_masterdata).
@@ -433,30 +619,28 @@ def compute_dashboard(conn, batch_id: int, allowed_statuses: tuple[str, ...] = (
             return None
         key = (line_code, period)
         cal = line_period_days.get(key, {})
-        working_days = cal.get("working_days", 0)
+        effective_mins = cal.get("effective_mins", 0.0)
         oee = cal.get("oee", 0.55)
-        mins = cal.get("mins", 420.0)
-        if working_days == 0:
+        if effective_mins <= 0:
             return 0.0
         wlpm = line_period_weighted_lpm.get(key)
         if wlpm is None:
             return None
-        return wlpm * oee * mins * working_days
+        return wlpm * oee * effective_mins
 
     def _available_weekly(line_code: str, week: str) -> float | None:
         if line_code not in line_pack:
             return None
         key = (line_code, week)
         cal = line_week_days.get(key, {})
-        working_days = cal.get("working_days", 0)
+        effective_mins = cal.get("effective_mins", 0.0)
         oee = cal.get("oee", 0.55)
-        mins = cal.get("mins", 420.0)
-        if working_days == 0:
+        if effective_mins <= 0:
             return 0.0
         wlpm = line_week_weighted_lpm.get(key)
         if wlpm is None:
             return None
-        return wlpm * oee * mins * working_days
+        return wlpm * oee * effective_mins
 
     # ── 12. Headcount check per line × period ─────────────────────────────────
     def _labour_status(line_code: str, period: str) -> str:
@@ -558,7 +742,7 @@ def compute_dashboard(conn, batch_id: int, allowed_statuses: tuple[str, ...] = (
             wcal     = line_week_days.get((line_code, week), {})
             wdays    = wcal.get("working_days", 0)
             woee     = wcal.get("oee", 0.55)
-            wmins    = wcal.get("mins", 420.0)
+            weff_mins = wcal.get("effective_mins", 0.0)
 
             if wavail is not None and wavail > 0:
                 wutil = round((wprod / wavail) * 100, 1)
@@ -568,7 +752,11 @@ def compute_dashboard(conn, batch_id: int, allowed_statuses: tuple[str, ...] = (
             else:
                 wutil, wgap = None, None
 
-            wavail_h = round(wdays * woee * wmins / 60.0, 1) if wavail not in (None,) else (0.0 if wavail == 0.0 else None)
+            wavail_h = (
+                round(weff_mins * woee / 60.0, 1)
+                if wavail is not None
+                else None
+            )
             wprod_h  = _to_hours(wprod, wavail, wavail_h)
             wgap_h   = round(wavail_h - wprod_h, 1) if wavail_h is not None and wprod_h is not None else None
 
@@ -610,15 +798,14 @@ def compute_dashboard(conn, batch_id: int, allowed_statuses: tuple[str, ...] = (
                 util_pct = None
                 gap = None
 
-            # Hours: available_hours = working_days × oee × mins / 60
-            oee_val  = cal.get("oee", 0.55)
-            mins_val = cal.get("mins", 420.0)
+            # Hours: available_hours = effective_mins × oee / 60
+            # (effective_mins already reflects planned_hours per day from the calendar)
+            oee_val     = cal.get("oee", 0.55)
+            effective_m = cal.get("effective_mins", 0.0)
             if avail is None:
                 available_hours = None
-            elif avail == 0.0:
-                available_hours = 0.0
             else:
-                available_hours = round(working_days * oee_val * mins_val / 60.0, 1)
+                available_hours = round(effective_m * oee_val / 60.0, 1)
 
             production_h = _to_hours(production, avail, available_hours)
             gap_hours = (
@@ -633,6 +820,30 @@ def compute_dashboard(conn, batch_id: int, allowed_statuses: tuple[str, ...] = (
             actual_hours = (
                 round(actual / (max_lpm * 60), 1)
                 if actual is not None and max_lpm and max_lpm > 0
+                else None
+            )
+
+            # Planned downtime — total + breakdown (independent of capacity calc)
+            loss_total = line_period_losses.get((line_code, period), 0.0)
+            loss_bd = line_period_losses_breakdown.get((line_code, period),
+                                                       {"maintenance": 0.0, "planned_downtime": 0.0,
+                                                        "public_holiday": 0.0, "other_loss": 0.0})
+
+            # Headcount — standard from Sheet 1, exceptions applied as a delta
+            standard_hc = _hc_planned_avg(line_code, period)
+            # Total per-line exception delta this period = sum across the line's roles
+            line_adj_total = sum(
+                line_role_adjustments.get((line_code, r["role_code"], period), 0.0)
+                for r in line_hc_roles.get(line_code, [])
+            )
+            if standard_hc is not None:
+                effective_hc = round(max(0.0, standard_hc + line_adj_total), 2)
+            else:
+                effective_hc = None
+            req_val = hc_required.get(line_code)
+            effective_shortfall = (
+                round(max(0.0, float(req_val) - effective_hc), 2)
+                if req_val is not None and effective_hc is not None
                 else None
             )
 
@@ -657,10 +868,22 @@ def compute_dashboard(conn, batch_id: int, allowed_statuses: tuple[str, ...] = (
                 "demand_hours":      _to_hours(demand,  avail, available_hours),
                 "gap_hours":         gap_hours,
                 "actual_hours":      actual_hours,
-                # headcount
-                "hc_required":       hc_required.get(line_code),
-                "hc_planned_avg":    _hc_planned_avg(line_code, period),
-                "hc_shortfall":      _hc_shortfall(line_code, period),
+                # headcount — hc_planned_avg is the EFFECTIVE figure
+                # (standard + exception deltas). hc_planned_standard is the
+                # raw Sheet-1 value before adjustments.
+                "hc_required":          req_val,
+                "hc_planned_avg":       effective_hc,
+                "hc_planned_standard":  standard_hc,
+                "hc_shortfall":         effective_shortfall,
+                "hc_exceptions":        line_exception_detail.get((line_code, period), []),
+                # planned downtime (annotation; does not subtract from available)
+                "loss_hours":        round(loss_total, 1),
+                "loss_breakdown": {
+                    "maintenance":       round(loss_bd["maintenance"], 1),
+                    "planned_downtime":  round(loss_bd["planned_downtime"], 1),
+                    "public_holiday":    round(loss_bd["public_holiday"], 1),
+                    "other_loss":        round(loss_bd["other_loss"], 1),
+                },
             })
 
         # Peak utilisation across all months (worst case)
@@ -729,12 +952,33 @@ def compute_dashboard(conn, batch_id: int, allowed_statuses: tuple[str, ...] = (
     labour_shortfalls = sum(1 for l in lines_out if l["material_labour_shortfall"])
     no_data = sum(1 for l in lines_out if l["risk_status"] == "No data")
 
-    peak_utils = [
-        max((m["utilisation_pct"] for m in l["monthly"] if m["utilisation_pct"] is not None), default=None)
-        for l in lines_out
-    ]
-    valid_peaks = [u for u in peak_utils if u is not None]
-    overall_util = round(sum(valid_peaks) / len(valid_peaks), 1) if valid_peaks else None
+    # Site-level KPIs:
+    #   overall_utilisation_pct       = Σ production / Σ available           (theoretical load)
+    #   overall_plan_feasibility_pct  = Σ min(prod, avail) / Σ production    (the actionable signal)
+    # Feasibility < 100% means some demand can't be made on the constrained
+    # lines and needs OT / extra shift / reschedule.
+    _total_prod = 0.0
+    _total_avail = 0.0
+    _deliverable = 0.0
+    _any_avail = False
+    for l in lines_out:
+        for m in l["monthly"]:
+            p = m.get("production_litres") or 0.0
+            a = m.get("available_litres")
+            if a is None:
+                _deliverable += p
+                continue
+            _any_avail = True
+            _total_prod += p
+            _total_avail += a
+            if p > 0:
+                _deliverable += min(p, a)
+    overall_util = None
+    overall_feasibility = None
+    if _any_avail and _total_avail > 0:
+        overall_util = round((_total_prod / _total_avail) * 100, 1)
+    if _total_prod > 0:
+        overall_feasibility = round((_deliverable / _total_prod) * 100, 1)
 
     # Total annual gap: sum of ALL deficit months across ALL lines.
     # Only negative gaps contribute (months where production > available capacity).
@@ -768,7 +1012,8 @@ def compute_dashboard(conn, batch_id: int, allowed_statuses: tuple[str, ...] = (
     kpis = {
         "critical_lines": critical,
         "high_lines": high,
-        "overall_utilisation_pct": overall_util,
+        "overall_utilisation_pct": overall_util,                # theoretical: Σ production / Σ available
+        "overall_plan_feasibility_pct": overall_feasibility,    # actionable: Σ min(prod, avail) / Σ production
         "total_gap_litres": total_gap,
         "lines_with_labour_shortfall": labour_shortfalls,
         "lines_with_no_data": no_data,
@@ -788,26 +1033,88 @@ def compute_dashboard(conn, batch_id: int, allowed_statuses: tuple[str, ...] = (
         for r in cursor.fetchall()
     }
 
-    # Build plant_support_requirements with per-period headcount data
+    # Per-plant per-period working days = max of the plant's lines' working days.
+    # Plant-shared roles cover the plant whenever ANY line is operating, so this
+    # is the operating envelope for converting FTE planned to role-hours available.
+    plant_period_working_days: dict[tuple, int] = {}
+    plant_period_mins: dict[tuple, float] = {}
+    for line_code, meta in lines_meta.items():
+        plant_code = meta["plant_code"]
+        line_mins = meta["available_mins_per_day"]
+        for period in horizon_months:
+            cal = line_period_days.get((line_code, period), {})
+            wd = cal.get("working_days", 0)
+            key = (plant_code, period)
+            if wd > plant_period_working_days.get(key, 0):
+                plant_period_working_days[key] = wd
+                plant_period_mins[key] = line_mins
+
+    # Build plant_support_requirements with per-period headcount data.
+    # hc_planned_avg = EFFECTIVE figure (standard + prorated exceptions).
+    # hc_planned_standard = the raw Sheet-2 value before adjustments.
     plant_support_out: dict[str, list] = {}
     for plant_code, roles in plant_support.items():
         role_list = []
         for role in roles:
+            role_code_str = role["role_code"]
             monthly_hc = []
             for period in horizon_months:
-                avg = _plant_hc_planned_avg(plant_code, role["role_code"], period)
-                shortfall = _plant_hc_shortfall(plant_code, role["role_code"], role["required"], period)
+                standard = _plant_hc_planned_avg(plant_code, role_code_str, period)
+                adj = plant_role_adjustments.get((plant_code, role_code_str, period), 0.0)
+                if standard is not None:
+                    effective = round(max(0.0, standard + adj), 2)
+                else:
+                    effective = None
+                shortfall = (
+                    round(max(0.0, float(role["required"]) - effective), 2)
+                    if effective is not None else None
+                )
+                exceptions_here = [
+                    e for e in plant_exception_detail.get((plant_code, period), [])
+                    if e["role"] == role_code_str
+                ]
+                wd = plant_period_working_days.get((plant_code, period), 0)
                 monthly_hc.append({
                     "period": period,
-                    "hc_planned_avg": avg,
-                    "hc_shortfall": shortfall,
+                    "hc_planned_avg":      effective,
+                    "hc_planned_standard": standard,
+                    "hc_shortfall":        shortfall,
+                    "hc_exceptions":       exceptions_here,
+                    "working_days":        wd,
                 })
             role_list.append({
-                "role_code": role["role_code"],
+                "role_code": role_code_str,
                 "required": role["required"],
                 "monthly": monthly_hc,
             })
         plant_support_out[plant_code] = role_list
+
+    # ── Portfolio changes (metadata only) ───────────────────────────────────────
+    # Demand for new launches flows through demand_plan + production_orders;
+    # this file's role is to LABEL the change (what / when / line) so the UI
+    # can mark launch months on the charts and list the events for governance.
+    cursor.execute("""
+        SELECT item_code, change_type, effective_date, description, impact_notes
+        FROM dbo.portfolio_changes WHERE batch_id = ?
+    """, batch_id)
+
+    portfolio_changes_out = []
+    for r in cursor.fetchall():
+        eff = r.effective_date
+        if hasattr(eff, "date"):
+            eff = eff.date()
+        portfolio_changes_out.append({
+            "item_code": r.item_code,
+            "change_type": r.change_type or "OTHER",
+            "effective_date": str(eff) if eff else None,
+            "effective_period": _period(eff) if eff else None,
+            "description": r.description,
+            "impact_notes": r.impact_notes,
+            "line_code": item_primary_line.get(r.item_code),
+        })
+
+    _ct_order = {"NEW_LAUNCH": 0, "DISCONTINUE": 1}
+    portfolio_changes_out.sort(key=lambda x: (_ct_order.get(x["change_type"], 2), x["effective_period"] or "9999-99"))
 
     return {
         "batch_id": batch_id,
@@ -819,6 +1126,7 @@ def compute_dashboard(conn, batch_id: int, allowed_statuses: tuple[str, ...] = (
         "kpis": kpis,
         "lines": lines_out,
         "unassigned_orders": unassigned_out,
+        "portfolio_changes": portfolio_changes_out,        # introductions / phase-outs + capacity impact
         "plant_support_requirements": plant_support_out,  # plant_code → [{role_code, required, monthly}]
         "resource_type_rates": resource_type_rates,        # role_code → standard_hourly_rate
         "settings": {

@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>RCCP One — Governance & Process</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --navy:#0C3C5D; --navy2:#143F5C; --navy-deep:#082A40; --navy-tint:#E8EEF3;
+    --lime:#AACD00; --lime-deep:#7B9400; --lime-tint:#F0F7CC;
+    --sage:#B1CCBB; --ink:#0F1A24; --ink2:#3F4D5B; --ink3:#6B7A8A; --ink4:#9CABB9;
+    --border:#E2E6EA; --border2:#CCD3DA; --bg:#F7F7F5; --amber:#B45309; --amber-tint:#FEF3C7;
+    --sans:"Geist",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+    --mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:#5b6770;font-family:var(--sans);color:var(--ink);-webkit-font-smoothing:antialiased;letter-spacing:-0.005em;padding:24px 0;}
+  .deck{display:flex;justify-content:center;}
+  .slide{position:relative;width:297mm;height:210mm;background:var(--bg);overflow:hidden;
+    padding:15mm 18mm 13mm;display:flex;flex-direction:column;box-shadow:0 10px 40px rgba(0,0,0,.3);}
+
+  .head{display:flex;align-items:center;justify-content:space-between;}
+  .brand{display:flex;align-items:center;gap:12px;}
+  .brand img.logo{height:32px;width:auto;display:block;}
+  .rccp-badge{font-family:var(--mono);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.18em;
+    color:var(--lime-deep);background:var(--lime-tint);border:1px solid var(--lime);border-radius:4px;padding:3px 9px;}
+  .head .eyebrow{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.16em;color:var(--ink3);}
+  .rule{height:3px;border-radius:3px;margin:12px 0 0;background:linear-gradient(90deg,var(--lime),rgba(170,205,0,0));}
+
+  h1.title{font-size:30px;font-weight:700;color:var(--navy);letter-spacing:-0.026em;line-height:1.05;margin-top:16px;display:flex;align-items:center;gap:13px;}
+  h1.title .bar{width:6px;height:32px;border-radius:3px;background:linear-gradient(180deg,var(--lime),var(--lime-deep));box-shadow:0 0 12px rgba(170,205,0,.4);}
+  .sub{font-size:13.5px;color:var(--ink2);margin-top:8px;}
+
+  /* flow */
+  .flow{display:flex;align-items:stretch;gap:0;margin-top:20px;}
+  .stage{flex:1;background:#fff;border:1px solid var(--border);border-radius:14px;padding:16px 16px 14px;position:relative;display:flex;flex-direction:column;}
+  .stage .top{display:flex;align-items:center;gap:9px;margin-bottom:3px;}
+  .stage .num{width:26px;height:26px;border-radius:8px;background:var(--navy);color:#fff;font-weight:800;font-size:14px;
+    display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+  .stage h3{font-size:15px;font-weight:700;color:var(--navy);letter-spacing:-0.015em;}
+  .stage .when{font-family:var(--mono);font-size:9.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--lime-deep);margin-bottom:9px;padding-left:35px;}
+  .stage ul{list-style:none;display:flex;flex-direction:column;gap:6px;margin-top:2px;}
+  .stage li{display:flex;gap:7px;font-size:11.5px;color:var(--ink2);line-height:1.35;}
+  .stage li .o{font-weight:600;color:var(--navy);}
+  .stage li .dot{flex-shrink:0;width:5px;height:5px;border-radius:50%;background:var(--lime);margin-top:5px;}
+  .arrow{display:flex;align-items:center;justify-content:center;width:30px;color:var(--ink4);font-size:22px;flex-shrink:0;}
+  .ph2{display:inline-block;font-family:var(--mono);font-size:8px;font-weight:700;letter-spacing:.06em;color:var(--navy);
+    background:var(--navy-tint);border:1px solid var(--border2);border-radius:10px;padding:0 5px;margin-left:4px;vertical-align:middle;}
+
+  /* feedback loop */
+  .loop{margin-top:12px;display:flex;align-items:center;gap:10px;background:linear-gradient(135deg,#FAFCF9,#F4F8F0);
+    border:1px solid var(--border);border-radius:12px;padding:10px 16px;position:relative;padding-left:20px;}
+  .loop::before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:4px;border-radius:3px;background:linear-gradient(180deg,var(--lime),var(--navy));}
+  .loop .ico{font-size:18px;color:var(--lime-deep);}
+  .loop p{font-size:12px;color:var(--ink2);}
+  .loop strong{color:var(--navy);}
+
+  /* RACI + cadence */
+  .foot-grid{margin-top:14px;display:grid;grid-template-columns:1fr 1fr 1.5fr 1fr;gap:12px;}
+  .raci{background:#fff;border:1px solid var(--border);border-radius:12px;padding:11px 14px;}
+  .raci .k{font-family:var(--mono);font-size:9.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--ink3);}
+  .raci .v{font-size:12.5px;color:var(--navy);font-weight:600;margin-top:3px;line-height:1.35;}
+  .raci .v.norm{font-weight:500;color:var(--ink2);}
+  .raci.accent{background:var(--lime-tint);border-color:var(--lime);}
+
+  .foot{position:absolute;left:18mm;right:18mm;bottom:7mm;display:flex;align-items:center;justify-content:space-between;
+    font-size:10.5px;color:var(--ink4);border-top:1px solid var(--border);padding-top:7px;}
+  .foot .moove{font-weight:800;color:var(--navy);letter-spacing:-0.03em;}
+  .foot .mono{font-family:var(--mono);}
+
+  @media print{
+    @page{size:A4 landscape;margin:0;}
+    body{background:#fff;padding:0;}
+    .slide{box-shadow:none;}
+    *{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;}
+    .screen-only{display:none !important;}
+  }
+</style>
+</head>
+<body>
+<div class="screen-only" style="max-width:297mm;margin:0 auto 14px;color:#fff;font-size:13px;opacity:.9;font-family:var(--sans);">
+  Tip — make the PDF: <strong>Print</strong> (Ctrl/Cmd&nbsp;P) → <strong>Save as PDF</strong> → <strong>Landscape</strong> → Margins <strong>None</strong> → untick “Headers and footers”.
+</div>
+<div class="deck">
+  <section class="slide">
+    <div class="head">
+      <div class="brand"><img class="logo" src="moove-logo.png" alt="moove" /><span class="rccp-badge">RCCP</span></div>
+      <span class="eyebrow">Governance &amp; Process</span>
+    </div>
+    <div class="rule"></div>
+
+    <h1 class="title"><span class="bar"></span>The monthly RCCP cycle</h1>
+    <p class="sub">One validated plan per month: inputs in → build &amp; validate → stakeholder review → sign-off. Everyone debates the <strong style="color:var(--navy)">same published numbers</strong>.</p>
+
+    <!-- 4-stage flow -->
+    <div class="flow">
+      <div class="stage">
+        <div class="top"><span class="num">1</span><h3>Inputs</h3></div>
+        <div class="when">Working days 1–3 · data owners</div>
+        <ul>
+          <li><span class="dot"></span><span><span class="o">S&amp;OP</span> — demand forecast</span></li>
+          <li><span class="dot"></span><span><span class="o">Product</span> — portfolio / SKU changes</span></li>
+          <li><span class="dot"></span><span><span class="o">Manufacturing</span> — line capacity, OEE &amp; headcount</span></li>
+          <li><span class="dot"></span><span><span class="o">Warehouse</span> — pallet capacity <span class="ph2">PHASE 2</span></span></li>
+          <li><span class="dot"></span><span><span class="o">Standing data</span> — master data, as needed (Planning + Eng.)</span></li>
+        </ul>
+      </div>
+      <div class="arrow">→</div>
+
+      <div class="stage">
+        <div class="top"><span class="num">2</span><h3>Build &amp; validate</h3></div>
+        <div class="when">Working days 4–6 · Planning</div>
+        <ul>
+          <li><span class="dot"></span>Create the batch, upload the SAP files</li>
+          <li><span class="dot"></span>Run the 7-stage validation — fix at source</li>
+          <li><span class="dot"></span><span class="o">Publish a candidate baseline</span> (single source of truth)</li>
+        </ul>
+      </div>
+      <div class="arrow">→</div>
+
+      <div class="stage">
+        <div class="top"><span class="num">3</span><h3>RCCP review</h3></div>
+        <div class="when">Mid-month · stakeholders</div>
+        <ul>
+          <li><span class="dot"></span>Chaired by <span class="o">Planning</span>; S&amp;OP, Manufacturing, Product, Warehouse, Finance</li>
+          <li><span class="dot"></span>Review capacity vs order book, risk lines &amp; headcount</li>
+          <li><span class="dot"></span>Run scenarios — extra hours / OEE / <span class="o">£ cost</span></li>
+          <li><span class="dot"></span>Agree actions &amp; owners</li>
+        </ul>
+      </div>
+      <div class="arrow">→</div>
+
+      <div class="stage">
+        <div class="top"><span class="num">4</span><h3>Sign-off</h3></div>
+        <div class="when">By month-end · approvers</div>
+        <ul>
+          <li><span class="dot"></span><span class="o">ELT / Site Ops</span> — approve the plan</li>
+          <li><span class="dot"></span><span class="o">Finance</span> — approve any extra cost <span class="ph2">PHASE 2</span></li>
+          <li><span class="dot"></span>Baseline locked &amp; published — the agreed plan</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- feedback loop -->
+    <div class="loop">
+      <span class="ico">&#8635;</span>
+      <p>If the review needs changes: <strong>Planning corrects the source file → re-validates → re-publishes</strong> a new candidate. Every version is kept — full audit trail.</p>
+    </div>
+
+    <!-- RACI + cadence -->
+    <div class="foot-grid">
+      <div class="raci"><div class="k">Responsible — runs it</div><div class="v">Planning</div></div>
+      <div class="raci accent"><div class="k">Accountable — signs off</div><div class="v">ELT / Site Ops</div></div>
+      <div class="raci"><div class="k">Consulted — inputs &amp; review</div><div class="v norm">S&amp;OP · Manufacturing · Product · Warehouse · Finance</div></div>
+      <div class="raci"><div class="k">Cadence</div><div class="v norm">Monthly · cycle = 1st of month · one live baseline</div></div>
+    </div>
+
+    <div class="foot"><span class="moove">moove</span><span>RCCP One · Governance &amp; Process · UKP1</span><span class="mono">Monthly cycle</span></div>
+  </section>
+</div>
+</body>
+</html>

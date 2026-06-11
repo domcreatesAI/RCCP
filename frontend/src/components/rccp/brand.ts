@@ -2,7 +2,7 @@
 // Single source of truth so the Executive Summary and planner dashboard
 // (NextMonthSpotlight, LineRiskRadar, CapacityChart) stay visually in sync.
 
-import type { RCCPLine } from '../../types'
+import type { RCCPLine, RCCPPlantSupportRole } from '../../types'
 
 // ─── Moove palette ──────────────────────────────────────────────────────────────
 export const C = {
@@ -133,24 +133,63 @@ export type Verdict = 'ON TRACK' | 'AT RISK' | 'CRITICAL'
 
 export interface FocusVerdict {
   verdict: Verdict
-  siteUtil: number | null      // Σ production / Σ available (%)
-  demandCov: number | null     // Σ demand / Σ available (%)
-  over: { code: string; util: number }[]        // lines ≥100% in the focus month
-  short: { code: string; shortfall: number }[]  // lines with a labour shortfall
+  // Plan feasibility: % of production deliverable at current per-line capacity.
+  // 100% = the plan fits. < 100% = some demand can't be made on the lines as-is.
+  planFeasibility: number | null
+  deliverableLitres: number            // Σ min(prod_i, avail_i)
+  shortfallLitres: number              // Σ max(0, prod_i − avail_i)  — the unbookable volume
+  productionTotal: number              // Σ (firm + planned)  — the committed plan
+  firmTotal: number                    // Σ firm_litres (YPAC)
+  plannedTotal: number                 // Σ planned_litres (LA / MRP)
+  // Theoretical capacity load — Σ prod / Σ avail — kept for the optimisation sub-line.
+  siteUtilTheoretical: number | null
+  theoreticalCapacity: number | null
+  // Demand vs capacity (theoretical, unchanged).
+  demandCov: number | null
+  demandTotal: number
+  over: { code: string; util: number }[]
+  short: { code: string; shortfall: number }[]
 }
 
-/** Capacity + labour verdict for a single focus month. */
+/**
+ * Plan-feasibility verdict for a single focus month.
+ *
+ * The headline metric is **plan feasibility** — the share of planned production
+ * that fits in current per-line capacity. Anything under 100% means some demand
+ * can't be made and needs OT, an extra shift, or a reschedule.
+ *
+ *   deliverable   = Σ min(production_i, available_i)
+ *   shortfall     = Σ max(0, production_i − available_i)
+ *   feasibility   = deliverable / Σ production
+ *
+ * The theoretical figure (Σ prod / Σ avail) is kept as a secondary number —
+ * "if mix could rebalance freely across lines".
+ */
 export function focusVerdict(lines: RCCPLine[], period: string): FocusVerdict {
-  let avail = 0, prod = 0, demand = 0
+  let availSum = 0, prod = 0, demand = 0, firm = 0, plannedSum = 0
+  let deliverable = 0, shortfall = 0
+  let anyAvail = false
   const over: { code: string; util: number }[] = []
   const short: { code: string; shortfall: number }[] = []
 
   for (const l of lines) {
     const m = l.monthly.find(x => x.period === period)
     if (!m) continue
-    avail  += m.available_litres ?? 0
-    prod   += m.production_litres ?? 0
-    demand += m.demand_litres ?? 0
+    const a = m.available_litres ?? 0
+    const p = m.production_litres ?? 0
+    const d = m.demand_litres ?? 0
+    if (m.available_litres != null) { anyAvail = true; availSum += a }
+    prod += p
+    firm += m.firm_litres ?? 0
+    plannedSum += m.planned_litres ?? 0
+    demand += d
+    if (m.available_litres != null && p > 0) {
+      deliverable += Math.min(p, a)
+      shortfall   += Math.max(0, p - a)
+    } else {
+      // No capacity data → treat production as deliverable (no constraint signal).
+      deliverable += p
+    }
     if (m.utilisation_pct != null && m.utilisation_pct >= 100) {
       over.push({ code: l.line_code, util: m.utilisation_pct })
     }
@@ -159,17 +198,34 @@ export function focusVerdict(lines: RCCPLine[], period: string): FocusVerdict {
     }
   }
 
-  const siteUtil  = avail > 0 ? Math.round((prod / avail) * 100) : null
-  const demandCov = avail > 0 ? Math.round((demand / avail) * 100) : null
+  const planFeasibility = prod > 0 ? Math.round((deliverable / prod) * 100) : null
+  const siteUtilTheoretical =
+    anyAvail && availSum > 0 ? Math.round((prod / availSum) * 100) : null
+  const demandCov =
+    anyAvail && availSum > 0 ? Math.round((demand / availSum) * 100) : null
 
   let verdict: Verdict
   if (over.length > 0) verdict = 'CRITICAL'
-  else if (short.length > 0 || (demandCov != null && demandCov > 100) || (siteUtil != null && siteUtil >= 90)) verdict = 'AT RISK'
+  else if (short.length > 0 || (demandCov != null && demandCov > 100)) verdict = 'AT RISK'
   else verdict = 'ON TRACK'
 
   over.sort((a, b) => b.util - a.util)
   short.sort((a, b) => b.shortfall - a.shortfall)
-  return { verdict, siteUtil, demandCov, over, short }
+  return {
+    verdict,
+    planFeasibility,
+    deliverableLitres: deliverable,
+    shortfallLitres: shortfall,
+    productionTotal: prod,
+    firmTotal: firm,
+    plannedTotal: plannedSum,
+    siteUtilTheoretical,
+    theoreticalCapacity: anyAvail ? availSum : null,
+    demandCov,
+    demandTotal: demand,
+    over,
+    short,
+  }
 }
 
 export interface LineHeadline {
@@ -217,4 +273,183 @@ export function displayStatus(peakUtil: number | null, materialShort: number): R
   if (peakUtil > 90 || materialShort >= HC_MATERIAL) return 'High'
   if (peakUtil > 75) return 'Watch'
   return 'Stable'
+}
+
+// ─── FTE-equivalent headcount summary ───────────────────────────────────────────
+//
+// FTE = full-time equivalent. 1 FTE = one person working a standard month
+// (e.g. 22 working days × 7h = 154h). Headcount expressed in FTE captures
+// part-time, overtime, and partial-month-running scenarios that head-counts
+// alone hide.
+//
+// FTE_month_hours is calendar-derived so February (~19 wd) gives a smaller
+// "1 FTE" envelope than July (~23 wd).
+//
+//   site_working_days = max(working_days across all visible lines that month)
+//   shift_hours       = max(available_mins_per_day) / 60
+//   FTE_month_hours   = site_working_days × shift_hours
+//
+//   role_hours_line   = production_hours × Σ hc_roles[r].required (per line)
+//   role_hours_plant  = plant_req[role] × plant_operating_hours    (per plant role)
+//   needed_FTE        = (Σ role_hours_line + Σ role_hours_plant) / FTE_month_hours
+//
+//   planned_FTE       = Σ hc_planned_avg across line + plant role entries
+
+// Per-line FTE detail used by the breakdown panel — shows the build-up:
+// (production hours × per-line crew) ÷ FTE_month_hours
+export interface FteLineDetail {
+  line_code: string
+  plant_code: string
+  production_hours: number
+  crew_per_line: number              // sum of hc_roles required
+  role_hours: number                 // production_hours × crew_per_line
+  fte: number                        // role_hours / FTE_month_hours
+}
+
+export interface FtePlantSharedDetail {
+  plant_code: string
+  role_code: string
+  required: number
+  operating_hours: number             // plant operating envelope this month
+  role_hours: number                  // required × operating_hours
+  fte: number                         // role_hours / FTE_month_hours
+}
+
+export interface FteSummary {
+  needed: number | null              // FTE-equivalents required to run the plan
+  planned: number | null             // FTE-equivalents available from headcount_plan
+  gap: number | null                 // needed − planned  (+ve = short)
+  monthHours: number                 // 1-FTE envelope this month (hours)
+  workingDays: number                // site working days this month
+  lineDetail: FteLineDetail[]
+  plantSharedDetail: FtePlantSharedDetail[]
+}
+
+export function fteSummary(
+  lines: RCCPLine[],
+  plantSupport: Record<string, RCCPPlantSupportRole[]>,
+  period: string,
+): FteSummary {
+  // Site working days = max across visible lines (handles single-line maintenance gracefully)
+  let siteWd = 0
+  let shiftMins = 0
+  for (const l of lines) {
+    const m = l.monthly.find(x => x.period === period)
+    if (!m) continue
+    if (m.working_days > siteWd) siteWd = m.working_days
+    const mins = l.available_mins_per_day || 420
+    if (mins > shiftMins) shiftMins = mins
+  }
+  const monthHours = (siteWd * shiftMins) / 60
+
+  if (monthHours === 0) {
+    return { needed: null, planned: null, gap: null, monthHours: 0, workingDays: 0, lineDetail: [], plantSharedDetail: [] }
+  }
+
+  // Plant operating envelope (max line-hours per plant) — for plant-shared role hours
+  const plantOperatingHours = new Map<string, number>()
+  for (const l of lines) {
+    const m = l.monthly.find(x => x.period === period)
+    if (!m) continue
+    const ah = m.available_hours ?? 0
+    const cur = plantOperatingHours.get(l.plant_code) ?? 0
+    if (ah > cur) plantOperatingHours.set(l.plant_code, ah)
+  }
+
+  let totalRoleHours = 0
+  let totalPlanned = 0
+  const lineDetail: FteLineDetail[] = []
+  const plantSharedDetail: FtePlantSharedDetail[] = []
+
+  // Line roles — only count role-hours when the line is actually scheduled (production_hours > 0)
+  for (const l of lines) {
+    const m = l.monthly.find(x => x.period === period)
+    if (!m) continue
+    const productionHours = m.production_hours ?? 0
+    const lineCrew = l.hc_roles.reduce((s, r) => s + r.required, 0)
+    if (productionHours > 0) {
+      const roleHours = productionHours * lineCrew
+      totalRoleHours += roleHours
+      lineDetail.push({
+        line_code: l.line_code,
+        plant_code: l.plant_code,
+        production_hours: Math.round(productionHours * 10) / 10,
+        crew_per_line: lineCrew,
+        role_hours: Math.round(roleHours * 10) / 10,
+        fte: Math.round((roleHours / monthHours) * 100) / 100,
+      })
+    }
+    if (m.hc_planned_avg != null) totalPlanned += m.hc_planned_avg
+  }
+
+  // Plant-shared roles — present whenever the plant operates
+  for (const [plantCode, roles] of Object.entries(plantSupport)) {
+    const opHours = plantOperatingHours.get(plantCode) ?? 0
+    for (const role of roles) {
+      if (opHours > 0) {
+        const roleHours = role.required * opHours
+        totalRoleHours += roleHours
+        plantSharedDetail.push({
+          plant_code: plantCode,
+          role_code: role.role_code,
+          required: role.required,
+          operating_hours: Math.round(opHours * 10) / 10,
+          role_hours: Math.round(roleHours * 10) / 10,
+          fte: Math.round((roleHours / monthHours) * 100) / 100,
+        })
+      }
+      const monthly = role.monthly?.find(x => x.period === period)
+      if (monthly?.hc_planned_avg != null) totalPlanned += monthly.hc_planned_avg
+    }
+  }
+
+  const needed = totalRoleHours / monthHours
+  return {
+    needed: Math.round(needed * 10) / 10,
+    planned: Math.round(totalPlanned * 10) / 10,
+    gap: Math.round((needed - totalPlanned) * 10) / 10,
+    monthHours: Math.round(monthHours * 10) / 10,
+    workingDays: siteWd,
+    lineDetail: lineDetail.sort((a, b) => b.fte - a.fte),
+    plantSharedDetail,
+  }
+}
+
+// Aggregate FTE summary across multiple periods (e.g. 12-month horizon).
+// Returns average per-month figures so the 12-month tile reads in the same
+// units as the planning-month tile (no apples vs oranges).
+export interface FteHorizonSummary {
+  avgNeeded: number | null
+  avgPlanned: number | null
+  avgGap: number | null
+  monthsShort: number          // count of horizon months with material gap (≥ 1 FTE)
+  totalMonths: number
+}
+
+export function fteSummaryHorizon(
+  lines: RCCPLine[],
+  plantSupport: Record<string, RCCPPlantSupportRole[]>,
+  periods: string[],
+): FteHorizonSummary {
+  let needSum = 0, planSum = 0, gapSum = 0
+  let count = 0, monthsShort = 0
+  for (const p of periods) {
+    const fte = fteSummary(lines, plantSupport, p)
+    if (fte.needed == null) continue
+    needSum += fte.needed
+    planSum += fte.planned ?? 0
+    gapSum  += fte.gap ?? 0
+    if ((fte.gap ?? 0) >= 1) monthsShort++
+    count++
+  }
+  if (count === 0) {
+    return { avgNeeded: null, avgPlanned: null, avgGap: null, monthsShort: 0, totalMonths: periods.length }
+  }
+  return {
+    avgNeeded: Math.round((needSum / count) * 10) / 10,
+    avgPlanned: Math.round((planSum / count) * 10) / 10,
+    avgGap: Math.round((gapSum / count) * 10) / 10,
+    monthsShort,
+    totalMonths: count,
+  }
 }

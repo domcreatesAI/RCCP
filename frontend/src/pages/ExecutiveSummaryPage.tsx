@@ -10,9 +10,12 @@ import {
 } from 'lucide-react'
 import { listBatches } from '../api/batches'
 import { getDashboard, downloadVerificationExcel } from '../api/rccp'
-import type { Batch, RCCPLine, RCCPMonthlyBucket, UnitMode } from '../types'
+import type { Batch, RCCPLine, RCCPMonthlyBucket, RCCPPortfolioChange, UnitMode } from '../types'
 import NextMonthSpotlight from '../components/rccp/NextMonthSpotlight'
-import LineRiskRadar from '../components/rccp/LineRiskRadar'
+import PortfolioPanel from '../components/rccp/PortfolioPanel'
+import PeopleFitPanel from '../components/rccp/PeopleFitPanel'
+import DowntimePanel from '../components/rccp/DowntimePanel'
+import KPITile from '../components/rccp/KPITile'
 import { HIDDEN_LINE_CODES, oeeBaselineLabel } from '../components/rccp/brand'
 
 // ─── Brand tokens ─────────────────────────────────────────────────────────────
@@ -206,69 +209,6 @@ const RISK: Record<string, { bg: string; text: string; dot: string }> = {
   'No data': { bg: '#F4F4F5',    text: C.ink3,       dot: C.ink4 },
 }
 
-// ─── KPI tile ─────────────────────────────────────────────────────────────────
-function KPITile({
-  label, value, suffix = '', delta, deltaLabel, footnote, tone, icon: Icon,
-}: {
-  label: string
-  value: string | number
-  suffix?: string
-  delta?: 'up' | 'down' | null
-  deltaLabel?: string
-  footnote?: string
-  tone: 'navy' | 'warn' | 'lime'
-  icon: React.ElementType
-}) {
-  const ruleColor = tone === 'warn' ? C.red : tone === 'lime' ? C.lime : C.navy
-  const numColor  = tone === 'warn' ? C.red : tone === 'lime' ? C.limeDeep : C.navy
-  const icoBg    = tone === 'warn' ? C.redLight : tone === 'lime' ? C.limeTint : C.navyTint
-  const icoColor = tone === 'warn' ? C.red : tone === 'lime' ? C.limeDeep : C.navy
-
-  const deltaClass = delta === 'up'
-    ? { background: C.redLight, color: C.red }
-    : delta === 'down'
-    ? { background: C.greenLight, color: C.green }
-    : null
-
-  return (
-    <div
-      className="relative overflow-hidden rounded-xl px-5 py-4 transition-all hover:-translate-y-px"
-      style={{
-        background: 'linear-gradient(180deg,#FFFFFF 0%,#FAFAFA 100%)',
-        border: `1px solid ${C.border}`,
-      }}
-    >
-      <span className="absolute left-0 top-0 w-full" style={{ height: 3, background: ruleColor, opacity: 0.85 }} />
-      <span
-        className="absolute inset-0 pointer-events-none"
-        style={{
-          background: 'radial-gradient(120% 80% at 0% 0%,rgba(12,60,93,0.025),transparent 60%)',
-        }}
-      />
-      <div className="relative flex items-center justify-between mb-3">
-        <span className="text-[11.5px] font-medium" style={{ color: C.ink3 }}>{label}</span>
-        <span
-          className="inline-flex items-center justify-center rounded-md"
-          style={{ width: 22, height: 22, background: icoBg, color: icoColor }}
-        >
-          <Icon className="w-3 h-3" strokeWidth={2.4} />
-        </span>
-      </div>
-      <div className="relative flex items-baseline gap-2">
-        <span className="text-[32px] font-semibold leading-none tabnum" style={{ color: numColor, letterSpacing: '-0.025em' }}>
-          {value}{suffix && <span className="text-[18px] font-medium ml-px" style={{ color: C.ink3 }}>{suffix}</span>}
-        </span>
-        {delta && deltaLabel && (
-          <span className="font-mono text-[11px] font-medium px-1.5 py-px rounded" style={deltaClass!}>
-            {delta === 'up' ? '↑' : '↓'} {deltaLabel}
-          </span>
-        )}
-      </div>
-      {footnote && <p className="relative text-[11.5px] mt-3" style={{ color: C.ink3 }}>{footnote}</p>}
-    </div>
-  )
-}
-
 // ─── Plant chart ──────────────────────────────────────────────────────────────
 type ChartRow = {
   period: string
@@ -276,6 +216,7 @@ type ChartRow = {
   isActual: boolean
   available: number | null
   demand: number | null
+  launches?: RCCPPortfolioChange[]
   [key: string]: unknown
 }
 
@@ -283,6 +224,7 @@ function buildChartData(
   lines: RCCPLine[],
   planCycleDate: string,
   unitMode: UnitMode,
+  launchesByPeriod: Record<string, RCCPPortfolioChange[]> = {},
 ): ChartRow[] {
   const cycle = addMonths(planCycleDate.slice(0, 7), 0)
   const actualPeriods = [-3, -2, -1].map(o => addMonths(cycle, o))
@@ -335,8 +277,38 @@ function buildChartData(
     // S&OP demand is forward-only — don't plot it across past months (it's just 0 there).
     row.demand    = isActual ? null : (anyDem ? demand : null)
     row.available = anyAvail ? avail  : null
+    row.launches  = launchesByPeriod[period]
     return row
   })
+}
+
+// X-axis tick that adds a small lime dot below the month label whenever any
+// new launch is effective in that period. Hover the dot to see the SKU/line list.
+function LaunchTick(props: { data: ChartRow[] } & Record<string, unknown>) {
+  const data = props.data
+  const x = Number(props.x ?? 0)
+  const y = Number(props.y ?? 0)
+  const payload = props.payload as { value?: string | number } | undefined
+  const index = typeof props.index === 'number' ? props.index : undefined
+  const row = index != null ? data[index] : undefined
+  const launches = row?.launches ?? []
+  const has = launches.length > 0
+  const tip = has
+    ? `New launch · ${launches.map(l => `${l.item_code ?? '?'}${l.line_code ? ' · ' + l.line_code : ''}`).join('; ')}`
+    : ''
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <text x={0} y={0} dy={12} textAnchor="middle" fontSize={11} fontWeight={500} fill={C.ink2}>
+        {payload?.value ?? ''}
+      </text>
+      {has && (
+        <g>
+          <title>{tip}</title>
+          <circle cx={0} cy={22} r={3.5} fill={C.lime} stroke={C.limeDeep} strokeWidth={0.6} />
+        </g>
+      )}
+    </g>
+  )
 }
 
 function ChartTooltip({
@@ -400,14 +372,16 @@ function ChartTooltip({
 }
 
 function PlantChart({
-  plantCode, lines, planCycleDate, unitMode,
+  plantCode, lines, planCycleDate, unitMode, launchesByPeriod,
 }: {
   plantCode: string
   lines: RCCPLine[]
   planCycleDate: string
   unitMode: UnitMode
+  launchesByPeriod?: Record<string, RCCPPortfolioChange[]>
 }) {
-  const data = buildChartData(lines, planCycleDate, unitMode)
+  const data = buildChartData(lines, planCycleDate, unitMode, launchesByPeriod ?? {})
+  const hasLaunches = data.some(d => (d.launches?.length ?? 0) > 0)
   const dividerIdx = data.findIndex(d => !d.isActual)
   const dividerLabel = dividerIdx > 0 ? data[dividerIdx]?.label : null
 
@@ -462,17 +436,24 @@ function PlantChart({
           <span className="inline-block" style={{ width: 18, borderTop: `2px solid ${C.amber}` }} />
           S&amp;OP demand
         </span>
+        {hasLaunches && (
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block rounded-full" style={{ width: 9, height: 9, background: C.lime, border: `1px solid ${C.limeDeep}` }} />
+            New launch
+          </span>
+        )}
       </div>
 
       {/* Chart */}
-      <ResponsiveContainer width="100%" height={260}>
-        <ComposedChart data={data} margin={{ top: 18, right: 28, bottom: 6, left: -8 }} barCategoryGap="12%" barGap={1}>
+      <ResponsiveContainer width="100%" height={272}>
+        <ComposedChart data={data} margin={{ top: 18, right: 28, bottom: hasLaunches ? 18 : 6, left: -8 }} barCategoryGap="12%" barGap={1}>
           <CartesianGrid strokeDasharray="3 3" stroke="#F0F2F5" vertical={false} />
           <XAxis
             dataKey="label"
-            tick={{ fontSize: 11, fill: C.ink2, fontWeight: 500 }}
+            tick={(props) => <LaunchTick {...props} data={data} />}
             axisLine={{ stroke: C.border2 }}
             tickLine={false}
+            height={hasLaunches ? 38 : 24}
           />
           <YAxis
             tickFormatter={(v) => formatLarge(v as number, unitMode)}
@@ -730,6 +711,18 @@ export default function ExecutiveSummaryPage() {
     plantGroups[line.plant_code].push(line)
   }
   const activePlants = PLANT_ORDER.filter(p => plantGroups[p]?.length)
+
+  // Group new launches by plant → effective_period for chart markers.
+  const launchesByPlant: Record<string, Record<string, RCCPPortfolioChange[]>> = {}
+  for (const c of dashboard?.portfolio_changes ?? []) {
+    if (c.change_type !== 'NEW_LAUNCH' || !c.effective_period) continue
+    const ln = c.line_code ? allLines.find(l => l.line_code === c.line_code) : undefined
+    const plant = ln?.plant_code
+    if (!plant) continue
+    if (!launchesByPlant[plant]) launchesByPlant[plant] = {}
+    if (!launchesByPlant[plant][c.effective_period]) launchesByPlant[plant][c.effective_period] = []
+    launchesByPlant[plant][c.effective_period].push(c)
+  }
 
   const linesInScope = sortLines(selectedPlant ? (plantGroups[selectedPlant] ?? []) : allLines)
 
@@ -1066,7 +1059,13 @@ export default function ExecutiveSummaryPage() {
             initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08 }}
             className="mt-4 print:mt-2"
           >
-            <NextMonthSpotlight lines={allLines} planCycleDate={dashboard.plan_cycle_date} onSelectLine={selectLine} />
+            <NextMonthSpotlight
+              lines={allLines}
+              planCycleDate={dashboard.plan_cycle_date}
+              onSelectLine={selectLine}
+              plantSupport={dashboard.plant_support_requirements ?? {}}
+              cogsPerLitre={dashboard.settings?.cogs_opex_per_litre ?? 0.12}
+            />
           </motion.div>
 
           {/* Commentary */}
@@ -1256,22 +1255,38 @@ export default function ExecutiveSummaryPage() {
                   lines={lines}
                   planCycleDate={dashboard.plan_cycle_date}
                   unitMode={unitMode}
+                  launchesByPeriod={launchesByPlant[plant]}
                 />
               </motion.div>
             ))}
           </div>
 
-          {/* Line risk radar */}
+          {/* People fit */}
           <motion.div
-            initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.22 }}
+            initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.24 }}
             className="mt-4 print:mt-3"
           >
-            <LineRiskRadar
+            <PeopleFitPanel
               lines={allLines}
+              plantSupport={dashboard.plant_support_requirements ?? {}}
               planCycleDate={dashboard.plan_cycle_date}
-              onSelectLine={selectLine}
-              selectedLine={selectedLine}
             />
+          </motion.div>
+
+          {/* Planned downtime */}
+          <motion.div
+            initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}
+            className="mt-4 print:mt-3"
+          >
+            <DowntimePanel lines={allLines} planCycleDate={dashboard.plan_cycle_date} />
+          </motion.div>
+
+          {/* Portfolio changes */}
+          <motion.div
+            initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.26 }}
+            className="mt-4 print:mt-3"
+          >
+            <PortfolioPanel changes={dashboard.portfolio_changes ?? []} />
           </motion.div>
 
           {/* Footer */}

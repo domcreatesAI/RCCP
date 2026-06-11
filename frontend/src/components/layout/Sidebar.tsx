@@ -1,6 +1,6 @@
 import { NavLink } from 'react-router'
 import {
-  Upload, GitBranch, FileText, SlidersHorizontal, LogOut, Download,
+  Upload, GitBranch, FileText, SlidersHorizontal, LogOut, Download, Factory,
 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 
@@ -13,11 +13,13 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { label: 'Planning Data',     path: '/',                  badge: 'P1', icon: Upload },
-  { label: 'Executive Summary', path: '/executive-summary', badge: 'P4', icon: FileText },
-  { label: 'Scenarios',         path: '/scenarios',         badge: 'P3', icon: GitBranch },
-  { label: 'Batch Exports',     path: '/exports',           badge: 'XLS', icon: Download },
-  { label: 'Settings',          path: '/settings',          badge: 'P5', icon: SlidersHorizontal },
+  { label: 'Planning Data',        path: '/',                     badge: 'P1', icon: Upload },
+  { label: 'Executive Summary',    path: '/executive-summary',    badge: 'P4', icon: FileText },
+  { label: 'Executive Summary v2', path: '/executive-summary-v2', badge: 'V2', icon: FileText },
+  { label: 'Plant Detail',         path: '/plant-detail',         badge: 'OPS', icon: Factory },
+  { label: 'Scenarios',            path: '/scenarios',            badge: 'P3', icon: GitBranch },
+  { label: 'Batch Exports',        path: '/exports',              badge: 'XLS', icon: Download },
+  { label: 'Settings',             path: '/settings',             badge: 'P5', icon: SlidersHorizontal },
 ]
 
 function initials(name: string) {
@@ -63,30 +65,14 @@ export default function Sidebar() {
 
       {/* Brand */}
       <div className="relative px-5 pt-6 pb-5 border-b border-white/10">
-        <div className="flex items-center gap-2.5">
-          <img
-            src="/moove-logo.png"
-            alt="moove"
-            className="h-7 w-auto"
-            style={{ filter: 'brightness(0) invert(1)' }}
-          />
-          <span
-            className="font-mono font-semibold uppercase"
-            style={{
-              fontSize: '9px',
-              color: '#AACD00',
-              letterSpacing: '0.16em',
-              background: 'rgba(170,205,0,0.12)',
-              padding: '3px 8px',
-              borderRadius: '3px',
-              border: '1px solid rgba(170,205,0,0.3)',
-            }}
-          >
-            RCCP
-          </span>
-        </div>
+        <img
+          src="/moove-logo.png"
+          alt="moove"
+          className="h-7 w-auto"
+          style={{ filter: 'brightness(0) invert(1)' }}
+        />
         <p className="text-[11.5px] mt-2 text-white/55 font-medium tracking-wide">
-          Capacity Planning · UKP1
+          RCCP One · UKP1
         </p>
       </div>
 

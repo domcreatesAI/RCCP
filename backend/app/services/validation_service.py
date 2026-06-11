@@ -190,15 +190,17 @@ FILE_SCHEMAS: dict = {
         "is_sap": False,
         "header_row": 2,
         "data_start_row": 3,
-        # available_hours promoted to required
-        "required": ["line_code", "plan_date", "planned_headcount", "available_hours"],
-        "optional": ["shift_code", "notes"],
+        # Monthly format (one row per line per month) is the contract. Legacy
+        # daily files (with plan_date) are still accepted by the publish handler
+        # — see _import_headcount_plan in publish_service.py. The "at least one
+        # of plan_month / plan_date" check lives in _stage3.
+        "required": ["line_code", "planned_headcount"],
+        "optional": ["plan_month", "notes"],
         "types": {
             "line_code":         "str",
-            "plan_date":         "date",
+            "plan_month":        "date",
+            "plan_date":         "date",   # type known for legacy files; not in optional
             "planned_headcount": "decimal",
-            "available_hours":   "decimal",
-            "shift_code":        "str",
             "notes":             "str",
         },
         "fk_checks": {"line_code": ("dbo.lines", "line_code")},
@@ -338,7 +340,7 @@ def run_validation(
                    "SAP export — column mapping not yet confirmed. "
                    "Update file_schemas when SAP export headers are available.")
     else:
-        ws = wb.active
+        ws = wb.worksheets[0]
         headers = _get_headers(ws, schema.get("header_row", 1))
         data_rows = _get_data_rows(ws, headers, schema.get("data_start_row", 2))
 
@@ -455,10 +457,10 @@ def _stage2(cursor, batch_file_id: int, stored_file_path: str, header_row: int =
                f"File could not be opened as a valid Excel workbook: {str(exc)[:200]}")
         return None
 
-    ws = wb.active
+    ws = wb.worksheets[0] if wb.worksheets else None
     if ws is None:
         _write(cursor, batch_file_id, stage_num, stage_name, "BLOCKED",
-               "Workbook has no active sheet")
+               "Workbook has no sheets")
         return None
 
     header_vals = [cell.value for cell in next(ws.iter_rows(min_row=header_row, max_row=header_row), [])]
@@ -493,6 +495,15 @@ def _stage3(cursor, batch_file_id: int, schema: dict, headers: list) -> list:
         _write(cursor, batch_file_id, stage_num, stage_name, "WARNING",
                f"Optional column '{col}' not found — will be treated as NULL",
                field_name=col)
+
+    # headcount_plan accepts either plan_month (preferred, monthly format) or
+    # plan_date (legacy daily format). At least one must be present.
+    if schema.get("types", {}).get("plan_month") == "date" \
+            and "plan_month" not in header_set and "plan_date" not in header_set:
+        _write(cursor, batch_file_id, stage_num, stage_name, "BLOCKED",
+               "Required column 'plan_month' not found (or legacy 'plan_date' for daily files)",
+               field_name="plan_month")
+        blocked_cols.append("plan_month")
 
     if schema.get("wide_format") and not blocked_cols:
         month_cols = _detect_month_columns(headers)
@@ -791,15 +802,19 @@ def _validate_plant_support_sheet(cursor, conn, batch_file_id: int, wb) -> None:
                "add a 'Plant Support' sheet to track plant-level headcount (optional).")
         return
 
-    # Check required columns in header row 2
-    required_cols = {"plant_code", "resource_type_code", "plan_date", "planned_headcount"}
+    # Check required columns in header row 2. Accept either plan_month
+    # (preferred — monthly format) or legacy plan_date (daily format).
+    base_required = {"plant_code", "resource_type_code", "planned_headcount"}
     headers2 = _get_headers(sheet2, header_row=2)
     header_set = set(headers2)
-    missing = required_cols - header_set
+    missing = base_required - header_set
+    if "plan_month" not in header_set and "plan_date" not in header_set:
+        missing = missing | {"plan_month"}
     if missing:
         _write(cursor, batch_file_id, stage_num, stage_name, "BLOCKED",
                f"Plant Support sheet: missing required columns: {', '.join(sorted(missing))}. "
-               f"Expected header row 2 with: {', '.join(sorted(required_cols))}.")
+               f"Expected header row 2 with: plant_code, resource_type_code, plan_month "
+               f"(or legacy plan_date), planned_headcount.")
         return
 
     data_rows2 = _get_data_rows(sheet2, headers2, start_row=3)
@@ -819,11 +834,11 @@ def _validate_plant_support_sheet(cursor, conn, batch_file_id: int, wb) -> None:
     for row_num, row in data_rows2:
         pc = (row.get("plant_code") or "").strip()
         rc = (row.get("resource_type_code") or "").strip()
-        pd_raw = row.get("plan_date")
+        pd_raw = row.get("plan_month") if "plan_month" in header_set else row.get("plan_date")
         hc_raw = row.get("planned_headcount")
 
         if not pc or not rc or pd_raw is None:
-            errors.append(f"Row {row_num}: plant_code, resource_type_code, plan_date are required.")
+            errors.append(f"Row {row_num}: plant_code, resource_type_code, plan_month are required.")
             continue
         if pc not in valid_plants:
             errors.append(f"Row {row_num}: plant_code '{pc}' not found in dbo.plants.")
@@ -961,7 +976,7 @@ def _read_file_column(stored_path: str, file_type: str, column_name: str) -> set
     schema = FILE_SCHEMAS[file_type]
     try:
         wb = openpyxl.load_workbook(stored_path, read_only=True, data_only=True)
-        ws = wb.active
+        ws = wb.worksheets[0]
         headers = _get_headers(ws, schema["header_row"])
         rows = _get_data_rows(ws, headers, schema["data_start_row"])
         return {
@@ -1014,7 +1029,12 @@ def _stage8_sku_coverage(cursor, conn, batch_id, batch_file_id, stored_file_path
 
 
 def _stage8_headcount_coverage(cursor, conn, batch_id, batch_file_id, stored_file_path):
-    """Warn about (line, date) pairs in line_capacity_calendar missing from headcount_plan."""
+    """Warn about (line, month) combinations in line_capacity_calendar missing from headcount_plan.
+
+    Coverage check is month-level (not date-level) since the headcount file is
+    now monthly. Legacy daily files are still tolerated — each daily row maps
+    to a (line, month) pair, so coverage works either way.
+    """
     stage_num, stage_name = 8, STAGE_NAMES[8]
 
     lcc_path = _get_sibling_path(conn, batch_id, "line_capacity_calendar")
@@ -1024,19 +1044,19 @@ def _stage8_headcount_coverage(cursor, conn, batch_id, batch_file_id, stored_fil
                "headcount coverage check pending. Run Re-validate when all files are uploaded.")
         return
 
-    # Collect (line_code, date) from line_capacity_calendar
+    # Collect (line_code, year-month) from line_capacity_calendar — operating months only
     lcc_schema = FILE_SCHEMAS["line_capacity_calendar"]
     calendar_pairs: set[tuple] = set()
     try:
         wb = openpyxl.load_workbook(lcc_path, read_only=True, data_only=True)
-        ws = wb.active
+        ws = wb.worksheets[0]
         headers = _get_headers(ws, lcc_schema["header_row"])
         rows = _get_data_rows(ws, headers, lcc_schema["data_start_row"])
         for _, row in rows:
             lc = str(row.get("line_code", "")).strip()
             dt = _to_date(row.get("calendar_date"))
             if lc and dt:
-                calendar_pairs.add((lc, dt))
+                calendar_pairs.add((lc, (dt.year, dt.month)))
     except Exception:
         _write(cursor, batch_file_id, stage_num, stage_name, "WARNING",
                "Could not read line_capacity_calendar — headcount coverage check skipped",
@@ -1046,7 +1066,7 @@ def _stage8_headcount_coverage(cursor, conn, batch_id, batch_file_id, stored_fil
     if not calendar_pairs:
         return
 
-    # Collect (line_code, date) from headcount_plan
+    # Collect (line_code, year-month) from headcount_plan (accept plan_month or plan_date)
     hc_schema = FILE_SCHEMAS["headcount_plan"]
     hc_pairs: set[tuple] = set()
     try:
@@ -1056,16 +1076,16 @@ def _stage8_headcount_coverage(cursor, conn, batch_id, batch_file_id, stored_fil
         rows2 = _get_data_rows(ws2, headers2, hc_schema["data_start_row"])
         for _, row in rows2:
             lc = str(row.get("line_code", "")).strip()
-            dt = _to_date(row.get("plan_date"))
+            dt = _to_date(row.get("plan_month")) or _to_date(row.get("plan_date"))
             if lc and dt:
-                hc_pairs.add((lc, dt))
+                hc_pairs.add((lc, (dt.year, dt.month)))
     except Exception:
         return
 
     missing_pairs = calendar_pairs - hc_pairs
     if not missing_pairs:
         _write(cursor, batch_file_id, stage_num, stage_name, "PASS",
-               f"headcount_plan covers all {len(calendar_pairs)} line-date combinations "
+               f"headcount_plan covers all {len(calendar_pairs)} line-month combinations "
                f"in line_capacity_calendar")
         return
 
@@ -1078,7 +1098,7 @@ def _stage8_headcount_coverage(cursor, conn, batch_id, batch_file_id, stored_fil
     for lc in sorted(missing_by_line.keys())[:50]:
         count = missing_by_line[lc]
         _write(cursor, batch_file_id, stage_num, stage_name, "WARNING",
-               f"Line '{lc}': missing planned_headcount for {count} date(s) "
+               f"Line '{lc}': missing planned_headcount for {count} month(s) "
                f"that exist in line_capacity_calendar",
                field_name="headcount_coverage", sample_value=lc)
 
@@ -1100,7 +1120,7 @@ def _stage8_demand_overlap(cursor, conn, batch_id, batch_file_id, stored_file_pa
     pc_schema = FILE_SCHEMAS["portfolio_changes"]
     try:
         wb = openpyxl.load_workbook(stored_file_path, read_only=True, data_only=True)
-        ws = wb.active
+        ws = wb.worksheets[0]
         headers = _get_headers(ws, pc_schema["header_row"])
         rows = _get_data_rows(ws, headers, pc_schema["data_start_row"])
     except Exception:

@@ -1,18 +1,16 @@
 """
-Generate a pre-filled Headcount Plan Excel file for upload to RCCP One.
+Generate a pre-filled Headcount Plan workbook for upload to RCCP One.
 
-Covers 01/01/2026 – 31/12/2030.
-One row per production line per working day (weekends and bank holidays = 0 headcount).
+Produces three sheets matching the in-app template:
 
-planned_headcount = LINE_OPERATOR + TEAM_LEADER per line (LINE-scoped roles only).
-Plant-scoped resources (Robot Operators, Material Handlers, Forklift Drivers, Technician)
-are tracked separately in plant_resource_requirements — they do not appear here.
+  Sheet 1 — "Line Headcount"   monthly per line  (line_code, plan_month, planned_headcount, notes)
+  Sheet 2 — "Plant Support"    monthly per plant role  (plant_code, resource_type_code, plan_month, planned_headcount)
+  Sheet 3 — "Exceptions"       known absences  (line/plant, role, start, end, delta, reason)
 
-Shift pattern mirrors the capacity calendar:
-  Mon–Thu: working day (8.5h shift) → full headcount
-  Fri:     working day (6.0h shift) → full headcount
-  Sat/Sun: non-working               → planned_headcount = 0
-  Bank hol: non-working              → planned_headcount = 0
+Covers 01/2026 – 12/2030 (60 months).
+planned_headcount on Sheet 1 = LINE_OPERATOR + TEAM_LEADER per line (combined).
+Plant-shared roles (Forklift, Materials Handler, Robot Operator, Technician)
+live on Sheet 2.
 
 Run from the repo root:
     python scripts/generate_headcount_plan.py
@@ -20,14 +18,14 @@ Output: uploads/headcount_plan_2026_2030.xlsx
 """
 
 import os
-from datetime import date, timedelta
+from datetime import date
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 
+
 # ---------------------------------------------------------------------------
-# Planned headcount per line: LINE_OPERATOR + TEAM_LEADER
-# Lines with no Team Leader requirement simply have 0 TL (not a separate row)
+# Sheet 1 — Line headcount (LINE_OPERATOR + TEAM_LEADER combined per line)
 # ---------------------------------------------------------------------------
 LINE_HEADCOUNT = {
     # Plant 1
@@ -35,54 +33,77 @@ LINE_HEADCOUNT = {
     "A102": 3,   # 2 operators + 1 TL
     "A103": 3,   # 2 operators + 1 TL
     # Plant 2
-    "A201": 1,   # 1 operator
-    "A202": 1,   # 1 operator
+    "A201": 1,
+    "A202": 1,
     # Plant 3
-    "A302": 1,   # 1 operator
+    "A302": 1,
     "A303": 4,   # 3 operators + 1 TL
     "A304": 3,   # 2 operators + 1 TL
     "A305": 3,   # 2 operators + 1 TL
-    "A307": 1,   # 1 operator
-    "A308": 1,   # 1 operator
+    "A307": 1,
+    "A308": 1,
     # Plant 4
     "A401": 4,   # 3 operators + 1 TL
     # Plant 5
-    "A501": 2,   # 2 operators
-    "A502": 2,   # 2 operators
+    "A501": 2,
+    "A502": 2,
 }
 
-LINES = [
-    "A101", "A102", "A103",
-    "A201", "A202",
-    "A302", "A303", "A304", "A305", "A307", "A308",
-    "A401",
-    "A501", "A502",
+LINES = list(LINE_HEADCOUNT.keys())
+
+
+# ---------------------------------------------------------------------------
+# Sheet 2 — Plant-shared headcount (forklift, material handler, robot op, technician)
+# Adjust to match dbo.plant_resource_requirements; numbers below produce
+# "ALL CLEAR" for each plant.
+# ---------------------------------------------------------------------------
+PLANT_SUPPORT_HEADCOUNT: dict[str, dict[str, int]] = {
+    "Plant 1": {
+        "FORKLIFT_DRIVER":  2,
+        "MATERIAL_HANDLER": 2,
+        "ROBOT_OPERATOR":   1,
+        "TECHNICIAN":       1,
+    },
+    # Plant 2 has no plant-shared role requirements at present.
+    "Plant 3": {
+        "ROBOT_OPERATOR":   4,
+    },
+    "Plant 4": {
+        "ROBOT_OPERATOR":   1,
+    },
+    # Plant 5 has no plant-shared role requirements at present.
+}
+
+
+# ---------------------------------------------------------------------------
+# Sheet 3 — Sample exceptions (clearly flagged as samples)
+# Leave the file empty if you don't want any pre-populated rows.
+# ---------------------------------------------------------------------------
+SAMPLE_EXCEPTIONS = [
+    # line/plant         role               start         end           delta  reason
+    ("A101", "",         "",                "15/05/2026", "19/05/2026", -1,    "Annual leave (sample — remove if not real)"),
+    ("",     "Plant 1",  "FORKLIFT_DRIVER", "01/06/2026", "12/06/2026", -1,    "Long-term sick (sample — remove if not real)"),
 ]
 
+
 # ---------------------------------------------------------------------------
-# UK Bank Holidays 2026–2030
+# Date range — 60 months from Jan 2026 through Dec 2030 inclusive
 # ---------------------------------------------------------------------------
-UK_BANK_HOLIDAYS = {
-    date(2026,  1,  1), date(2026,  4,  3), date(2026,  4,  6),
-    date(2026,  5,  4), date(2026,  5, 25), date(2026,  8, 31),
-    date(2026, 12, 25), date(2026, 12, 28),
+START_YEAR, START_MONTH = 2026, 1
+END_YEAR,   END_MONTH   = 2030, 12
 
-    date(2027,  1,  1), date(2027,  3, 26), date(2027,  3, 29),
-    date(2027,  5,  3), date(2027,  5, 31), date(2027,  8, 30),
-    date(2027, 12, 27), date(2027, 12, 28),
 
-    date(2028,  1,  3), date(2028,  4, 14), date(2028,  4, 17),
-    date(2028,  5,  1), date(2028,  5, 29), date(2028,  8, 28),
-    date(2028, 12, 25), date(2028, 12, 26),
+def months_in_range() -> list[date]:
+    out = []
+    y, m = START_YEAR, START_MONTH
+    while (y, m) <= (END_YEAR, END_MONTH):
+        out.append(date(y, m, 1))
+        m += 1
+        if m > 12:
+            m = 1
+            y += 1
+    return out
 
-    date(2029,  1,  1), date(2029,  3, 30), date(2029,  4,  2),
-    date(2029,  5,  7), date(2029,  5, 28), date(2029,  8, 27),
-    date(2029, 12, 25), date(2029, 12, 26),
-
-    date(2030,  1,  1), date(2030,  4, 19), date(2030,  4, 22),
-    date(2030,  5,  6), date(2030,  5, 27), date(2030,  8, 26),
-    date(2030, 12, 25), date(2030, 12, 26),
-}
 
 # ---------------------------------------------------------------------------
 # Styles
@@ -91,158 +112,148 @@ _HEADER_FILL = PatternFill("solid", fgColor="1E3A5F")
 _HEADER_FONT = Font(color="FFFFFF", bold=True, size=10)
 _DESC_FILL   = PatternFill("solid", fgColor="FFE066")
 _DESC_FONT   = Font(color="7A5700", italic=True, size=9)
-_BH_FILL     = PatternFill("solid", fgColor="FFF3CD")
-_WE_FILL     = PatternFill("solid", fgColor="F3F4F6")
 _CENTER      = Alignment(horizontal="center", vertical="center")
 _LEFT        = Alignment(horizontal="left",   vertical="center")
 
-COLUMNS = [
-    "line_code",
-    "plan_date",
-    "planned_headcount",
-    "shift_code",
-    "available_hours",
-    "notes",
-]
 
-DESCRIPTIONS = [
-    "Production line code (e.g. A101). Must match a line in the masterdata.",
-    "Date in DD/MM/YYYY format (e.g. 01/03/2026).",
-    "Number of operators planned for this line on this date. Required. Must be >= 0.",
-    "Optional shift identifier. DAY = single shift.",
-    "Total labour hours available (headcount x shift hours). Optional.",
-    "Free text notes. Optional.",
-]
+def _write_sheet(
+    wb: Workbook,
+    sheet_name: str,
+    is_first: bool,
+    columns: list[tuple[str, str, int]],   # (key, description, col_width)
+    rows: list[list],
+) -> None:
+    """Write a sheet with row 1 = descriptions (amber), row 2 = column keys, data from row 3."""
+    ws = wb.active if is_first else wb.create_sheet(sheet_name)
+    ws.title = sheet_name
 
-COL_WIDTHS = {
-    "line_code":         12,
-    "plan_date":         16,
-    "planned_headcount": 20,
-    "shift_code":        14,
-    "available_hours":   18,
-    "notes":             28,
-}
-
-# Hours per working day by weekday (matches capacity calendar shift pattern)
-SHIFT_HOURS = {
-    0: 8.5,  # Monday
-    1: 8.5,  # Tuesday
-    2: 8.5,  # Wednesday
-    3: 8.5,  # Thursday
-    4: 6.0,  # Friday
-}
-
-
-def generate() -> None:
-    start = date(2026, 1, 1)
-    end   = date(2030, 12, 31)
-
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "Data"
-
-    # Row 1: field descriptions
-    for col_idx, desc in enumerate(DESCRIPTIONS, start=1):
+    # Row 1: descriptions
+    for col_idx, (_key, desc, _width) in enumerate(columns, start=1):
         cell = ws.cell(row=1, column=col_idx, value=desc)
-        cell.font      = _DESC_FONT
-        cell.fill      = _DESC_FILL
+        cell.font = _DESC_FONT
+        cell.fill = _DESC_FILL
         cell.alignment = _LEFT
 
     # Row 2: column keys
-    for col_idx, col in enumerate(COLUMNS, start=1):
-        cell = ws.cell(row=2, column=col_idx, value=col)
-        cell.font      = _HEADER_FONT
-        cell.fill      = _HEADER_FILL
+    for col_idx, (key, _desc, width) in enumerate(columns, start=1):
+        cell = ws.cell(row=2, column=col_idx, value=key)
+        cell.font = _HEADER_FONT
+        cell.fill = _HEADER_FILL
         cell.alignment = _CENTER
-        ws.column_dimensions[get_column_letter(col_idx)].width = COL_WIDTHS.get(col, 16)
+        ws.column_dimensions[get_column_letter(col_idx)].width = width
+
+    # Data rows
+    for row_offset, row in enumerate(rows, start=3):
+        for col_idx, val in enumerate(row, start=1):
+            ws.cell(row=row_offset, column=col_idx, value=val)
 
     ws.freeze_panes = "A3"
 
-    row_num = 3
-    current = start
-    while current <= end:
-        weekday    = current.weekday()
-        is_weekend = weekday >= 5
-        is_bank_hol = current in UK_BANK_HOLIDAYS
-        is_working  = not is_weekend and not is_bank_hol
 
-        if is_bank_hol:
-            notes = "Bank holiday"
-        elif is_weekend:
-            notes = "Weekend"
-        else:
-            notes = ""
+def generate() -> None:
+    months = months_in_range()
+    wb = Workbook()
 
-        shift_hours = SHIFT_HOURS.get(weekday, 0.0)
-
-        for line in LINES:
-            headcount  = LINE_HEADCOUNT[line] if is_working else 0
-            avail_hrs  = round(headcount * shift_hours, 1) if is_working else 0.0
-
-            ws.cell(row=row_num, column=1, value=line)
-            ws.cell(row=row_num, column=2, value=current.strftime("%d/%m/%Y"))
-            ws.cell(row=row_num, column=3, value=headcount)
-            ws.cell(row=row_num, column=4, value="DAY" if is_working else "")
-            ws.cell(row=row_num, column=5, value=avail_hrs)
-            ws.cell(row=row_num, column=6, value=notes)
-
-            if is_bank_hol:
-                for c in range(1, 7):
-                    ws.cell(row=row_num, column=c).fill = _BH_FILL
-            elif is_weekend:
-                for c in range(1, 7):
-                    ws.cell(row=row_num, column=c).fill = _WE_FILL
-
-            row_num += 1
-
-        current += timedelta(days=1)
-
-    # Info sheet
-    ws2 = wb.create_sheet("Info")
-    ws2.column_dimensions["A"].width = 70
-    info = [
-        "RCCP One — Headcount Plan 2026–2030",
-        "",
-        f"Generated: {date.today().strftime('%d/%m/%Y')}",
-        f"Lines: {len(LINES)}",
-        f"Date range: 01/01/2026 – 31/12/2030",
-        f"Total rows: {row_num - 3:,}",
-        "",
-        "planned_headcount = LINE_OPERATOR + TEAM_LEADER per line.",
-        "Plant-scoped resources (Robot Operators, Material Handlers,",
-        "Forklift Drivers, Technician) are NOT in this file — they are",
-        "managed via plant_resource_requirements masterdata.",
-        "",
-        "Headcount per line:",
+    # ── Sheet 1 — Line headcount ─────────────────────────────────────────
+    line_cols = [
+        ("line_code",         "Production line code (e.g. A101). Must match a line in the masterdata.",                                                       12),
+        ("plan_month",        "1st of the month in DD/MM/YYYY (e.g. 01/05/2026).",                                                                            16),
+        ("planned_headcount", "Total operators available for this line that month (LINE_OPERATOR + TEAM_LEADER combined). Required. >= 0.",                  20),
+        ("notes",             "Free text notes (e.g. '2 leavers in June'). Optional.",                                                                        32),
     ]
-    for line in LINES:
-        info.append(f"  {line}: {LINE_HEADCOUNT[line]}")
-    info += [
-        "",
-        "Shift pattern: Mon–Thu 8.5h | Fri 6.0h | Sat–Sun non-working",
-        "available_hours = planned_headcount x shift_hours",
-        "",
-        "BEFORE UPLOADING — review and adjust:",
-        "  - Planned headcount for lines with different staffing",
-        "  - Any planned leave / reduced manning periods",
-        "  - Factory shutdown weeks (set planned_headcount = 0)",
+    line_rows = []
+    for m in months:
+        for lc in LINES:
+            line_rows.append([
+                lc,
+                m.strftime("%d/%m/%Y"),
+                LINE_HEADCOUNT[lc],
+                "",
+            ])
+    _write_sheet(wb, "Line Headcount", is_first=True, columns=line_cols, rows=line_rows)
+
+    # ── Sheet 2 — Plant Support ──────────────────────────────────────────
+    plant_cols = [
+        ("plant_code",         "Plant code matching masterdata (e.g. P1, P2).",                                       14),
+        ("resource_type_code", "Resource type code from masterdata (e.g. Forklift_Driver, Materials_Handler).",        24),
+        ("plan_month",         "1st of the month in DD/MM/YYYY (e.g. 01/05/2026).",                                    16),
+        ("planned_headcount",  "Number of staff planned for this plant-level role that month. >= 0.",                  20),
     ]
-    for i, line in enumerate(info, start=1):
-        cell = ws2.cell(row=i, column=1, value=line)
-        cell.font      = Font(bold=(i == 1), size=12 if i == 1 else 10)
+    plant_rows = []
+    for plant_code, roles in PLANT_SUPPORT_HEADCOUNT.items():
+        for role_code, headcount in roles.items():
+            for m in months:
+                plant_rows.append([
+                    plant_code,
+                    role_code,
+                    m.strftime("%d/%m/%Y"),
+                    headcount,
+                ])
+    _write_sheet(wb, "Plant Support", is_first=False, columns=plant_cols, rows=plant_rows)
+
+    # ── Sheet 3 — Exceptions ─────────────────────────────────────────────
+    exc_cols = [
+        ("line_code",          "Production line code (e.g. A101). Required for line-role exceptions; leave blank for plant-shared.", 12),
+        ("plant_code",         "Plant code (e.g. P1). Required for plant-shared role exceptions; leave blank for line.",             12),
+        ("resource_type_code", "Required for PLANT rows. Optional for LINE rows — blank = applied to all line roles proportionally.", 24),
+        ("start_date",         "First affected date in DD/MM/YYYY.",                                                                  14),
+        ("end_date",           "Last affected date in DD/MM/YYYY (inclusive). Same as start for a one-day event.",                    14),
+        ("delta_headcount",    "Change vs the standard headcount during the date range. Negative for absences (e.g. -1 = one person out).", 18),
+        ("reason",             "Free text: annual leave, sickness, training, etc. Surfaces on the People Fit panel.",                 32),
+    ]
+    _write_sheet(wb, "Exceptions", is_first=False, columns=exc_cols, rows=SAMPLE_EXCEPTIONS)
+
+    # ── Info sheet ───────────────────────────────────────────────────────
+    ws_info = wb.create_sheet("Info")
+    ws_info.column_dimensions["A"].width = 78
+    info_lines = [
+        ("RCCP One — Headcount Plan 2026–2030", Font(bold=True, size=13)),
+        ("", None),
+        (f"Generated: {date.today().strftime('%d/%m/%Y')}", Font(size=10)),
+        (f"Lines: {len(LINES)}", Font(size=10)),
+        (f"Plants with shared crew: {len(PLANT_SUPPORT_HEADCOUNT)}", Font(size=10)),
+        (f"Date range: 01/{START_MONTH:02d}/{START_YEAR} – 12/{END_MONTH:02d}/{END_YEAR}  ({len(months)} months)", Font(size=10)),
+        (f"Line Headcount rows: {len(line_rows):,}", Font(size=10)),
+        (f"Plant Support rows: {len(plant_rows):,}", Font(size=10)),
+        (f"Exception sample rows: {len(SAMPLE_EXCEPTIONS)}", Font(size=10)),
+        ("", None),
+        ("HOW THIS FILE WORKS", Font(bold=True, size=11)),
+        ("• Sheet 1 — one row per line per month. planned_headcount is the standard staffing for that line "
+         "(LINE_OPERATOR + TEAM_LEADER combined; the engine splits them per masterdata).", Font(size=10)),
+        ("• Sheet 2 — one row per plant × shared-role × month. Forklift drivers, materials handlers, robot ops, technicians.", Font(size=10)),
+        ("• Sheet 3 — known absences vs the standard. The engine prorates each event into the affected month(s). "
+         "Two sample rows are included — REMOVE OR REPLACE BEFORE UPLOADING IF NOT REAL.", Font(size=10)),
+        ("", None),
+        ("Per-line headcount (Sheet 1):", Font(bold=True, size=10)),
+        *[(f"  {lc}: {LINE_HEADCOUNT[lc]}", Font(size=10)) for lc in LINES],
+        ("", None),
+        ("Per-plant shared crew (Sheet 2):", Font(bold=True, size=10)),
+        *[(f"  {pc} · {rc}: {hc}", Font(size=10))
+          for pc, roles in PLANT_SUPPORT_HEADCOUNT.items()
+          for rc, hc in roles.items()],
+        ("", None),
+        ("BEFORE UPLOADING", Font(bold=True, size=11)),
+        ("• Confirm the standard headcount figures with Manufacturing.", Font(size=10)),
+        ("• Update Sheet 3 with this cycle's known absences (annual leave, sickness, training, etc.) "
+         "and remove the sample rows.", Font(size=10)),
+        ("• Bank holidays do NOT need an exception row — line_capacity_calendar already shuts the line that day.", Font(size=10)),
+    ]
+    for i, (text, font) in enumerate(info_lines, start=1):
+        cell = ws_info.cell(row=i, column=1, value=text)
+        if font is not None:
+            cell.font = font
         cell.alignment = _LEFT
 
+    # ── Save ─────────────────────────────────────────────────────────────
     out_dir = os.path.join(os.path.dirname(__file__), "..", "uploads")
     os.makedirs(out_dir, exist_ok=True)
     out_path = os.path.join(out_dir, "headcount_plan_2026_2030.xlsx")
-
     wb.save(out_path)
+
     print(f"Saved: {os.path.abspath(out_path)}")
-    print(f"Rows:  {row_num - 3:,}  ({len(LINES)} lines x {(end - start).days + 1} days)")
-    print()
-    print("Headcount per line (LINE_OPERATOR + TEAM_LEADER):")
-    for line in LINES:
-        print(f"  {line}: {LINE_HEADCOUNT[line]}")
+    print(f"  Sheet 1 (Line Headcount): {len(line_rows):,} rows  ({len(LINES)} lines × {len(months)} months)")
+    print(f"  Sheet 2 (Plant Support):  {len(plant_rows):,} rows")
+    print(f"  Sheet 3 (Exceptions):     {len(SAMPLE_EXCEPTIONS)} sample rows (replace before uploading)")
 
 
 if __name__ == "__main__":
