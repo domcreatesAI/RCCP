@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>RCCP One — Monthly Cycle</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --navy:#0C3C5D; --navy2:#143F5C; --navy-deep:#082A40; --navy-tint:#E8EEF3;
+    --lime:#AACD00; --lime-deep:#7B9400; --lime-tint:#F0F7CC;
+    --sage:#B1CCBB; --ink:#0F1A24; --ink2:#3F4D5B; --ink3:#6B7A8A; --ink4:#9CABB9;
+    --border:#E2E6EA; --border2:#CCD3DA; --bg:#F7F7F5;
+    --amber:#B45309; --amber-tint:#FEF3C7;
+    --red:#C2410C; --red-tint:#FEE2E2;
+    --blue:#1E40AF; --blue-tint:#DBEAFE;
+    --sans:"Geist",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+    --mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:#5b6770;font-family:var(--sans);color:var(--ink);-webkit-font-smoothing:antialiased;letter-spacing:-0.005em;padding:24px 0;}
+  .deck{display:flex;flex-direction:column;align-items:center;gap:24px;}
+  .slide{position:relative;width:297mm;height:210mm;background:var(--bg);overflow:hidden;
+    padding:14mm 16mm 12mm;display:flex;flex-direction:column;box-shadow:0 10px 40px rgba(0,0,0,.3);}
+
+  .head{display:flex;align-items:center;justify-content:space-between;}
+  .brand{display:flex;align-items:center;gap:12px;}
+  .brand img.logo{height:32px;width:auto;display:block;}
+  .rccp-badge{font-family:var(--mono);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.18em;
+    color:var(--lime-deep);background:var(--lime-tint);border:1px solid var(--lime);border-radius:4px;padding:3px 9px;}
+  .head .eyebrow{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.16em;color:var(--ink3);}
+  .rule{height:3px;border-radius:3px;margin:12px 0 0;background:linear-gradient(90deg,var(--lime),rgba(170,205,0,0));}
+
+  h1.title{font-size:26px;font-weight:700;color:var(--navy);letter-spacing:-0.026em;line-height:1.05;margin-top:12px;display:flex;align-items:center;gap:13px;}
+  h1.title .bar{width:6px;height:28px;border-radius:3px;background:linear-gradient(180deg,var(--lime),var(--lime-deep));box-shadow:0 0 12px rgba(170,205,0,.4);}
+  .sub{font-size:12.5px;color:var(--ink2);margin-top:6px;margin-left:19px;}
+
+  /* Phase flow */
+  .timeline{display:flex;align-items:stretch;gap:0;margin-top:14px;}
+  .phase{flex:1;background:#fff;border:1px solid var(--border);border-radius:12px;padding:10px 11px 10px;position:relative;display:flex;flex-direction:column;}
+  .phase.p1{border-top:4px solid var(--blue);}
+  .phase.p2{border-top:4px solid var(--lime-deep);}
+  .phase.p3{border-top:4px solid var(--amber);}
+  .phase.p4{border-top:4px solid var(--navy);}
+  .phase .num{position:absolute;top:-3px;right:8px;font-family:var(--mono);font-size:9px;font-weight:700;color:var(--ink4);letter-spacing:.1em;}
+  .phase .when{font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink3);margin-bottom:2px;}
+  .phase h3{font-size:13px;font-weight:700;color:var(--navy);letter-spacing:-0.015em;margin-bottom:6px;}
+  .phase ul{list-style:none;display:flex;flex-direction:column;gap:4px;}
+  .phase li{display:flex;gap:5px;font-size:10.5px;color:var(--ink2);line-height:1.3;}
+  .phase li .dot{flex-shrink:0;width:4px;height:4px;border-radius:50%;background:var(--lime);margin-top:5px;}
+  .phase li .o{font-weight:600;color:var(--navy);}
+  .arrow{display:flex;align-items:center;justify-content:center;width:18px;color:var(--ink4);font-size:18px;flex-shrink:0;}
+
+  .dept-tag{display:inline-flex;align-items:center;gap:4px;font-family:var(--mono);font-size:8.5px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;padding:2px 6px;border-radius:3px;margin-right:3px;}
+  .dept-mfg{background:#FEF3C7;color:#92400E;border:1px solid #FCD34D;}
+  .dept-sop{background:#DBEAFE;color:#1E40AF;border:1px solid #93C5FD;}
+  .dept-prod{background:#F0F7CC;color:#7B9400;border:1px solid var(--lime);}
+  .dept-plan{background:#E8EEF3;color:#0C3C5D;border:1px solid #B1CCBB;}
+  .dept-sap{background:#F3E8FF;color:#6B21A8;border:1px solid #D8B4FE;}
+  .dept-elt{background:#FEE2E2;color:#991B1B;border:1px solid #FCA5A5;}
+  .dept-fin{background:#F1F5F9;color:#475569;border:1px solid #CBD5E1;}
+
+  /* Department legend grid */
+  .depts{margin-top:12px;display:grid;grid-template-columns:repeat(4,1fr);gap:8px;}
+  .dept-card{background:#fff;border:1px solid var(--border);border-radius:8px;padding:7px 9px;display:flex;flex-direction:column;gap:3px;}
+  .dept-card .head-row{display:flex;align-items:center;justify-content:space-between;gap:6px;}
+  .dept-card h4{font-size:11.5px;font-weight:700;color:var(--navy);}
+  .dept-card .raci{font-family:var(--mono);font-size:8px;font-weight:700;color:var(--ink4);padding:1px 4px;background:var(--bg);border-radius:2px;letter-spacing:.05em;}
+  .dept-card p{font-size:10.5px;color:var(--ink2);line-height:1.35;}
+  .dept-card .who{font-size:9.5px;color:var(--ink4);margin-top:2px;font-style:italic;}
+
+  .foot{position:absolute;left:16mm;right:16mm;bottom:7mm;display:flex;align-items:center;justify-content:space-between;
+    font-size:10.5px;color:var(--ink4);border-top:1px solid var(--border);padding-top:6px;}
+  .foot .moove{font-weight:800;color:var(--navy);letter-spacing:-0.03em;}
+  .foot .mono{font-family:var(--mono);}
+
+  /* Closing callout strip */
+  .callout{margin-top:10px;display:flex;align-items:center;gap:10px;background:linear-gradient(135deg,#FAFCF9,#F4F8F0);
+    border:1px solid var(--border);border-radius:10px;padding:8px 14px;position:relative;padding-left:18px;}
+  .callout::before{content:"";position:absolute;left:0;top:6px;bottom:6px;width:4px;border-radius:3px;background:linear-gradient(180deg,var(--lime),var(--navy));}
+  .callout .ico{font-size:18px;color:var(--lime-deep);}
+  .callout p{font-size:10.5px;color:var(--ink2);line-height:1.4;}
+  .callout strong{color:var(--navy);}
+
+  @media print{
+    @page{size:A4 landscape;margin:0;}
+    body{background:#fff;padding:0;}
+    .deck{gap:0;}
+    .slide{box-shadow:none;page-break-after:always;}
+    .slide:last-child{page-break-after:auto;}
+    *{-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;}
+    .screen-only{display:none !important;}
+  }
+</style>
+</head>
+<body>
+<div class="screen-only" style="max-width:297mm;margin:0 auto 14px;color:#fff;font-size:13px;opacity:.9;font-family:var(--sans);">
+  Tip — make the PDF: <strong>Print</strong> (Ctrl/Cmd&nbsp;P) → <strong>Save as PDF</strong> → <strong>Landscape</strong> → Margins <strong>None</strong> → untick "Headers and footers".
+</div>
+<div class="deck">
+
+  <section class="slide">
+    <div class="head">
+      <div class="brand"><img class="logo" src="moove-logo.png" alt="moove" /><span class="rccp-badge">RCCP</span></div>
+      <span class="eyebrow">Monthly Cycle · UKP1</span>
+    </div>
+    <div class="rule"></div>
+
+    <h1 class="title"><span class="bar"></span>Monthly RCCP cycle — who does what, when</h1>
+    <p class="sub">Eight working days, four phases, seven departments. Same rhythm every month so everyone knows their slot.</p>
+
+    <!-- 4-phase horizontal timeline -->
+    <div class="timeline">
+
+      <div class="phase p1">
+        <span class="num">1</span>
+        <div class="when">WD 1 → 3 · Inputs</div>
+        <h3>Collect &amp; refresh inputs</h3>
+        <ul>
+          <li><span class="dot"></span><span><span class="dept-tag dept-mfg">MFG</span> exception templates returned — line capacity (PM, shutdowns) + headcount (leave, sickness)</span></li>
+          <li><span class="dot"></span><span><span class="dept-tag dept-sop">S&amp;OP</span> demand forecast (PIR) refreshed for the 12-month horizon</span></li>
+          <li><span class="dot"></span><span><span class="dept-tag dept-prod">PRODUCT</span> new launches confirmed — SKU, line, effective month</span></li>
+          <li><span class="dot"></span><span><span class="dept-tag dept-sap">SAP</span> exports pulled — COOIS (orders), MB51 (actuals), MB52 (stock)</span></li>
+        </ul>
+      </div>
+      <div class="arrow">→</div>
+
+      <div class="phase p2">
+        <span class="num">2</span>
+        <div class="when">WD 4 → 5 · Build</div>
+        <h3>Build &amp; validate the batch</h3>
+        <ul>
+          <li><span class="dot"></span><span><span class="dept-tag dept-plan">PLAN</span> fold inputs into the 6 source files — headcount Sheet 3, capacity calendar, portfolio changes</span></li>
+          <li><span class="dot"></span><span>Create new batch in RCCP One · upload all 6 files</span></li>
+          <li><span class="dot"></span><span><span class="o">7-stage validation</span> — fix anything BLOCKED at source, re-upload</span></li>
+          <li><span class="dot"></span><span><span class="o">Publish candidate</span> · open the dashboard · sanity-check yourself · capture talking points</span></li>
+        </ul>
+      </div>
+      <div class="arrow">→</div>
+
+      <div class="phase p3">
+        <span class="num">3</span>
+        <div class="when">WD 6 → 8 · Review</div>
+        <h3>Pre-read &amp; RCCP meeting</h3>
+        <ul>
+          <li><span class="dot"></span><span><span class="dept-tag dept-plan">PLAN</span> share PDF + Excel data pack 24-48h before — pre-read for stakeholders</span></li>
+          <li><span class="dot"></span><span><span class="dept-tag dept-elt">ELT</span> + <span class="dept-tag dept-mfg">MFG</span> + <span class="dept-tag dept-sop">S&amp;OP</span> + <span class="dept-tag dept-fin">FIN</span> attend the RCCP review meeting</span></li>
+          <li><span class="dot"></span><span>Walk the dashboard — Action Items → Capacity charts → People fit detail</span></li>
+          <li><span class="dot"></span><span>Capture decisions live · tick Action Items as they land</span></li>
+        </ul>
+      </div>
+      <div class="arrow">→</div>
+
+      <div class="phase p4">
+        <span class="num">4</span>
+        <div class="when">WD 8 → MO-end · Sign-off</div>
+        <h3>Close the loop &amp; lock baseline</h3>
+        <ul>
+          <li><span class="dot"></span><span>If inputs change as a result — correct source → re-validate → re-publish</span></li>
+          <li><span class="dot"></span><span><span class="dept-tag dept-elt">ELT</span> approval captured against the batch (date, who, what)</span></li>
+          <li><span class="dot"></span><span><span class="o">Baseline lock</span> — the agreed plan for the cycle, immutable, auditable</span></li>
+          <li><span class="dot"></span><span><span class="dept-tag dept-plan">PLAN</span> follows up next cycle — did approved actions actually happen?</span></li>
+        </ul>
+      </div>
+
+    </div>
+
+    <!-- Department legend grid -->
+    <div class="depts">
+
+      <div class="dept-card">
+        <div class="head-row">
+          <h4><span class="dept-tag dept-mfg">MFG</span> Manufacturing</h4>
+          <span class="raci">R</span>
+        </div>
+        <p>Capacity exceptions (PM, shutdowns) and headcount exceptions (leave, sickness, training).</p>
+        <span class="who">Steve, Josh</span>
+      </div>
+
+      <div class="dept-card">
+        <div class="head-row">
+          <h4><span class="dept-tag dept-sop">S&amp;OP</span> S&amp;OP / Demand</h4>
+          <span class="raci">R</span>
+        </div>
+        <p>Demand forecast for the 12-month horizon — PIR file uploaded to RCCP.</p>
+        <span class="who">Pablo</span>
+      </div>
+
+      <div class="dept-card">
+        <div class="head-row">
+          <h4><span class="dept-tag dept-prod">PRODUCT</span> Product / NPD</h4>
+          <span class="raci">R</span>
+        </div>
+        <p>New launches and phase-outs — SKU, line, effective month. Demand flows through S&amp;OP, label here.</p>
+        <span class="who">Product team</span>
+      </div>
+
+      <div class="dept-card">
+        <div class="head-row">
+          <h4><span class="dept-tag dept-plan">PLAN</span> Planning</h4>
+          <span class="raci">A</span>
+        </div>
+        <p>Owns the cycle. SAP exports, fold inputs, validate, publish, drive the meeting, capture decisions.</p>
+        <span class="who">Dom</span>
+      </div>
+
+      <div class="dept-card">
+        <div class="head-row">
+          <h4><span class="dept-tag dept-sap">SAP</span> Source systems</h4>
+          <span class="raci">I</span>
+        </div>
+        <p>System of record for orders (COOIS), actuals (MB51), stock (MB52). Pulled each cycle, not edited.</p>
+        <span class="who">SAP S/4HANA · IT-owned</span>
+      </div>
+
+      <div class="dept-card">
+        <div class="head-row">
+          <h4><span class="dept-tag dept-elt">ELT</span> Approvers</h4>
+          <span class="raci">A</span>
+        </div>
+        <p>Sign off the published baseline — OT approvals, volume reprofiling, capital decisions.</p>
+        <span class="who">Mike, Felipe</span>
+      </div>
+
+      <div class="dept-card">
+        <div class="head-row">
+          <h4><span class="dept-tag dept-fin">FIN</span> Finance</h4>
+          <span class="raci">C</span>
+        </div>
+        <p>Cost of extra capacity — overtime, additional shifts. Consulted on COGS impact.</p>
+        <span class="who">Stuart</span>
+      </div>
+
+      <div class="dept-card" style="background:linear-gradient(135deg,#FAFCF9,#F4F8F0);">
+        <div class="head-row">
+          <h4 style="color:var(--lime-deep);">RACI key</h4>
+        </div>
+        <p style="font-size:9.5px;">
+          <strong>R</strong> Responsible — produces the input.
+          <strong>A</strong> Accountable — owns the outcome.<br/>
+          <strong>C</strong> Consulted — must give a view.
+          <strong>I</strong> Informed — kept in the loop.
+        </p>
+      </div>
+
+    </div>
+
+    <div class="callout">
+      <span class="ico">&#9758;</span>
+      <p>The rhythm in one sentence — <strong>same eight days every month</strong>: collect → build → review → lock. Manufacturing has WD 1-3 to flag exceptions. Planning has WD 4-5 to build the batch. The meeting lands WD 7-8. Baseline locks by month-end.</p>
+    </div>
+
+    <div class="foot"><span class="moove">moove</span><span>RCCP One · Monthly cycle · UKP1</span><span class="mono">1 / 1</span></div>
+  </section>
+
+</div>
+</body>
+</html>

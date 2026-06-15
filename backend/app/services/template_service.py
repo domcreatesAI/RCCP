@@ -8,6 +8,7 @@ import io
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.datavalidation import DataValidation
 
 # ---------------------------------------------------------------------------
 # Template definitions
@@ -50,7 +51,7 @@ TEMPLATES: dict[str, dict] = {
         "columns": [
             ("line_code",         "Line Code",          "Production line code (e.g. A101). Must match a line in the masterdata.",                                 "A101"),
             ("plan_month",        "Plan Month",         "1st of the month in DD/MM/YYYY format (e.g. 01/05/2026 for May 2026). Required.",                          "01/05/2026"),
-            ("planned_headcount", "Planned Headcount",  "Total operators available for this line that month, summed across all roles (LINE_OP + TEAM_LEADER). Required. Must be ≥ 0.", "4"),
+            ("planned_headcount", "Planned Headcount",  "Total operators available for this line that month, summed across all roles (LINE_OPERATOR + TEAM_LEADER + PALLETISING_OPERATOR). Required. Must be ≥ 0.", "4"),
             ("notes",             "Notes",              "Free text notes (e.g. '2 leavers in June'). Optional.",                                                    ""),
         ],
         "sample_rows": [
@@ -82,24 +83,30 @@ TEMPLATES: dict[str, dict] = {
     },
     "master_stock": {
         "title": "Master Stock",
+        "no_desc_row": True,   # SAP export has headers at row 1 — no amber description row
         "description": (
-            "Period-opening stock levels by item and warehouse (SAP stock report). "
-            "One row per item per warehouse. "
+            "SAP master stock report — export directly and upload without modification."
+            "One row per material per plant/warehouse. "
             "material must already exist in the SKU Masterdata — upload sku_masterdata first. "
-            "SKU attributes (pack size, MRP type, line assignments etc.) are NOT read from "
-            "this file — they come from the sku_masterdata upload."
+            "Stock values may include a unit suffix (e.g. '1200 EA') — stripped automatically on import. "
+            "abc_indicator is optional but recommended — used by the capacity planning filter in Settings."
         ),
         "columns": [
-            ("material",             "Material",             "SAP material number. Must already exist in the SKU Masterdata (dbo.items). Required.",                      "100000"),
-            ("plant",                "Plant",                "Warehouse code (e.g. UKP1, UKP3). Must match a warehouse in the masterdata. Required.",                    "UKP1"),
-            ("unrestrictedstock",    "UnrestrictedStock",    "Total unrestricted stock in eaches. Required. Must be ≥ 0.",                                                "1200"),
-            ("unrestricted_-_sales", "Unrestricted - Sales", "Stock available for sales (unrestricted minus allocated). Required. May be negative (back-orders).",        "800"),
-            ("safety_stock",         "Safety Stock",         "Minimum target stock level in eaches. Required. Must be ≥ 0.",                                              "200"),
+            ("material",             "Material",             "SAP material number. Must already exist in the SKU Masterdata (dbo.items). Required.",                                              "100000"),
+            ("material_description", "Material Description", "SAP material description. Optional — stored in dbo.items on publish.",                                                             "TTA EXALUB AL 46 CAN 5L"),
+            ("plant",                "Plant",                "Warehouse/plant code (e.g. UKP1, UKP3). Must match a warehouse in the masterdata. Required.",                                      "UKP1"),
+            ("abc_indicator",        "ABC Indicator",        "SAP ABC planning indicator (A/B/C/F/G/L/T/X). Optional — drives the planning filter in Settings. Stored in dbo.items on publish.", "A"),
+            ("mrp_type",             "MRP Type",             "SAP MRP planning type (e.g. ZN, PD, ND). Optional — stored in dbo.items on publish.",                                              "ZN"),
+            ("unrestrictedstock",    "UnrestrictedStock",    "Total unrestricted stock in eaches. Required. Must be ≥ 0. Unit suffix (e.g. '1200 EA') stripped on import.",                      "1200 EA"),
+            ("unrestricted_-_sales", "Unrestricted - Sales", "Stock available for sales (unrestricted minus allocated). Required. May be negative (back-orders). Unit suffix ok.",               "800 EA"),
+            ("safety_stock",         "Safety Stock",         "Minimum target stock level in eaches. Required. Must be ≥ 0. Unit suffix ok.",                                                     "200 EA"),
+            ("rounding_value",       "Rounding value",       "Units per pallet (EA per pallet). Optional — stored as units_per_pallet in dbo.items on publish. Must be > 0 if provided.",        "120"),
+            ("volume",               "Volume",               "Pack volume in litres (e.g. 0.5, 1, 5, 60). Optional — stored as pack_size_l in dbo.items on publish. Must be > 0 if provided.",   "5"),
         ],
         "sample_rows": [
-            ["100000", "UKP1", 1200, 800, 200],
-            ["100000", "UKP3",  600, 600,   0],
-            ["100001", "UKP1",    0,   0,  50],
+            ["100000", "TTA EXALUB AL 46 CAN 5L", "UKP1", "A", "ZN", "1200 EA", "800 EA", "200 EA", 120, 5.0],
+            ["100000", "TTA EXALUB AL 46 CAN 5L", "UKP3", "A", "ZN",  "600 EA", "600 EA",   "0 EA", 120, 5.0],
+            ["100001", "TTA STARWAY HT 100 5L",   "UKP1", "B", "ND",    "0 EA",   "0 EA",  "50 EA",  96, 1.0],
         ],
     },
     "production_orders": {
@@ -203,40 +210,91 @@ TEMPLATES: dict[str, dict] = {
     },
 
     # ------------------------------------------------------------------
+    # Reference templates (planning aids — download only, not uploaded/validated)
+    # ------------------------------------------------------------------
+    "headcount_exceptions": {
+        "title": "Headcount Exceptions (Reference)",
+        "description": (
+            "REFERENCE ONLY — a planning aid for known headcount changes vs the standard "
+            "(annual leave, sickness, training, vacancies). This is the SAME data as the "
+            "'Exceptions' sheet inside the headcount_plan upload — it is NOT uploaded "
+            "separately and NOT validated. Maintain it here, then copy the rows into the "
+            "Exceptions sheet of headcount_plan before uploading. "
+            "For a line-role exception, fill line_code and leave plant_code blank. "
+            "For a plant-shared role exception, fill plant_code + resource_type_code and leave line_code blank. "
+            "delta_headcount is negative for absences (e.g. -1 = one person out)."
+        ),
+        "columns": [
+            ("line_code",          "Line Code",          "Production line code (e.g. A101). For line-role exceptions; leave blank for plant-shared exceptions.", "A101"),
+            ("plant_code",         "Plant Code",         "Plant code (e.g. 'Plant 1'). For plant-shared role exceptions; leave blank for line exceptions.",      ""),
+            ("resource_type_code", "Resource Type Code", "Required for plant rows. Optional for line rows — blank applies the delta across all line roles.",      ""),
+            ("start_date",         "Start Date",         "First affected date in DD/MM/YYYY format.",                                                             "15/05/2026"),
+            ("end_date",           "End Date",           "Last affected date inclusive (DD/MM/YYYY). Same as start for a one-day event.",                         "19/05/2026"),
+            ("delta_headcount",    "Delta Headcount",    "Change vs the standard headcount during the range. Negative for absences (e.g. -1 = one person out).", "-1"),
+            ("reason",             "Reason",             "Annual leave, sickness, training, etc. Surfaces on the People Fit panel.",                              "Annual leave"),
+        ],
+        "sample_rows": [
+            ["A101", "",        "",                "15/05/2026", "19/05/2026", -1, "Annual leave"],
+            ["",     "Plant 1", "FORKLIFT_DRIVER", "01/06/2026", "12/06/2026", -1, "Long-term sick"],
+        ],
+        "dropdowns": {"reason": ["Annual leave", "Long-term sick", "Training of staff"]},
+    },
+    "line_capacity_exceptions": {
+        "title": "Line Capacity Exceptions (Reference)",
+        "description": (
+            "REFERENCE ONLY — a planning aid for known losses of line capacity "
+            "(maintenance, planned downtime, full shutdowns). Capacity is actually entered as "
+            "columns (maintenance_hours, planned_downtime_hours, other_loss_hours) in the "
+            "line_capacity_calendar upload — this sheet is NOT uploaded separately and NOT validated. "
+            "Use it to plan the events, then reflect the lost hours in the calendar before uploading."
+        ),
+        "columns": [
+            ("line_code",          "Line Code",          "Production line code affected (e.g. A101). Must exist in the masterdata.",          "A101"),
+            ("event_type",         "Event Type",         "Maintenance, Planned downtime, Full shutdown, or Other.",                           "Maintenance"),
+            ("start_date",         "Start Date",         "First affected date in DD/MM/YYYY format.",                                         "15/06/2026"),
+            ("end_date",           "End Date",           "Last affected date inclusive (DD/MM/YYYY). Same as start for a one-day event.",     "15/06/2026"),
+            ("hours_lost_per_day", "Hours Lost / Day",   "How many production hours are lost per day during the event.",                      "4"),
+            ("reason",             "Reason",             "Free text — what's happening (e.g. Quarterly PM, Annual cleaning).",                "Quarterly PM"),
+        ],
+        "sample_rows": [
+            ["A101", "Maintenance",   "15/06/2026", "15/06/2026", 4, "Quarterly PM"],
+            ["A103", "Full shutdown", "22/06/2026", "26/06/2026", 7, "Annual cleaning"],
+        ],
+        "dropdowns": {"event_type": ["Maintenance", "Planned downtime", "Full shutdown", "Other"]},
+    },
+
+    # ------------------------------------------------------------------
     # Masterdata templates (served via GET /api/masterdata/{type}/template)
     # ------------------------------------------------------------------
     "sku_masterdata": {
         "title": "SKU Masterdata",
         "description": (
-            "SKU (product) master attributes. Upload this BEFORE uploading any batch files. "
+            "RCCP routing and classification for each SKU. Upload this BEFORE uploading any batch files. "
+            "SAP-sourced attributes (description, ABC indicator, MRP type, pack size, rounding value) "
+            "are now populated automatically from the master_stock upload — maintain only RCCP config here. "
             "MERGE by item_code: new rows are inserted, existing rows are updated. "
             "Blank cells keep the existing value in the database — partial uploads are valid. "
             "Items are never deleted by this upload — contact an admin to deactivate a SKU. "
-            "rounding_value maps to units_per_pallet (EA per pallet for warehouse capacity checks). "
             "primary_line_code is the preferred filling line; secondary through quaternary are "
             "capable alternatives (leave blank if not applicable)."
         ),
         "columns": [
-            ("item_code",            "Item Code",             "SAP material number — unique key. Required.",                                                               "100000"),
-            ("item_description",     "Item Description",      "Full SAP material description. Optional.",                                                                  "MOBIL BRAKE FLUID DOT4 12x0.5L"),
-            ("abc_indicator",        "ABC Indicator",         "SAP ABC classification (A, B, C, or '#' if not set). Optional.",                                            "A"),
-            ("mrp_type",             "MRP Type",              "SAP MRP planning type (e.g. ZN, PD, ND). Optional.",                                                        "ZN"),
-            ("pack_size_l",          "Pack Size (L)",         "Pack volume in litres (e.g. 0.5, 1, 5, 60). Must be > 0 if provided. Optional.",                            "0.5"),
-            ("moq",                  "MOQ",                   "Minimum order quantity in eaches. 0 = no minimum. Must be ≥ 0 if provided. Optional.",                      "240"),
-            ("pack_type_code",       "Pack Type Code",        "Warehouse capacity category. Must match pack_types masterdata (SMALL_PACK, 60L, BARREL_200L, IBC). Optional.", "SMALL_PACK"),
-            ("sku_status",           "SKU Status",            "SAP lifecycle status. 1 = In Design | 2 = Phasing Out | 3 = Obsolete. Optional.",                           "1"),
-            ("rounding_value",       "Rounding Value",        "Units per pallet (EA per pallet). Used for warehouse capacity calculations. Must be > 0 if provided. Optional.", "120"),
-            ("plant_code",           "Plant Code",            "Primary manufacturing plant code (e.g. P1). Must match plants masterdata. Optional.",                        "P1"),
-            ("primary_line_code",    "Primary Line Code",     "Preferred filling line code (e.g. A101). Must match lines masterdata. Optional.",                            "A101"),
-            ("secondary_line_code",  "Secondary Line Code",   "First alternative filling line. Must match lines masterdata. Optional.",                                     "A102"),
-            ("tertiary_line_code",   "Tertiary Line Code",    "Second alternative filling line. Optional — leave blank if not applicable.",                                 ""),
-            ("quaternary_line_code", "Quaternary Line Code",  "Third alternative filling line. Optional — leave blank if not applicable.",                                  ""),
-            ("unit_cost",            "Unit Cost (£)",         "Standard cost per EA in GBP. Must be ≥ 0 if provided. Optional — leave blank until cost data is available.", "0.85"),
+            ("item_code",            "Item Code",             "SAP material number — unique key. Required.",                                                                              "100000"),
+            ("item_description",     "Item Description",      "SKU description — for reference only. Not written to DB from this file (sourced from master_stock on publish). Optional.", "MOBIL BRAKE FLUID DOT4 12x0.5L"),
+            ("moq",                  "MOQ",                   "Minimum order quantity in eaches. 0 = no minimum. Must be ≥ 0 if provided. Optional.",                                   "240"),
+            ("pack_type_code",       "Pack Type Code",        "Warehouse capacity category. Must match pack_types masterdata (SMALL_PACK, 60L, BARREL_200L, IBC). Optional.",            "SMALL_PACK"),
+            ("sku_status",           "SKU Status",            "SAP lifecycle status. 1 = In Design | 2 = Phasing Out | 3 = Obsolete. Optional.",                                        "1"),
+            ("plant_code",           "Plant Code",            "Primary manufacturing plant code (e.g. P1). Must match plants masterdata. Optional.",                                     "P1"),
+            ("primary_line_code",    "Primary Line Code",     "Preferred filling line code (e.g. A101). Must match lines masterdata. Optional.",                                         "A101"),
+            ("secondary_line_code",  "Secondary Line Code",   "First alternative filling line. Must match lines masterdata. Optional.",                                                  "A102"),
+            ("tertiary_line_code",   "Tertiary Line Code",    "Second alternative filling line. Optional — leave blank if not applicable.",                                              ""),
+            ("quaternary_line_code", "Quaternary Line Code",  "Third alternative filling line. Optional — leave blank if not applicable.",                                               ""),
+            ("unit_cost",            "Unit Cost (£)",         "Standard cost per EA in GBP. Must be ≥ 0 if provided. Optional — leave blank until cost data is available.",             "0.85"),
         ],
         "sample_rows": [
-            ["100000", "MOBIL BRAKE FLUID DOT4 12x0.5L", "A", "ZN", 0.5, 240, "SMALL_PACK", 1, 120, "P1", "A101", "A102", "", "", 0.85],
-            ["100001", "MOBIL BRAKE FLUID DOT4 12x1L",   "B", "ZN", 1.0, 120, "SMALL_PACK", 1,  96, "P1", "A101", "",     "", "",  0.90],
-            ["100002", "MOBIL HYDRAULIC OIL 68 60L",     "C", "PD", 60,    1, "60L",        2,  20, "P1", "A202", "A203", "", "", 12.50],
+            ["100000", "MOBIL BRAKE FLUID DOT4 12x0.5L", 240, "SMALL_PACK", 1, "P1", "A101", "A102", "", "", 0.85],
+            ["100001", "MOBIL BRAKE FLUID DOT4 12x1L",   120, "SMALL_PACK", 1, "P1", "A101", "",     "", "", 0.90],
+            ["100002", "MOBIL HYDRAULIC OIL 68 60L",       1, "60L",        2, "P1", "A202", "A203", "", "", 12.50],
         ],
     },
     "line_pack_capabilities": {
@@ -268,38 +326,48 @@ TEMPLATES: dict[str, dict] = {
         "description": (
             "Headcount required per resource role to run each production line. "
             "Each row = one line + resource type combination. "
+            "LINE-scope roles are LINE_OPERATOR, TEAM_LEADER and PALLETISING_OPERATOR "
+            "(manual end-of-line palletising). "
             "resource_type_code must match a code in the resource_types masterdata table. "
+            "Every active line must have a row for every LINE-scope role — use 0 where a "
+            "role is not needed on that line (e.g. a line with no manual palletising). "
             "Upload replaces ALL existing line resource requirement data."
         ),
         "columns": [
             ("line_code",          "Line Code",           "Production line code (e.g. A101). Must exist in the masterdata.",                    "A101"),
-            ("resource_type_code", "Resource Type Code",  "Role code (e.g. LINE_OPERATOR, TEAM_LEADER). Must exist in resource_types.",         "LINE_OPERATOR"),
-            ("headcount_required", "Headcount Required",  "Number of people required for this role on this line. Must be ≥ 0 (TEAM_LEADER may be 0).", "3"),
+            ("resource_type_code", "Resource Type Code",  "Role code (LINE_OPERATOR, TEAM_LEADER, PALLETISING_OPERATOR). Must exist in resource_types.", "LINE_OPERATOR"),
+            ("headcount_required", "Headcount Required",  "Number of people required for this role on this line. Must be ≥ 0 (0 = role not needed on this line).", "3"),
         ],
         "sample_rows": [
-            ["A101", "LINE_OPERATOR",  3],
-            ["A101", "TEAM_LEADER",    1],
-            ["A202", "LINE_OPERATOR",  4],
-            ["A202", "TEAM_LEADER",    0],
+            ["A101", "LINE_OPERATOR",        3],
+            ["A101", "TEAM_LEADER",          1],
+            ["A101", "PALLETISING_OPERATOR", 0],
+            ["A303", "LINE_OPERATOR",        3],
+            ["A303", "TEAM_LEADER",          1],
+            ["A303", "PALLETISING_OPERATOR", 2],
         ],
     },
     "plant_resource_requirements": {
         "title": "Plant Resource Requirements",
         "description": (
             "Shared headcount required per resource role per manufacturing plant. "
-            "These are plant-level roles (e.g. forklift drivers, robot operators) shared across lines. "
+            "These are plant-level roles shared across lines: FORKLIFT_DRIVER, "
+            "MATERIAL_HANDLER, ROBOT_OPERATOR and TECHNICIAN. "
             "resource_type_code must match a code in the resource_types masterdata table. "
+            "Every active plant must have a row for every PLANT-scope role — use 0 where a "
+            "role is not needed at that plant. "
             "Upload replaces ALL existing plant resource requirement data."
         ),
         "columns": [
-            ("plant_code",         "Plant Code",          "Manufacturing plant code (e.g. P1, P2). Must exist in the masterdata.",           "P1"),
-            ("resource_type_code", "Resource Type Code",  "Role code for a plant-level role (e.g. FORKLIFT_DRIVER, ROBOT_OPERATOR). Must exist in resource_types.", "FORKLIFT_DRIVER"),
-            ("headcount_required", "Headcount Required",  "Number of people required for this role across the whole plant. Must be ≥ 0.",   "2"),
+            ("plant_code",         "Plant Code",          "Manufacturing plant code (e.g. 'Plant 1', 'Plant 2'). Must exist in the masterdata.", "Plant 1"),
+            ("resource_type_code", "Resource Type Code",  "Plant-level role code (FORKLIFT_DRIVER, MATERIAL_HANDLER, ROBOT_OPERATOR, TECHNICIAN). Must exist in resource_types.", "FORKLIFT_DRIVER"),
+            ("headcount_required", "Headcount Required",  "Number of people required for this role across the whole plant. Must be ≥ 0 (0 = role not needed at this plant).", "2"),
         ],
         "sample_rows": [
-            ["P1", "FORKLIFT_DRIVER",   2],
-            ["P1", "ROBOT_OPERATOR",    1],
-            ["P1", "MATERIAL_HANDLER",  1],
+            ["Plant 1", "FORKLIFT_DRIVER",   2],
+            ["Plant 1", "MATERIAL_HANDLER",  2],
+            ["Plant 1", "ROBOT_OPERATOR",    1],
+            ["Plant 1", "TECHNICIAN",        1],
         ],
     },
     "warehouse_capacity": {
@@ -362,12 +430,91 @@ _CENTER = Alignment(horizontal="center", vertical="center", wrap_text=True)
 _LEFT   = Alignment(horizontal="left",   vertical="center", wrap_text=True)
 
 
-def generate_template(file_type: str) -> bytes:
-    """Return an in-memory .xlsx file for the given file_type."""
+def _line_resource_sample_rows(conn) -> list:
+    """Build a full line × LINE-scope-role skeleton from live masterdata.
+
+    Returns one row per active line per active LINE-scope resource type. Each row
+    is pre-filled with the line/role's current headcount_required from
+    dbo.line_resource_requirements (0 where no row exists yet). This gives the
+    user a complete grid — current data, completed to every line × role — that
+    satisfies the stage-6 completeness check (every active line must have every
+    LINE-scope role) while preserving values they've already entered.
+    """
+    cur = conn.cursor()
+    cur.execute("SELECT line_code FROM dbo.lines WHERE is_active = 1 ORDER BY line_code")
+    lines = [str(r[0]).strip() for r in cur.fetchall()]
+    cur.execute("SELECT resource_type_code FROM dbo.resource_types WHERE scope = 'LINE' AND is_active = 1")
+    roles = [str(r[0]).strip() for r in cur.fetchall()]
+    # Preferred display order; unknown roles fall to the end alphabetically.
+    order = {"LINE_OPERATOR": 0, "TEAM_LEADER": 1, "PALLETISING_OPERATOR": 2}
+    roles.sort(key=lambda rc: (order.get(rc, 99), rc))
+
+    # Current values, so the template reflects existing data rather than blank zeros.
+    cur.execute("SELECT line_code, resource_type_code, headcount_required FROM dbo.line_resource_requirements")
+    existing = {
+        (str(r[0]).strip(), str(r[1]).strip()): int(r[2])
+        for r in cur.fetchall()
+    }
+
+    rows = []
+    for line_code in lines:
+        for role in roles:
+            rows.append([line_code, role, existing.get((line_code, role), 0)])
+    return rows
+
+
+def _plant_resource_sample_rows(conn) -> list:
+    """Build a full plant × PLANT-scope-role skeleton from live masterdata.
+
+    Mirror of _line_resource_sample_rows for plant_resource_requirements. One row
+    per active plant per active PLANT-scope resource type, pre-filled with the
+    current headcount_required from dbo.plant_resource_requirements (0 where no
+    row exists yet). Satisfies the stage-6 completeness check (every active plant
+    must have every PLANT-scope role) while preserving entered values.
+    """
+    cur = conn.cursor()
+    cur.execute("SELECT plant_code FROM dbo.plants WHERE is_active = 1 ORDER BY plant_code")
+    plants = [str(r[0]).strip() for r in cur.fetchall()]
+    cur.execute("SELECT resource_type_code FROM dbo.resource_types WHERE scope = 'PLANT' AND is_active = 1 ORDER BY resource_type_code")
+    roles = [str(r[0]).strip() for r in cur.fetchall()]
+
+    cur.execute("SELECT plant_code, resource_type_code, headcount_required FROM dbo.plant_resource_requirements")
+    existing = {
+        (str(r[0]).strip(), str(r[1]).strip()): int(r[2])
+        for r in cur.fetchall()
+    }
+
+    rows = []
+    for plant_code in plants:
+        for role in roles:
+            rows.append([plant_code, role, existing.get((plant_code, role), 0)])
+    return rows
+
+
+def generate_template(file_type: str, conn=None) -> bytes:
+    """Return an in-memory .xlsx file for the given file_type.
+
+    If conn is provided, line_resource_requirements and plant_resource_requirements
+    are pre-populated with a full role-coverage skeleton from live masterdata
+    instead of static samples.
+    """
     if file_type not in TEMPLATES:
         raise ValueError(f"No template defined for file_type '{file_type}'")
 
     spec = TEMPLATES[file_type]
+
+    # Dynamic skeleton for the resource requirement files when a DB connection is available.
+    sample_rows = spec["sample_rows"]
+    if conn is not None:
+        if file_type == "line_resource_requirements":
+            dynamic_rows = _line_resource_sample_rows(conn)
+            if dynamic_rows:
+                sample_rows = dynamic_rows
+        elif file_type == "plant_resource_requirements":
+            dynamic_rows = _plant_resource_sample_rows(conn)
+            if dynamic_rows:
+                sample_rows = dynamic_rows
+
     wb = Workbook()
 
     # --- Data sheet ---
@@ -400,11 +547,30 @@ def generate_template(file_type: str) -> bytes:
         cell.border = _THIN_BORDER
 
     # Sample data rows
-    for row_offset, sample_row in enumerate(spec["sample_rows"], start=data_start):
+    for row_offset, sample_row in enumerate(sample_rows, start=data_start):
         for col_idx, val in enumerate(sample_row, start=1):
             cell = ws.cell(row=row_offset, column=col_idx, value=val)
             cell.font = _SAMPLE_FONT
             cell.alignment = _LEFT
+
+    # Dropdowns (non-strict data validation) on named columns of the Data sheet.
+    # spec["dropdowns"] maps a column key to its list of suggested values.
+    # showErrorMessage=False = list is suggested but free text is still allowed.
+    dropdowns = spec.get("dropdowns")
+    if dropdowns:
+        key_to_col = {key: i + 1 for i, (key, *_rest) in enumerate(cols)}
+        for col_key, values in dropdowns.items():
+            if col_key not in key_to_col:
+                continue
+            letter = get_column_letter(key_to_col[col_key])
+            dv = DataValidation(
+                type="list",
+                formula1='"' + ",".join(values) + '"',
+                allow_blank=True,
+                showErrorMessage=False,
+            )
+            ws.add_data_validation(dv)
+            dv.add(f"{letter}{data_start}:{letter}1000")
 
     # Column widths
     col_widths = {
@@ -417,8 +583,13 @@ def generate_template(file_type: str) -> bytes:
         "maintenance_hours": 20, "public_holiday_hours": 22,
         "planned_downtime_hours": 24, "other_loss_hours": 18,
         "description": 32, "impact_notes": 36, "notes": 28,
+        # exception reference columns
+        "resource_type_code": 22, "start_date": 14, "end_date": 14,
+        "delta_headcount": 18, "event_type": 18, "hours_lost_per_day": 18,
+        "reason": 34,
         # master_stock columns
-        "material": 14, "plant": 10,
+        "material": 14, "material_description": 40, "plant": 10,
+        "abc_indicator": 14, "base_unit_of_measure": 22,
         "unrestrictedstock": 20, "unrestricted_-_sales": 22, "safety_stock": 14,
         # sku_masterdata columns
         "item_code": 14, "item_description": 38,
@@ -538,6 +709,20 @@ def generate_template(file_type: str) -> bytes:
         for col_idx, (key, *_) in enumerate(ex_cols, start=1):
             ws3.column_dimensions[get_column_letter(col_idx)].width = ex_widths.get(key, 18)
         ws3.freeze_panes = "A3"
+
+        # Dropdown (non-strict) on the reason column. showErrorMessage=False means
+        # the list is suggested but users can still type free text (e.g. a specific note).
+        reason_col = get_column_letter(len(ex_cols))  # reason is the last column (G)
+        reason_dv = DataValidation(
+            type="list",
+            formula1='"Annual leave,Long-term sick,Training of staff"',
+            allow_blank=True,
+            showErrorMessage=False,
+        )
+        reason_dv.prompt = "Pick a standard reason or type your own"
+        reason_dv.promptTitle = "Reason"
+        ws3.add_data_validation(reason_dv)
+        reason_dv.add(f"{reason_col}3:{reason_col}1000")
 
     # --- Instructions sheet ---
     wi = wb.create_sheet("Instructions")

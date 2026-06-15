@@ -39,7 +39,13 @@ def download_masterdata_template(masterdata_type: str):
             status_code=404,
             detail=f"No template available for masterdata type '{masterdata_type}'.",
         )
-    xlsx_bytes = generate_template(masterdata_type)
+    # Pass a DB connection so line_resource_requirements can be pre-populated with
+    # the full live line × role skeleton. Other types ignore it.
+    conn = get_connection()
+    try:
+        xlsx_bytes = generate_template(masterdata_type, conn=conn)
+    finally:
+        conn.close()
     filename = f"rccp_template_{masterdata_type}.xlsx"
     return StreamingResponse(
         io.BytesIO(xlsx_bytes),

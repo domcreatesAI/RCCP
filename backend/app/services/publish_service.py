@@ -27,7 +27,7 @@ from datetime import date
 import openpyxl
 import pyodbc
 
-from app.services.excel_utils import get_headers, get_data_rows, to_date, to_decimal, to_bit
+from app.services.excel_utils import find_header_row, get_headers, get_data_rows, to_date, to_decimal, to_bit
 from app.services.validation_service import (
     FILE_SCHEMAS, REQUIRED_FILE_TYPES,
     month_col_to_date, _detect_month_columns,
@@ -228,7 +228,13 @@ def _import_file(
 
     wb = openpyxl.load_workbook(stored_path, read_only=True, data_only=True)
     ws = wb.worksheets[0]
+    candidates = schema.get("header_row_candidates")
+    if candidates:
+        header_row = find_header_row(ws, schema.get("required", []), tuple(candidates))
+        data_start_row = header_row + 1
     headers = get_headers(ws, header_row)
+    if schema.get("column_remap"):
+        headers = [schema["column_remap"].get(h, h) for h in headers]
     data_rows = get_data_rows(ws, headers, data_start_row)
 
     handlers = {
@@ -271,11 +277,18 @@ def _import_file(
 
 def _import_master_stock(conn, batch_id, headers, data_rows, plan_cycle_date):
     header_set = set(headers)
+    has_abc         = "abc_indicator"      in header_set
+    has_description = "material_description" in header_set
     cursor = conn.cursor()
     cursor.execute("SELECT item_code FROM dbo.items")
     valid_items = {str(r[0]).strip() for r in cursor.fetchall()}
 
     batch = []
+    # SAP-sourced item attributes to upsert into dbo.items — keyed by item_code.
+    # First row per item wins (SAP often has one row per warehouse; description etc.
+    # are identical across rows so taking the first is fine).
+    item_updates: dict[str, dict] = {}
+
     for row_num, row in data_rows:
         item_code = _str(row.get("material"))
         warehouse_code = _str(row.get("plant"))
@@ -284,16 +297,39 @@ def _import_master_stock(conn, batch_id, headers, data_rows, plan_cycle_date):
         if item_code not in valid_items:
             continue
 
-        total_stock = _dec(row.get("unrestrictedstock")) or 0.0
-        free_stock_raw = _dec(row.get("unrestricted_-_sales")) or 0.0
-        free_stock = max(0.0, free_stock_raw)
-        safety_stock = _dec(row.get("safety_stock")) if "safety_stock" in header_set else None
-        mrp_type = _str(row.get("mrp_type")) if "mrp_type" in header_set else None
+        total_stock    = _dec(row.get("unrestrictedstock"))      or 0.0
+        free_stock_raw = _dec(row.get("unrestricted_-_sales"))   or 0.0
+        free_stock     = max(0.0, free_stock_raw)
+        safety_stock   = _dec(row.get("safety_stock"))      if "safety_stock"  in header_set else None
+        mrp_type       = _str(row.get("mrp_type"))          if "mrp_type"      in header_set else None
 
         batch.append((
             batch_id, warehouse_code, item_code, plan_cycle_date,
             mrp_type, total_stock, free_stock, safety_stock, row_num,
         ))
+
+        if item_code not in item_updates:
+            upd: dict = {}
+            if has_description:
+                v = _str(row.get("material_description"))
+                if v:
+                    upd["item_description"] = v
+            if has_abc:
+                raw_abc = _str(row.get("abc_indicator"))
+                if raw_abc:
+                    upd["abc_indicator"] = raw_abc.upper()
+            if "mrp_type" in header_set and mrp_type:
+                upd["mrp_type"] = mrp_type
+            if "volume" in header_set:
+                v = _dec(row.get("volume"))
+                if v is not None and v > 0:
+                    upd["pack_size_l"] = v
+            if "rounding_value" in header_set:
+                v = _dec(row.get("rounding_value"))
+                if v is not None and v > 0:
+                    upd["units_per_pallet"] = int(v)
+            if upd:
+                item_updates[item_code] = upd
 
     if batch:
         cursor.fast_executemany = True
@@ -306,6 +342,17 @@ def _import_master_stock(conn, batch_id, headers, data_rows, plan_cycle_date):
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             batch,
+        )
+
+    # Upsert SAP-sourced item attributes. master_stock is the source of truth for
+    # abc_indicator, item_description, mrp_type, pack_size_l, units_per_pallet.
+    # Only update columns where the export provided a non-null/non-zero value.
+    for item_code, upd in item_updates.items():
+        set_clause = ", ".join(f"{col} = ?" for col in upd)
+        params = list(upd.values()) + [item_code]
+        cursor.execute(
+            f"UPDATE dbo.items SET {set_clause} WHERE item_code = ?",  # noqa: S608
+            *params,
         )
 
 

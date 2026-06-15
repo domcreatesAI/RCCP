@@ -87,6 +87,11 @@ def compute_dashboard(conn, batch_id: int, allowed_statuses: tuple[str, ...] = (
     DEFAULT_OEE_FALLBACK = 0.55
     cogs_per_litre = settings_service.get_float(conn, "cogs_opex_per_litre", 0.12)
 
+    _default_abc = [i["code"] for i in settings_service.ABC_INDICATORS if i["default_included"]]
+    included_abc: set[str] = set(
+        settings_service.get_list(conn, "included_abc_indicators", _default_abc)
+    )
+
     # ── 1. Verify batch is PUBLISHED ──────────────────────────────────────────
     cursor.execute(
         "SELECT batch_id, batch_name, status, plan_cycle_date FROM dbo.import_batches WHERE batch_id = ?",
@@ -144,17 +149,31 @@ def compute_dashboard(conn, batch_id: int, allowed_statuses: tuple[str, ...] = (
     """, batch_id)
     order_rows = cursor.fetchall()
 
-    # ── 5. Load item pack sizes + primary line routing ────────────────────────
+    # ── 5. Load item pack sizes + primary line routing + ABC indicators ───────
     # primary_line_code from sku_masterdata is the routing source of truth.
     # production_orders.production_line is metadata only — not used for calculations.
-    cursor.execute("SELECT item_code, pack_size_l, primary_line_code FROM dbo.items")
+    cursor.execute("SELECT item_code, pack_size_l, primary_line_code, abc_indicator FROM dbo.items")
     item_pack: dict[str, float] = {}
     item_primary_line: dict[str, str] = {}
+    item_abc: dict[str, str | None] = {}   # item_code → abc_indicator (None if not set)
     for r in cursor.fetchall():
         if r.pack_size_l is not None:
             item_pack[r.item_code] = float(r.pack_size_l)
         if r.primary_line_code is not None:
             item_primary_line[r.item_code] = r.primary_line_code
+        item_abc[r.item_code] = r.abc_indicator if r.abc_indicator else None
+
+    # ABC filter helper — returns True if this item should contribute to capacity calcs.
+    # Items with no ABC indicator are included (safe default) and counted separately.
+    def _abc_included(item_code: str) -> bool:
+        abc = item_abc.get(item_code)
+        if abc is None:
+            return True   # no indicator → include; engine tracks these separately
+        return abc in included_abc
+
+    # Counts used for the KPI block and dashboard warnings
+    _abc_excluded_items: set[str] = set()
+    _abc_no_indicator_items: set[str] = set()
 
     # ── 5b. Load S&OP demand per line × period ───────────────────────────────
     # demand_plan stores monthly S&OP sales forecast in EA (unpivoted, one row per item × month).
@@ -169,6 +188,8 @@ def compute_dashboard(conn, batch_id: int, allowed_statuses: tuple[str, ...] = (
     """, batch_id)
     line_period_demand: dict[tuple, float] = defaultdict(float)
     for r in cursor.fetchall():
+        if not _abc_included(r.item_code):
+            continue   # excluded ABC indicator — don't add demand either
         routing_line = item_primary_line.get(r.item_code)
         if not routing_line:
             continue
@@ -528,6 +549,14 @@ def compute_dashboard(conn, batch_id: int, allowed_statuses: tuple[str, ...] = (
     for r in order_rows:
         if r.net_quantity is None or r.basic_start_date is None:
             continue
+
+        # ABC filter — skip excluded SKUs; track no-indicator items for the KPI warning
+        if not _abc_included(r.item_code):
+            _abc_excluded_items.add(r.item_code)
+            continue
+        if item_abc.get(r.item_code) is None:
+            _abc_no_indicator_items.add(r.item_code)
+
         d = r.basic_start_date
         if hasattr(d, 'date'):
             d = d.date()
@@ -1020,6 +1049,10 @@ def compute_dashboard(conn, batch_id: int, allowed_statuses: tuple[str, ...] = (
         "total_gap_hours": total_gap_hours,
         "peak_util_pct": peak_util_val,
         "peak_util_period": peak_util_period,
+        # ABC filter info — visible on the dashboard as context for what's included
+        "abc_excluded_sku_count": len(_abc_excluded_items),
+        "abc_no_indicator_sku_count": len(_abc_no_indicator_items),
+        "included_abc_indicators": sorted(included_abc),
     }
 
     # ── Resource type hourly rates (for scenario cost estimates) ───────────────

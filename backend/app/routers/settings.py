@@ -58,12 +58,56 @@ def update_line_oee(line_code: str, body: SettingUpdate, current_user: dict = De
         conn.close()
 
 
+@router.get("/abc-indicators")
+def list_abc_indicators(current_user: dict = Depends(get_current_user)):
+    """Return all ABC indicators with their descriptions and whether each is currently included."""
+    conn = get_connection()
+    try:
+        included = settings_service.get_list(conn, "included_abc_indicators",
+                                              [i["code"] for i in settings_service.ABC_INDICATORS if i["default_included"]])
+        included_set = set(included)
+        return {
+            "indicators": [
+                {**i, "included": i["code"] in included_set}
+                for i in settings_service.ABC_INDICATORS
+            ],
+            "can_edit": current_user.get("role") == "admin",
+        }
+    finally:
+        conn.close()
+
+
+@router.put("/abc-indicators")
+def update_abc_indicators(body: SettingUpdate, current_user: dict = Depends(require_admin)):
+    """Set the included ABC indicator list (admin only). Value = comma-separated codes, e.g. 'A,B,C,G,L'."""
+    valid_codes = {i["code"] for i in settings_service.ABC_INDICATORS}
+    submitted = [v.strip().upper() for v in (body.value or "").split(",") if v.strip()]
+    unknown = [c for c in submitted if c not in valid_codes]
+    if unknown:
+        raise HTTPException(status_code=422, detail=f"Unknown ABC indicator codes: {unknown}")
+    if not submitted:
+        raise HTTPException(status_code=422, detail="At least one ABC indicator must be included")
+
+    value = ",".join(submitted)
+    conn = get_connection()
+    try:
+        settings_service.update_value(conn, "included_abc_indicators", value,
+                                       updated_by=current_user.get("username"))
+        return {"key": "included_abc_indicators", "value": value, "included": submitted}
+    finally:
+        conn.close()
+
+
 @router.put("/{key}")
 def update_setting(key: str, body: SettingUpdate, current_user: dict = Depends(require_admin)):
-    """Update a managed setting (admin only). Validates type & range."""
+    """Update a managed numeric setting (admin only). Validates type & range."""
     reg = settings_service.registry_for(key)
     if reg is None:
         raise HTTPException(status_code=404, detail=f"Unknown setting '{key}'")
+
+    # abc_multiselect type is handled by the dedicated endpoint above
+    if reg.get("type") == "abc_multiselect":
+        raise HTTPException(status_code=422, detail="Use PUT /settings/abc-indicators for this setting")
 
     raw = (body.value or "").strip()
     try:

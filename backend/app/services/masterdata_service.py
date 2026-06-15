@@ -48,23 +48,24 @@ MASTERDATA_SCHEMAS: dict = {
         "header_row": 2,
         # item_code is the only required column — all attributes are optional
         # so a partial upload (e.g. new SKUs only) is valid.
+        # SAP-sourced attributes (abc_indicator, mrp_type, pack_size_l, rounding_value)
+        # are populated from master_stock on publish — not written from this file.
+        # item_description is accepted for the user's reference but also not written
+        # (master_stock is the source of truth); its presence suppresses a field-mapping
+        # warning for users migrating from the old 15-column format.
         "required": ["item_code"],
         "optional": [
-            "item_description", "abc_indicator", "mrp_type", "pack_size_l",
-            "moq", "pack_type_code", "sku_status", "rounding_value",
+            "item_description",
+            "moq", "pack_type_code", "sku_status",
             "plant_code", "primary_line_code", "secondary_line_code",
             "tertiary_line_code", "quaternary_line_code", "unit_cost",
         ],
         "types": {
             "item_code":            "str",
             "item_description":     "str",
-            "abc_indicator":        "str",
-            "mrp_type":             "str",
-            "pack_size_l":          "decimal",
             "moq":                  "decimal",
             "pack_type_code":       "str",
             "sku_status":           "int",
-            "rounding_value":       "decimal",
             "plant_code":           "str",
             "primary_line_code":    "str",
             "secondary_line_code":  "str",
@@ -785,14 +786,8 @@ def _import_sku_masterdata(conn, headers, data_rows, uploaded_by):
 
         uploaded_codes.append(item_code)
 
-        item_description     = _get_str(row, "item_description",     header_set)
-        abc_indicator        = _get_str(row, "abc_indicator",        header_set)
-        mrp_type             = _get_str(row, "mrp_type",             header_set)
-        pack_size_l          = _get_decimal(row, "pack_size_l",      header_set)
         moq                  = _get_decimal(row, "moq",              header_set)
         pack_type_code       = _get_str(row, "pack_type_code",       header_set)
-        rounding_value       = _get_decimal(row, "rounding_value",   header_set)
-        units_per_pallet     = int(rounding_value) if rounding_value is not None and rounding_value > 0 else None
         plant_code           = _get_str(row, "plant_code",           header_set)
         primary_line_code    = _get_str(row, "primary_line_code",    header_set)
         secondary_line_code  = _get_str(row, "secondary_line_code",  header_set)
@@ -816,14 +811,9 @@ def _import_sku_masterdata(conn, headers, data_rows, uploaded_by):
 
             WHEN MATCHED THEN
                 UPDATE SET
-                    item_description     = COALESCE(?, target.item_description),
-                    abc_indicator        = COALESCE(?, target.abc_indicator),
-                    mrp_type             = COALESCE(?, target.mrp_type),
-                    pack_size_l          = COALESCE(?, target.pack_size_l),
                     moq                  = COALESCE(?, target.moq),
                     pack_type_code       = COALESCE(?, target.pack_type_code),
                     sku_status           = COALESCE(?, target.sku_status),
-                    units_per_pallet     = COALESCE(?, target.units_per_pallet),
                     plant_code           = COALESCE(?, target.plant_code),
                     primary_line_code    = COALESCE(?, target.primary_line_code),
                     secondary_line_code  = COALESCE(?, target.secondary_line_code),
@@ -834,14 +824,12 @@ def _import_sku_masterdata(conn, headers, data_rows, uploaded_by):
 
             WHEN NOT MATCHED THEN
                 INSERT (
-                    item_code, item_description, abc_indicator, mrp_type,
-                    pack_size_l, moq, pack_type_code, sku_status, units_per_pallet,
+                    item_code, moq, pack_type_code, sku_status,
                     plant_code, primary_line_code, secondary_line_code,
                     tertiary_line_code, quaternary_line_code, unit_cost, is_active
                 )
                 VALUES (
                     ?, ?, ?, ?,
-                    ?, ?, ?, ?, ?,
                     ?, ?, ?,
                     ?, ?, ?, 1
                 );
@@ -849,13 +837,11 @@ def _import_sku_masterdata(conn, headers, data_rows, uploaded_by):
             # MERGE key
             item_code,
             # UPDATE SET values (COALESCE pairs)
-            item_description, abc_indicator, mrp_type,
-            pack_size_l, moq, pack_type_code, sku_status, units_per_pallet,
+            moq, pack_type_code, sku_status,
             plant_code, primary_line_code, secondary_line_code,
             tertiary_line_code, quaternary_line_code, unit_cost,
             # INSERT values
-            item_code, item_description, abc_indicator, mrp_type,
-            pack_size_l, moq, pack_type_code, sku_status, units_per_pallet,
+            item_code, moq, pack_type_code, sku_status,
             plant_code, primary_line_code, secondary_line_code,
             tertiary_line_code, quaternary_line_code, unit_cost,
         )

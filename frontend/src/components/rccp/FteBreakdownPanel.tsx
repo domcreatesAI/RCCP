@@ -130,7 +130,7 @@ export default function FteBreakdownPanel({ lines, plantSupport, planCycleDate }
           </div>
 
           <p className="text-[11px] mt-3" style={{ color: C.ink4 }}>
-            Line crew comes from line_resource_requirements (LINE_OPERATOR + TEAM_LEADER per line).
+            Line crew comes from line_resource_requirements (LINE_OPERATOR + TEAM_LEADER + PALLETISING_OPERATOR per line).
             Plant-shared crew (Forklift, Materials Handler, Robot Op, Technician) is the per-plant requirement × the plant operating envelope —
             shared crew is present whenever any line in the plant is running.
           </p>

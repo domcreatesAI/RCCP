@@ -43,6 +43,7 @@ import openpyxl
 import pyodbc
 
 from app.services.excel_utils import (
+    find_header_row as _find_header_row,
     get_headers as _get_headers,
     get_data_rows as _get_data_rows,
     is_valid_date as _is_valid_date,
@@ -122,21 +123,37 @@ def month_col_to_date(col: str) -> date | None:
 
 FILE_SCHEMAS: dict = {
     "master_stock": {
-        "header_row": 2,
-        "data_start_row": 3,
-        # Pure stock snapshot — SKU attributes (pack_type, volume, moq etc.)
-        # now come from the sku_masterdata upload, not from master_stock.
+        # SAP master_stock report usually has headers at row 1, but some SAP
+        # configurations add a title/filter row at row 1 pushing headers to row 2.
+        # header_row_candidates triggers auto-detection: we scan rows 1-2 and pick
+        # whichever has more required column matches.
+        # Column A and B are both labelled "Material" in the SAP export —
+        # get_headers deduplicates the second to "material_2"; column_remap
+        # renames it to "material_description".
+        "header_row_candidates": [1, 2],
+        "header_row": 1,   # fallback used by _stage2 for the emptiness check
+        "column_remap": {
+            "material_2": "material_description",
+        },
         "required": [
             "material", "plant", "unrestrictedstock", "unrestricted_-_sales",
             "safety_stock",
         ],
-        "optional": [],
+        "optional": [
+            "material_description", "abc_indicator",
+            "mrp_type", "rounding_value", "volume",
+        ],
         "types": {
-            "material":             "str",
-            "plant":                "str",
-            "unrestrictedstock":    "decimal",
-            "unrestricted_-_sales": "decimal",
-            "safety_stock":         "decimal",
+            "material":                 "str",
+            "plant":                    "str",
+            "unrestrictedstock":        "decimal",
+            "unrestricted_-_sales":     "decimal",
+            "safety_stock":             "decimal",
+            "material_description":     "str",
+            "abc_indicator":            "str",
+            "mrp_type":                 "str",
+            "rounding_value":           "decimal",
+            "volume":                   "decimal",
         },
         "fk_checks": {
             "plant": ("dbo.warehouses", "warehouse_code"),
@@ -341,8 +358,20 @@ def run_validation(
                    "Update file_schemas when SAP export headers are available.")
     else:
         ws = wb.worksheets[0]
-        headers = _get_headers(ws, schema.get("header_row", 1))
-        data_rows = _get_data_rows(ws, headers, schema.get("data_start_row", 2))
+        # Resolve header row — auto-detect when candidates list is provided
+        candidates = schema.get("header_row_candidates")
+        if candidates:
+            header_row = _find_header_row(ws, schema.get("required", []), tuple(candidates))
+            data_start_row = header_row + 1
+        else:
+            header_row = schema.get("header_row", 1)
+            data_start_row = schema.get("data_start_row", header_row + 1)
+
+        headers = _get_headers(ws, header_row)
+        # Apply column renames (e.g. duplicate SAP "Material" → "material_description")
+        if schema.get("column_remap"):
+            headers = [schema["column_remap"].get(h, h) for h in headers]
+        data_rows = _get_data_rows(ws, headers, data_start_row)
 
         sap_uom_cols = set(schema.get("sap_uom_cols", []))
         if sap_uom_cols:
@@ -705,9 +734,10 @@ def _stage6(cursor, conn: pyodbc.Connection, batch_file_id: int, file_type: str,
                     errors.append((row_num, col, "BLOCKED",
                                    f"{col} cannot be negative: {val}", str(val)))
 
-        # SKU attribute completeness: for materials that exist in dbo.items,
-        # warn if pack_size_l / pack_type_code / units_per_pallet are null —
-        # the RCCP engine cannot calculate capacity or warehouse usage without them.
+        # SKU routing completeness: warn about materials with no RCCP configuration.
+        # pack_size_l and units_per_pallet come from this file (volume/rounding_value) —
+        # pack_type_code (warehouse category) and primary_line_code (routing) must come
+        # from sku_masterdata. Single summary WARNINGs to avoid hitting the 20-row cap.
         if "material" in header_set:
             materials_in_file = {
                 str(row_dict.get("material", "")).strip()
@@ -720,28 +750,30 @@ def _stage6(cursor, conn: pyodbc.Connection, batch_file_id: int, file_type: str,
                 c_read.execute(
                     f"""
                     SELECT item_code,
-                           CASE WHEN pack_size_l      IS NULL THEN 1 ELSE 0 END,
-                           CASE WHEN pack_type_code   IS NULL THEN 1 ELSE 0 END,
-                           CASE WHEN units_per_pallet IS NULL THEN 1 ELSE 0 END
+                           CASE WHEN primary_line_code IS NULL THEN 1 ELSE 0 END AS no_line,
+                           CASE WHEN pack_type_code    IS NULL THEN 1 ELSE 0 END AS no_pack_type
                     FROM dbo.items
                     WHERE item_code IN ({placeholders})
-                      AND (pack_size_l IS NULL OR pack_type_code IS NULL OR units_per_pallet IS NULL)
+                      AND (primary_line_code IS NULL OR pack_type_code IS NULL)
                     """,  # noqa: S608
                     *materials_in_file,
                 )
                 incomplete_rows = c_read.fetchall()
-                if incomplete_rows:
-                    # Single summary WARNING — per-item errors would hit the 20-row cap
-                    # and generate a false BLOCKED overflow message.
-                    ex_code, ex_no_size, ex_no_type, ex_no_pallet = incomplete_rows[0]
-                    ex_attrs = []
-                    if ex_no_size:   ex_attrs.append("pack_size_l")
-                    if ex_no_type:   ex_attrs.append("pack_type_code")
-                    if ex_no_pallet: ex_attrs.append("units_per_pallet")
-                    sample = f"'{ex_code}': {', '.join(ex_attrs)}" if ex_attrs else f"'{ex_code}'"
+                no_line_codes    = [r[0] for r in incomplete_rows if r[1]]
+                no_pack_codes    = [r[0] for r in incomplete_rows if r[2]]
+                if no_line_codes:
+                    sample = ", ".join(f"'{c}'" for c in no_line_codes[:5])
                     errors.append((None, "material", "WARNING",
-                                   f"{len(incomplete_rows)} material(s) in dbo.items are missing "
-                                   f"SKU attributes (e.g. {sample}) — upload sku_masterdata to fix",
+                                   f"{len(no_line_codes)} SKU(s) have no RCCP routing config (no line assignment) — "
+                                   f"add primary_line_code to sku_masterdata: {sample}"
+                                   + ("..." if len(no_line_codes) > 5 else ""),
+                                   None))
+                if no_pack_codes:
+                    sample = ", ".join(f"'{c}'" for c in no_pack_codes[:5])
+                    errors.append((None, "material", "WARNING",
+                                   f"{len(no_pack_codes)} SKU(s) have no pack type — "
+                                   f"add pack_type_code to sku_masterdata: {sample}"
+                                   + ("..." if len(no_pack_codes) > 5 else ""),
                                    None))
 
     elif file_type == "portfolio_changes":

@@ -10,15 +10,39 @@ from __future__ import annotations
 
 # Settings surfaced & editable in the Settings UI. `default` is the code-level
 # fallback used when the row is absent from dbo.app_settings.
+ABC_INDICATORS: list[dict] = [
+    {"code": "A", "label": "A — Top 70%",              "default_included": True},
+    {"code": "B", "label": "B — Top 20%",              "default_included": True},
+    {"code": "C", "label": "C — Bottom 10%",           "default_included": True},
+    {"code": "F", "label": "F — Finance block",        "default_included": False},
+    {"code": "G", "label": "G — Never out of stock",   "default_included": True},
+    {"code": "L", "label": "L — Launch (first 3 mo.)", "default_included": True},
+    {"code": "T", "label": "T — Temporarily unavail.", "default_included": False},
+    {"code": "X", "label": "X — Discontinued",        "default_included": False},
+]
+_DEFAULT_ABC = ",".join(i["code"] for i in ABC_INDICATORS if i["default_included"])
+
 MANAGED_SETTINGS: list[dict] = [
     {
         "key": "cogs_opex_per_litre",
         "label": "COGS — OPEX per litre",
         "group": "Cost",
-        "type": "currency",         # £ per litre produced
+        "type": "currency",
         "default": "0.12",
         "min": 0.0, "max": 1000.0,
         "description": "Operating cost per litre produced. Used to value the production plan and the cost of extra capacity.",
+    },
+    {
+        "key": "included_abc_indicators",
+        "label": "ABC indicators included in planning",
+        "group": "Planning filter",
+        "type": "abc_multiselect",
+        "default": _DEFAULT_ABC,
+        "description": (
+            "Only SKUs with these ABC indicators contribute to capacity calculations. "
+            "SKUs with no ABC indicator are always included (with a dashboard warning). "
+            "Change takes effect on the next batch publish."
+        ),
     },
 ]
 # OEE is maintained per line (dbo.lines.oee_target) — see list_line_oee / update_line_oee.
@@ -50,6 +74,14 @@ def get_float(conn, key: str, default: float) -> float:
         return float(raw)
     except (TypeError, ValueError):
         return default
+
+
+def get_list(conn, key: str, default: list[str]) -> list[str]:
+    """Return a comma-separated setting as a list of stripped strings."""
+    raw = get_value(conn, key, None)
+    if raw is None:
+        return default
+    return [v.strip() for v in raw.split(",") if v.strip()]
 
 
 def update_value(conn, key: str, value: str, updated_by: str | None = None) -> None:

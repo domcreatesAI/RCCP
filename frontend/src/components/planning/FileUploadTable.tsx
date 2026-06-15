@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'motion/react'
 import {
-  Database, RefreshCw, Archive, Send, CheckCircle2, Info, Undo2,
+  Database, RefreshCw, Archive, Send, CheckCircle2, Info, Undo2, Download,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import FileRow from './FileRow'
@@ -18,6 +18,21 @@ const REQUIRED_FILES: FileType[] = [
   'line_capacity_calendar',
   'headcount_plan',
   'portfolio_changes',
+]
+
+// Download-only planning aids. Not uploaded or validated here — maintained
+// separately and folded into the related batch upload before publishing.
+const REFERENCE_TEMPLATES: { type: string; label: string; description: string }[] = [
+  {
+    type: 'headcount_exceptions',
+    label: 'headcount_exceptions',
+    description: 'Known headcount changes (leave, sickness, training). Copy rows into the headcount_plan “Exceptions” sheet.',
+  },
+  {
+    type: 'line_capacity_exceptions',
+    label: 'line_capacity_exceptions',
+    description: 'Planned capacity losses (maintenance, downtime, shutdowns). Reflect the hours in line_capacity_calendar.',
+  },
 ]
 
 interface Props {
@@ -100,6 +115,45 @@ export default function FileUploadTable({ batch }: Props) {
 
             {DISPLAY_ORDER.map((mdType, i) => (
               <MasterdataRow key={mdType} mdType={mdType} index={i} />
+            ))}
+
+            {/* Reference templates — download only, info */}
+            <tr>
+              <td colSpan={6} className="pt-5 pb-2 pr-3" style={{ borderTop: '1px solid #F1F5F9' }}>
+                <div className="flex items-center gap-2">
+                  <Info className="w-3.5 h-3.5 text-slate-400" />
+                  <div className="text-sm font-bold text-gray-900">Reference (info only)</div>
+                </div>
+                <div className="text-xs text-gray-500 mt-0.5 ml-[22px]">
+                  Planning aids — download to maintain, then fold into the related upload. Not uploaded or validated here.
+                </div>
+              </td>
+            </tr>
+
+            {REFERENCE_TEMPLATES.map((r) => (
+              <tr key={r.type} className="border-b last:border-0 hover:bg-gray-50/60">
+                <td className="py-2.5 pr-3" style={{ minWidth: 200 }}>
+                  <div>
+                    <span className="font-mono text-xs font-semibold text-gray-900">{r.label}</span>
+                    <div className="text-xs text-gray-400 mt-0.5 leading-tight" style={{ fontSize: 10 }}>
+                      {r.description}
+                    </div>
+                  </div>
+                </td>
+                <td className="py-2.5 pr-3 text-center text-xs text-gray-300">—</td>
+                <td className="py-2.5 pr-3 text-xs text-gray-300">—</td>
+                <td className="py-2.5 pr-3"></td>
+                <td className="py-2.5 pr-3"></td>
+                <td className="py-2.5">
+                  <a
+                    href={`/api/templates/${r.type}`}
+                    download
+                    className="inline-flex items-center gap-0.5 px-1.5 py-1 rounded-lg text-xs border transition-colors hover:bg-gray-100"
+                    style={{ borderColor: '#E2E8F0', color: '#64748B' }}>
+                    <Download className="w-3 h-3" /> Tmpl
+                  </a>
+                </td>
+              </tr>
             ))}
           </tbody>
         </table>

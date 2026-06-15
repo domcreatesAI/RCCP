@@ -717,7 +717,7 @@ def _build_kpis_sheet(ws, dash: dict, lines: list, plant_support: dict):
 def _build_headcount_by_line_sheet(ws, lines: list, periods: list[str], plant_support: dict):
     next_row = _title(ws,
                        "Headcount by Line × Month — heads + FTE",
-                       "Per-line crew demand vs the headcount plan. Crew = LINE_OPERATOR + TEAM_LEADER per line. "
+                       "Per-line crew demand vs the headcount plan. Crew = LINE_OPERATOR + TEAM_LEADER + PALLETISING_OPERATOR per line. "
                        "FTE = (production_hours × crew) ÷ FTE-month hours.")
     headers = ["Line", "Plant", "Month", "Working days", "Production (h)",
                "Crew/line", "Role-hours (h)", "FTE needed", "Heads needed", "Heads planned (avg)", "Heads shortfall"]

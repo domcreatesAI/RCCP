@@ -95,7 +95,7 @@ BEGIN
             REFERENCES dbo.resource_types (resource_type_code)
             ON UPDATE NO ACTION
             ON DELETE NO ACTION,
-        CONSTRAINT CK_lrr_headcount                 CHECK (headcount_required > 0)
+        CONSTRAINT CK_lrr_headcount                 CHECK (headcount_required >= 0)
     );
 
     CREATE INDEX IX_lrr_line    ON dbo.line_resource_requirements (line_code);
@@ -138,7 +138,7 @@ BEGIN
             REFERENCES dbo.resource_types (resource_type_code)
             ON UPDATE NO ACTION
             ON DELETE NO ACTION,
-        CONSTRAINT CK_prr_headcount                 CHECK (headcount_required > 0)
+        CONSTRAINT CK_prr_headcount                 CHECK (headcount_required >= 0)
     );
 
     CREATE INDEX IX_prr_plant   ON dbo.plant_resource_requirements (plant_code);

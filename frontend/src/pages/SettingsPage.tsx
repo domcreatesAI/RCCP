@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'motion/react'
-import { SlidersHorizontal, RefreshCw, AlertCircle, Lock, Pencil, Check, X, Gauge, Database, Plug, AlertTriangle } from 'lucide-react'
-import { listSettings, updateSetting, listLineOee, updateLineOee, type AppSetting } from '../api/settings'
+import { SlidersHorizontal, RefreshCw, AlertCircle, Lock, Pencil, Check, X, Gauge, Database, Plug, AlertTriangle, Tag } from 'lucide-react'
+import { listSettings, updateSetting, listLineOee, updateLineOee, listAbcIndicators, updateAbcIndicators, type AppSetting } from '../api/settings'
 import { getDbConfig, testDbConfig, updateDbConfig } from '../api/db_config'
 import { C } from '../components/rccp/brand'
 
@@ -102,6 +102,123 @@ function SettingRow({ s, canEdit, onSaved }: { s: AppSetting; canEdit: boolean; 
         {err && <span className="text-[11px]" style={{ color: C.red }}>{err}</span>}
       </div>
     </div>
+  )
+}
+
+function AbcIndicatorSection({ canEdit, onSaved }: { canEdit: boolean; onSaved: () => void }) {
+  const { data, isLoading } = useQuery({ queryKey: ['abc-indicators'], queryFn: listAbcIndicators })
+  const indicators = data?.indicators ?? []
+
+  const [editing, setEditing] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  function startEdit() {
+    setSelected(new Set(indicators.filter(i => i.included).map(i => i.code)))
+    setEditing(true)
+    setErr(null)
+  }
+
+  function toggle(code: string) {
+    setSelected(s => {
+      const n = new Set(s)
+      if (n.has(code)) n.delete(code); else n.add(code)
+      return n
+    })
+  }
+
+  async function save() {
+    setSaving(true); setErr(null)
+    try {
+      await updateAbcIndicators([...selected].sort())
+      setEditing(false)
+      onSaved()
+    } catch (e) {
+      setErr((e as { response?: { data?: { detail?: string } } })?.response?.data?.detail ?? 'Could not save')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  if (isLoading) return null
+
+  return (
+    <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="mt-6">
+      <div className="flex items-center gap-2 mb-2.5">
+        <Tag className="w-3.5 h-3.5" style={{ color: C.navy }} />
+        <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: C.ink3 }}>Planning filter</span>
+      </div>
+
+      <div className="bg-white rounded-xl px-5 py-4" style={{ border: `1px solid ${C.border}` }}>
+        <div className="flex items-start justify-between gap-5 flex-wrap">
+          <div className="min-w-0">
+            <div className="text-[14px] font-semibold" style={{ color: C.navy }}>ABC indicators included in planning</div>
+            <p className="text-[12.5px] mt-1 leading-relaxed max-w-[560px]" style={{ color: C.ink2 }}>
+              Only SKUs with these ABC indicators contribute to capacity calculations. SKUs with no indicator are always included with a dashboard warning. Change takes effect on the next batch publish.
+            </p>
+            <div className="font-mono text-[10.5px] mt-1.5" style={{ color: C.ink4 }}>
+              key: included_abc_indicators
+            </div>
+          </div>
+
+          <div className="flex-shrink-0 flex items-center gap-2">
+            {!editing ? (
+              canEdit && (
+                <button onClick={startEdit}
+                  className="inline-flex items-center gap-1 text-[12px] px-2 py-1 rounded-md transition-colors hover:bg-[#F7F7F5]"
+                  style={{ color: C.ink3, border: `1px solid ${C.border}` }}>
+                  <Pencil className="w-3 h-3" /> Edit
+                </button>
+              )
+            ) : (
+              <>
+                <button onClick={save} disabled={saving || selected.size === 0}
+                  className="inline-flex items-center gap-1.5 text-[12px] px-3 py-1.5 rounded-lg text-white disabled:opacity-40"
+                  style={{ background: C.navy }}>
+                  {saving ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />}
+                  {saving ? 'Saving…' : 'Save'}
+                </button>
+                <button onClick={() => setEditing(false)}
+                  className="inline-flex items-center justify-center w-7 h-7 rounded-md"
+                  style={{ border: `1px solid ${C.border}`, color: C.ink3 }}>
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="mt-4 flex flex-col gap-1.5">
+          {indicators.map(ind => {
+            const isIncluded = editing ? selected.has(ind.code) : ind.included
+            return (
+              <label
+                key={ind.code}
+                className="flex items-center gap-3 py-1"
+                style={{ cursor: editing ? 'pointer' : 'default' }}>
+                <input
+                  type="checkbox"
+                  checked={isIncluded}
+                  disabled={!editing}
+                  onChange={() => toggle(ind.code)}
+                  className="w-4 h-4 rounded accent-[#AACD00]"
+                  style={{ cursor: editing ? 'pointer' : 'default' }}
+                />
+                <span className="text-[13px]" style={{ color: isIncluded ? C.navy : C.ink3 }}>
+                  {ind.label}
+                </span>
+              </label>
+            )
+          })}
+        </div>
+
+        {editing && selected.size === 0 && (
+          <p className="text-[11.5px] mt-2.5" style={{ color: C.red }}>At least one ABC indicator must be included.</p>
+        )}
+        {err && <p className="text-[11.5px] mt-2" style={{ color: C.red }}>{err}</p>}
+      </div>
+    </motion.div>
   )
 }
 
@@ -365,6 +482,7 @@ export default function SettingsPage() {
   function onSaved() {
     qc.invalidateQueries({ queryKey: ['settings'] })
     qc.invalidateQueries({ queryKey: ['line-oee'] })
+    qc.invalidateQueries({ queryKey: ['abc-indicators'] })
     // Settings feed the engine — refresh dashboards too.
     qc.invalidateQueries({ queryKey: ['rccp-dashboard'] })
   }
@@ -398,23 +516,28 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {!isLoading && !error && groups.map((g, gi) => (
-        <motion.div key={g}
-          initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 + gi * 0.05 }}
-          className="mt-6"
-        >
-          <div className="flex items-center gap-2 mb-2.5">
-            <SlidersHorizontal className="w-3.5 h-3.5" style={{ color: C.navy }} />
-            <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: C.ink3 }}>{g}</span>
-          </div>
-          <div className="flex flex-col gap-2.5">
-            {settings.filter(s => s.group === g).map(s => (
-              <SettingRow key={s.key} s={s} canEdit={canEdit} onSaved={onSaved} />
-            ))}
-          </div>
-        </motion.div>
-      ))}
+      {!isLoading && !error && groups.map((g, gi) => {
+        const rowSettings = settings.filter(s => s.group === g && s.type !== 'abc_multiselect')
+        if (rowSettings.length === 0) return null
+        return (
+          <motion.div key={g}
+            initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 + gi * 0.05 }}
+            className="mt-6"
+          >
+            <div className="flex items-center gap-2 mb-2.5">
+              <SlidersHorizontal className="w-3.5 h-3.5" style={{ color: C.navy }} />
+              <span className="text-[11px] font-semibold uppercase tracking-widest" style={{ color: C.ink3 }}>{g}</span>
+            </div>
+            <div className="flex flex-col gap-2.5">
+              {rowSettings.map(s => (
+                <SettingRow key={s.key} s={s} canEdit={canEdit} onSaved={onSaved} />
+              ))}
+            </div>
+          </motion.div>
+        )
+      })}
 
+      {!isLoading && !error && <AbcIndicatorSection canEdit={canEdit} onSaved={onSaved} />}
       {!isLoading && !error && <LineOeeSection canEdit={canEdit} onSaved={onSaved} />}
 
       {!isLoading && !error && <DbConnectionSection />}

@@ -38,3 +38,20 @@ export async function updateLineOee(lineCode: string, value: string): Promise<{ 
   const { data } = await client.put<{ line_code: string; oee_target: number }>(`/settings/line-oee/${lineCode}`, { value })
   return data
 }
+
+export interface AbcIndicator {
+  code: string
+  label: string
+  default_included: boolean
+  included: boolean
+}
+
+export async function listAbcIndicators(): Promise<{ indicators: AbcIndicator[]; can_edit: boolean }> {
+  const { data } = await client.get<{ indicators: AbcIndicator[]; can_edit: boolean }>('/settings/abc-indicators')
+  return data
+}
+
+export async function updateAbcIndicators(codes: string[]): Promise<{ key: string; value: string; included: string[] }> {
+  const { data } = await client.put<{ key: string; value: string; included: string[] }>('/settings/abc-indicators', { value: codes.join(',') })
+  return data
+}
