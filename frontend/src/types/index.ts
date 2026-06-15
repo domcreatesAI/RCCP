@@ -204,6 +204,8 @@ export interface RCCPPortfolioChange {
   description: string | null
   impact_notes: string | null
   line_code: string | null          // routing line (items.primary_line_code), if the SKU is set up
+  plant_code: string | null         // plant of the routing line, if resolvable
+  initial_demand: number | null     // expected initial demand (EA) for NEW_LAUNCH rows
 }
 
 export interface RCCPDashboard {

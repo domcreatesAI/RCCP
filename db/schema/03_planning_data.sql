@@ -287,6 +287,7 @@ BEGIN
         effective_date      DATE            NULL,
         description         NVARCHAR(500)   NULL,
         impact_notes        NVARCHAR(1000)  NULL,
+        initial_demand      DECIMAL(18,2)   NULL,           -- expected initial demand (EA) for NEW_LAUNCH rows
         source_row_number   INT             NULL,
         created_at          DATETIME2(7)    NOT NULL    DEFAULT GETUTCDATE(),
 

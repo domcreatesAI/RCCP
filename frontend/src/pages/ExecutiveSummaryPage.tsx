@@ -13,6 +13,7 @@ import { getDashboard, downloadVerificationExcel } from '../api/rccp'
 import type { Batch, RCCPLine, RCCPMonthlyBucket, RCCPPortfolioChange, UnitMode } from '../types'
 import NextMonthSpotlight from '../components/rccp/NextMonthSpotlight'
 import PortfolioPanel from '../components/rccp/PortfolioPanel'
+import PortfolioChangesChart from '../components/rccp/PortfolioChangesChart'
 import PeopleFitPanel from '../components/rccp/PeopleFitPanel'
 import DowntimePanel from '../components/rccp/DowntimePanel'
 import KPITile from '../components/rccp/KPITile'
@@ -1281,7 +1282,19 @@ export default function ExecutiveSummaryPage() {
             <DowntimePanel lines={allLines} planCycleDate={dashboard.plan_cycle_date} />
           </motion.div>
 
-          {/* Portfolio changes */}
+          {/* Portfolio changes — launch volume chart */}
+          <motion.div
+            initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}
+            className="mt-4 print:mt-3"
+          >
+            <PortfolioChangesChart
+              changes={dashboard.portfolio_changes ?? []}
+              lines={allLines}
+              planCycleDate={dashboard.plan_cycle_date}
+            />
+          </motion.div>
+
+          {/* Portfolio changes — event list */}
           <motion.div
             initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.26 }}
             className="mt-4 print:mt-3"

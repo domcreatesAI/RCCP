@@ -1127,7 +1127,7 @@ def compute_dashboard(conn, batch_id: int, allowed_statuses: tuple[str, ...] = (
     # this file's role is to LABEL the change (what / when / line) so the UI
     # can mark launch months on the charts and list the events for governance.
     cursor.execute("""
-        SELECT item_code, change_type, effective_date, description, impact_notes
+        SELECT item_code, change_type, effective_date, description, impact_notes, initial_demand
         FROM dbo.portfolio_changes WHERE batch_id = ?
     """, batch_id)
 
@@ -1136,6 +1136,8 @@ def compute_dashboard(conn, batch_id: int, allowed_statuses: tuple[str, ...] = (
         eff = r.effective_date
         if hasattr(eff, "date"):
             eff = eff.date()
+        line_code = item_primary_line.get(r.item_code)
+        plant_code = lines_meta.get(line_code, {}).get("plant_code") if line_code else None
         portfolio_changes_out.append({
             "item_code": r.item_code,
             "change_type": r.change_type or "OTHER",
@@ -1143,7 +1145,9 @@ def compute_dashboard(conn, batch_id: int, allowed_statuses: tuple[str, ...] = (
             "effective_period": _period(eff) if eff else None,
             "description": r.description,
             "impact_notes": r.impact_notes,
-            "line_code": item_primary_line.get(r.item_code),
+            "line_code": line_code,
+            "plant_code": plant_code,
+            "initial_demand": float(r.initial_demand) if r.initial_demand is not None else None,
         })
 
     _ct_order = {"NEW_LAUNCH": 0, "DISCONTINUE": 1}
