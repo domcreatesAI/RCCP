@@ -53,6 +53,9 @@ function StageRow({ stage, batch, index = 0 }: { stage: ValidationStage; batch: 
   const name = STAGE_NAMES[stage.stage] ?? stage.name
   const severity = stage.severity as Severity
 
+  // Stage-level messages (e.g. batch-readiness reason on stages 1 & 7).
+  const stageMessages = stage.messages ?? []
+
   // Collect top issues from files for this stage (best effort)
   const issueLines: string[] = []
   if (expanded && batch.files) {
@@ -98,9 +101,11 @@ function StageRow({ stage, batch, index = 0 }: { stage: ValidationStage; batch: 
               marginLeft: '28px',
               paddingLeft: '12px',
             }}>
-            {issueLines.length > 0
-              ? issueLines.slice(0, 5).map((line, i) => <p key={i}>{line}</p>)
-              : <p className="text-gray-400 italic">No detailed issues available for this stage.</p>
+            {stageMessages.length > 0
+              ? stageMessages.map((line, i) => <p key={`m${i}`}>{line}</p>)
+              : issueLines.length > 0
+                ? issueLines.slice(0, 5).map((line, i) => <p key={i}>{line}</p>)
+                : <p className="text-gray-400 italic">No detailed issues available for this stage.</p>
             }
           </div>
         </motion.div>

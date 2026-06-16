@@ -103,9 +103,25 @@ def get_current_files_for_validation(conn: pyodbc.Connection, batch_id: int) -> 
     ]
 
 
+_REQUIRED_FILE_TYPES_SQL = (
+    "'master_stock', 'demand_plan', 'line_capacity_calendar', "
+    "'headcount_plan', 'portfolio_changes', 'production_orders'"
+)
+
+
 def get_validation_stage_summary(conn: pyodbc.Connection, batch_id: int) -> list:
-    """Return worst severity per validation stage across all current-version files."""
+    """Return worst severity per validation stage across all current-version files.
+
+    Stages 2-6 and 8 are file-specific and read from stored results.
+    Stages 1 (Required File Check) and 7 (Batch Readiness) are BATCH-level and
+    computed LIVE here — stored per-file rows for them go stale as files are
+    uploaded one at a time (each frozen at the file count when that file was
+    validated), so reading them back produces misleading "1/6 … 5/6" history.
+    """
     cursor = conn.cursor()
+    rank_map = {3: "BLOCKED", 2: "WARNING", 1: "INFO", 0: "PASS"}
+
+    # --- Stages 2-6, 8 from stored per-file results (worst severity each) ---
     cursor.execute(
         """
         SELECT
@@ -121,16 +137,104 @@ def get_validation_stage_summary(conn: pyodbc.Connection, batch_id: int) -> list
         JOIN dbo.import_batch_files ibf ON ivr.batch_file_id = ibf.batch_file_id
         WHERE ibf.batch_id = ?
           AND ibf.is_current_version = 1
+          AND ivr.validation_stage NOT IN (1, 7)
         GROUP BY ivr.validation_stage, ivr.stage_name
         ORDER BY ivr.validation_stage
         """,
         batch_id,
     )
-    rank_map = {3: "BLOCKED", 2: "WARNING", 1: "INFO", 0: "PASS"}
-    return [
+    stages = [
         {"stage": r[0], "name": r[1], "severity": rank_map.get(r[2], "PASS")}
         for r in cursor.fetchall()
     ]
+
+    # Messages behind each stored stage's severity (non-PASS only).
+    cursor.execute(
+        """
+        SELECT DISTINCT ivr.validation_stage, ivr.severity, ivr.message
+        FROM dbo.import_validation_results ivr
+        JOIN dbo.import_batch_files ibf ON ivr.batch_file_id = ibf.batch_file_id
+        WHERE ibf.batch_id = ?
+          AND ibf.is_current_version = 1
+          AND ivr.validation_stage NOT IN (1, 7)
+          AND ivr.severity <> 'PASS'
+          AND ivr.message IS NOT NULL
+        """,
+        batch_id,
+    )
+    msgs_by_key: dict = {}
+    for stg, sev, msg in cursor.fetchall():
+        msgs_by_key.setdefault((stg, sev), []).append(msg)
+    for s in stages:
+        s["messages"] = msgs_by_key.get((s["stage"], s["severity"]), [])[:5]
+
+    # --- Stage 1 (Required File Check) — computed live ---
+    cursor.execute(
+        f"""
+        SELECT COUNT(DISTINCT file_type)
+        FROM dbo.import_batch_files
+        WHERE batch_id = ? AND is_current_version = 1
+          AND file_type IN ({_REQUIRED_FILE_TYPES_SQL})
+        """,
+        batch_id,
+    )
+    required_count = cursor.fetchone()[0] or 0
+
+    cursor.execute(
+        f"""
+        SELECT COUNT(DISTINCT file_type)
+        FROM dbo.import_batch_files
+        WHERE batch_id = ? AND is_current_version = 1
+          AND file_type IN ({_REQUIRED_FILE_TYPES_SQL})
+          AND validation_status IS NULL
+        """,
+        batch_id,
+    )
+    unvalidated_count = cursor.fetchone()[0] or 0
+
+    cursor.execute(
+        """
+        SELECT
+            SUM(CASE WHEN ivr.severity = 'BLOCKED' THEN 1 ELSE 0 END),
+            SUM(CASE WHEN ivr.severity = 'WARNING' THEN 1 ELSE 0 END)
+        FROM dbo.import_validation_results ivr
+        JOIN dbo.import_batch_files ibf ON ivr.batch_file_id = ibf.batch_file_id
+        WHERE ibf.batch_id = ? AND ibf.is_current_version = 1
+          AND ivr.validation_stage BETWEEN 2 AND 6
+        """,
+        batch_id,
+    )
+    row = cursor.fetchone()
+    blocked_count = row[0] or 0
+    warning_count = row[1] or 0
+
+    if required_count >= 6:
+        stage1 = {"stage": 1, "name": "REQUIRED_FILE_CHECK", "severity": "PASS",
+                  "messages": ["All 6 required files are present in this batch"]}
+    else:
+        stage1 = {"stage": 1, "name": "REQUIRED_FILE_CHECK", "severity": "WARNING",
+                  "messages": [f"{required_count}/6 required files present — {6 - required_count} still to upload"]}
+
+    # --- Stage 7 (Batch Readiness) — computed live (mirrors _stage7) ---
+    if required_count < 6:
+        stage7 = {"stage": 7, "name": "BATCH_READINESS", "severity": "WARNING",
+                  "messages": [f"Batch not ready to publish: {required_count}/6 required files uploaded"]}
+    elif unvalidated_count > 0:
+        stage7 = {"stage": 7, "name": "BATCH_READINESS", "severity": "BLOCKED",
+                  "messages": [f"{unvalidated_count} file(s) uploaded but not yet validated — click Re-validate"]}
+    elif blocked_count > 0:
+        stage7 = {"stage": 7, "name": "BATCH_READINESS", "severity": "BLOCKED",
+                  "messages": [f"Batch cannot be published: {blocked_count} BLOCKED issue(s) across all files"]}
+    elif warning_count > 0:
+        stage7 = {"stage": 7, "name": "BATCH_READINESS", "severity": "WARNING",
+                  "messages": [f"Batch can be published but has {warning_count} warning(s). Review before publishing."]}
+    else:
+        stage7 = {"stage": 7, "name": "BATCH_READINESS", "severity": "PASS",
+                  "messages": ["All files validated. Batch is ready to publish."]}
+
+    stages.extend([stage1, stage7])
+    stages.sort(key=lambda s: s["stage"])
+    return stages
 
 
 def get_current_file_for_download(conn: pyodbc.Connection, batch_id: int, file_type: str) -> dict | None:

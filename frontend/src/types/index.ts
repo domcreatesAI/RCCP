@@ -2,6 +2,7 @@ export interface ValidationStage {
   stage: number
   name: string
   severity: 'PASS' | 'WARNING' | 'BLOCKED' | 'INFO'
+  messages?: string[]   // explanation(s) behind a non-PASS severity
 }
 
 export interface Batch {

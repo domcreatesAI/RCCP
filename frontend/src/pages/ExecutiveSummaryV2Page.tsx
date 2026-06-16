@@ -12,6 +12,7 @@ import type { Batch, RCCPLine, RCCPPortfolioChange } from '../types'
 import { C, focusMonthPeriod, monthLabel, rollingMonths, HIDDEN_LINE_CODES, sortLinesByCode, fteSummaryHorizon } from '../components/rccp/brand'
 import NextMonthSpotlight from '../components/rccp/NextMonthSpotlight'
 import PortfolioPanel from '../components/rccp/PortfolioPanel'
+import PortfolioChangesChart from '../components/rccp/PortfolioChangesChart'
 import KPITile from '../components/rccp/KPITile'
 import PlantChart, { formatLarge } from '../components/rccp/PlantChart'
 
@@ -438,12 +439,6 @@ export default function ExecutiveSummaryV2Page() {
           <h1 className="font-semibold flex items-center gap-3 flex-wrap" style={{ color: C.navy, fontSize: 28, letterSpacing: '-0.025em', lineHeight: 1.1 }}>
             <span className="inline-block rounded" style={{ width: 5, height: 30, background: `linear-gradient(180deg,${C.lime},${C.limeDeep})`, boxShadow: '0 0 10px rgba(170,205,0,0.4)' }} />
             Executive Summary
-            <span
-              className="font-mono text-[10px] uppercase tracking-widest font-bold px-2 py-0.5 rounded"
-              style={{ background: C.limeTint, color: C.limeDeep, border: `1px solid ${C.lime}`, letterSpacing: '0.18em' }}
-            >
-              v2
-            </span>
           </h1>
           <p className="mt-2 text-[13.5px] max-w-[700px] leading-relaxed" style={{ color: C.ink2 }}>
             Planning month first, action items next, then the underlying data. Everything below the actions is supporting detail.
@@ -583,7 +578,19 @@ export default function ExecutiveSummaryV2Page() {
             ))}
           </motion.div>
 
-          {/* 5. Portfolio changes */}
+          {/* 5. Portfolio changes — launch volume chart */}
+          <motion.div
+            initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.205 }}
+            className="mt-4"
+          >
+            <PortfolioChangesChart
+              changes={dashboard.portfolio_changes ?? []}
+              lines={allLines}
+              planCycleDate={dashboard.plan_cycle_date}
+            />
+          </motion.div>
+
+          {/* 5b. Portfolio changes — event list */}
           <motion.div
             initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.21 }}
             className="mt-4"

@@ -4,9 +4,9 @@ Generate a pre-filled Line Capacity Calendar Excel file for upload to RCCP One.
 Covers 01/01/2026 – 31/12/2030.
 One row per production line per day (14 lines × ~1826 days = ~25,564 rows).
 
-Shift pattern:
-  - Mon–Thu: is_working_day = 1, planned_hours = 8.5
-  - Fri:     is_working_day = 1, planned_hours = 6.0
+Shift pattern (planned_hours = on-site hours minus 1h allocated to breaks):
+  - Mon–Thu: is_working_day = 1, planned_hours = 8.0  (9.0h on site − 1h breaks)
+  - Fri:     is_working_day = 1, planned_hours = 5.5  (6.5h on site − 1h breaks)
   - Sat/Sun: is_working_day = 0, planned_hours = 0
 
 UK bank holidays: is_working_day = 0, planned_hours = 0,
@@ -39,11 +39,11 @@ LINES = [
 # Planned hours by weekday  (Mon=0 … Sun=6)
 # ---------------------------------------------------------------------------
 PLANNED_HOURS_BY_WEEKDAY = {
-    0: 8.5,  # Monday
-    1: 8.5,  # Tuesday
-    2: 8.5,  # Wednesday
-    3: 8.5,  # Thursday
-    4: 6.0,  # Friday
+    0: 8.0,  # Monday    — 9.0h on site − 1h breaks
+    1: 8.0,  # Tuesday   — 9.0h on site − 1h breaks
+    2: 8.0,  # Wednesday — 9.0h on site − 1h breaks
+    3: 8.0,  # Thursday  — 9.0h on site − 1h breaks
+    4: 5.5,  # Friday    — 6.5h on site − 1h breaks
     5: 0.0,  # Saturday
     6: 0.0,  # Sunday
 }
@@ -229,14 +229,14 @@ def generate() -> None:
         f"Date range: 01/01/2026 – 31/12/2030",
         f"Total rows: {row_num - 3:,}",
         "",
-        "Shift pattern applied:",
-        "  Mon–Thu:  8.5 hours / day (planned_hours = 8.5)",
-        "  Friday:   6.0 hours / day (planned_hours = 6.0)",
+        "Shift pattern applied (planned_hours = on-site hours minus 1h breaks):",
+        "  Mon–Thu:  8.0 hours / day (9.0h on site − 1h breaks)",
+        "  Friday:   5.5 hours / day (6.5h on site − 1h breaks)",
         "  Sat/Sun:  non-working     (is_working_day = 0, planned_hours = 0)",
         "",
         "UK bank holidays: is_working_day=0, planned_hours=0,",
         "  public_holiday_hours = hours that day would normally carry",
-        "  (8.5 if Mon–Thu falls on BH, 6.0 if Friday falls on BH)",
+        "  (8.0 if Mon–Thu falls on BH, 5.5 if Friday falls on BH)",
         "",
         "Amber rows = UK bank holidays",
         "Grey rows  = weekends",
@@ -258,7 +258,7 @@ def generate() -> None:
     wb.save(out_path)
     print(f"Saved: {os.path.abspath(out_path)}")
     print(f"Rows:  {row_num - 3:,}  ({len(LINES)} lines × {(end - start).days + 1} days)")
-    print(f"Shift: Mon–Thu 8.5h | Fri 6.0h | Sat–Sun 0h")
+    print(f"Shift: Mon–Thu 8.0h | Fri 5.5h | Sat–Sun 0h (on-site minus 1h breaks)")
 
 
 if __name__ == "__main__":

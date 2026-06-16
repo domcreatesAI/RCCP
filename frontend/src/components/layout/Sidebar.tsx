@@ -15,7 +15,6 @@ interface NavItem {
 const navItems: NavItem[] = [
   { label: 'Planning Data',        path: '/',                     badge: 'P1', icon: Upload },
   { label: 'Executive Summary',    path: '/executive-summary',    badge: 'P4', icon: FileText },
-  { label: 'Executive Summary v2', path: '/executive-summary-v2', badge: 'V2', icon: FileText },
   { label: 'Plant Detail',         path: '/plant-detail',         badge: 'OPS', icon: Factory },
   { label: 'Scenarios',            path: '/scenarios',            badge: 'P3', icon: GitBranch },
   { label: 'Batch Exports',        path: '/exports',              badge: 'XLS', icon: Download },

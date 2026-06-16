@@ -4,8 +4,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext'
 import AppShell from './components/layout/AppShell'
 import LoginPage from './pages/LoginPage'
 import PlanningDataPage from './pages/PlanningDataPage'
-import ExecutiveSummaryPage from './pages/ExecutiveSummaryPage'
-import ExecutiveSummaryV2Page from './pages/ExecutiveSummaryV2Page'
+import ExecutiveSummaryPage from './pages/ExecutiveSummaryV2Page'
 import PlantDetailPage from './pages/PlantDetailPage'
 import BatchExportsPage from './pages/BatchExportsPage'
 import ScenariosPage from './pages/ScenariosPage'
@@ -42,7 +41,8 @@ function AppRoutes() {
       >
         <Route index element={<PlanningDataPage />} />
         <Route path="executive-summary" element={<ExecutiveSummaryPage />} />
-        <Route path="executive-summary-v2" element={<ExecutiveSummaryV2Page />} />
+        {/* Old V2 path → redirect to the canonical Executive Summary */}
+        <Route path="executive-summary-v2" element={<Navigate to="/executive-summary" replace />} />
         <Route path="plant-detail" element={<PlantDetailPage />} />
         <Route path="scenarios" element={<ScenariosPage />} />
         <Route path="exports" element={<BatchExportsPage />} />

@@ -675,6 +675,23 @@ def _stage5(cursor, conn: pyodbc.Connection, batch_file_id: int,
                "All reference checks passed")
 
 
+def _horizon_context(conn: pyodbc.Connection, batch_file_id: int) -> tuple:
+    """Return (plan_cycle_date, active_line_count) for coverage guardrails."""
+    c = conn.cursor()
+    c.execute(
+        """SELECT b.plan_cycle_date
+           FROM dbo.import_batch_files f
+           JOIN dbo.import_batches b ON f.batch_id = b.batch_id
+           WHERE f.batch_file_id = ?""",
+        batch_file_id,
+    )
+    row = c.fetchone()
+    plan_cycle = row[0] if row else None
+    c.execute("SELECT COUNT(*) FROM dbo.lines WHERE is_active = 1")
+    active_lines = c.fetchone()[0] or 0
+    return plan_cycle, active_lines
+
+
 def _stage6(cursor, conn: pyodbc.Connection, batch_file_id: int, file_type: str,
             schema: dict, headers: list, data_rows: list) -> None:
     stage_num, stage_name = 6, STAGE_NAMES[6]
@@ -690,6 +707,27 @@ def _stage6(cursor, conn: pyodbc.Connection, batch_file_id: int, file_type: str,
                 if val is not None and _is_valid_decimal(val) and float(val) < 0:
                     errors.append((row_num, col, "BLOCKED",
                                    f"{col} cannot be negative: {val}", str(val)))
+
+        # Coverage guardrail — catch a template/sample uploaded by mistake.
+        plan_cycle, active_lines = _horizon_context(conn, batch_file_id)
+        months = []
+        for _, rd in data_rows:
+            raw = rd.get("plan_month") if "plan_month" in header_set else rd.get("plan_date")
+            d = _to_date(raw)
+            if d:
+                months.append(d)
+        max_month = max(months) if months else None
+        reasons = []
+        if max_month is not None and plan_cycle is not None and max_month < plan_cycle:
+            reasons.append(f"latest month in file is {max_month:%Y-%m}, before the plan cycle ({plan_cycle:%Y-%m})")
+        if active_lines and len(data_rows) < active_lines:
+            reasons.append(f"only {len(data_rows)} row(s) for {active_lines} active lines")
+        if reasons:
+            errors.append((None, "planned_headcount", "WARNING",
+                           "headcount_plan looks incomplete (" + "; ".join(reasons) + "). "
+                           "Expected planned headcount for every active line across the planning horizon — "
+                           "did you upload the template/sample instead of the full headcount plan?",
+                           None))
 
     elif file_type == "line_capacity_calendar":
         if "planned_hours" in header_set:
@@ -712,6 +750,25 @@ def _stage6(cursor, conn: pyodbc.Connection, batch_file_id: int, file_type: str,
                 if val is not None and _is_valid_decimal(val) and float(val) < 0:
                     errors.append((row_num, loss_col, "BLOCKED",
                                    f"{loss_col} cannot be negative: {val}", str(val)))
+
+        # Coverage guardrail — catch a template/sample uploaded by mistake.
+        if "calendar_date" in header_set:
+            plan_cycle, _active = _horizon_context(conn, batch_file_id)
+            dates = [_to_date(rd.get("calendar_date")) for _, rd in data_rows]
+            dates = [d for d in dates if d is not None]
+            distinct_dates = set(dates)
+            max_date = max(dates) if dates else None
+            reasons = []
+            if max_date is not None and plan_cycle is not None and max_date < plan_cycle:
+                reasons.append(f"latest date in file is {max_date:%Y-%m-%d}, before the plan cycle ({plan_cycle:%Y-%m})")
+            if len(distinct_dates) < 28:
+                reasons.append(f"spans only {len(distinct_dates)} distinct day(s)")
+            if reasons:
+                errors.append((None, "calendar_date", "WARNING",
+                               "line_capacity_calendar looks incomplete (" + "; ".join(reasons) + "). "
+                               "Expected a full calendar spanning the planning horizon for every active line — "
+                               "did you upload the template/sample instead of the generated capacity calendar?",
+                               None))
 
     elif file_type == "demand_plan":
         month_cols = _detect_month_columns(headers)
