@@ -135,7 +135,7 @@ Note: `resource_requirements.xlsx` (2 tabs) was split into two separate uploads 
 - `labour_pools.max_concurrent_lines` — max lines that can run simultaneously (space/equipment limit, not headcount)
 
 **Headcount constraints (Phase 2):**
-- `line_resource_requirements` — people needed per line (Line Operators, Team Leaders)
+- `line_resource_requirements` — people needed per line (Line Operators, Line Leaders)
 - `plant_resource_requirements` — shared people per plant (Forklift Drivers, Robot Operators, Material Handlers)
 - `headcount_plan` — actual planned headcount; compared against requirements to flag shortfalls
 

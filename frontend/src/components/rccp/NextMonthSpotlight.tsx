@@ -1,6 +1,6 @@
 import { CheckCircle2, AlertTriangle, AlertOctagon, ArrowRight } from 'lucide-react'
-import type { RCCPLine, RCCPPlantSupportRole } from '../../types'
-import { C, focusVerdict, focusMonthPeriod, monthLabel, fteSummary, type Verdict } from './brand'
+import type { RCCPLine, RCCPPlantSupportRole, RCCPPoolRoleBalance } from '../../types'
+import { C, focusVerdict, focusMonthPeriod, monthLabel, poolFteForMonth, siteMonthHours, type Verdict } from './brand'
 
 function fmtL(v: number): string {
   if (Math.abs(v) >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}ML`
@@ -45,26 +45,28 @@ function fmtGBP(v: number): string {
 }
 
 export default function NextMonthSpotlight({
-  lines, planCycleDate, onSelectLine, plantSupport, cogsPerLitre = 0.12,
+  lines, planCycleDate, onSelectLine, poolLabour, cogsPerLitre = 0.12,
 }: {
   lines: RCCPLine[]
   planCycleDate: string
   onSelectLine?: (code: string | null) => void
-  plantSupport?: Record<string, RCCPPlantSupportRole[]>
+  poolLabour?: Record<string, RCCPPoolRoleBalance[]>
   cogsPerLitre?: number
 }) {
   if (!lines.length) return null
 
   const focus = focusMonthPeriod(planCycleDate)
-  const fv = focusVerdict(lines, focus)
+  const fv = focusVerdict(lines, focus, poolLabour)
   const { verdict, planFeasibility, siteUtilTheoretical, demandCov, over, short,
           productionTotal, firmTotal, plannedTotal,
           deliverableLitres, shortfallLitres, theoreticalCapacity, demandTotal } = fv
   const vs = VERDICT_STYLE[verdict]
   const Icon = vs.icon
 
-  // FTE-equivalent headcount summary for this focus month
-  const fte = plantSupport ? fteSummary(lines, plantSupport, focus) : null
+  // FTE-equivalent headcount summary for this focus month — from the pool balance.
+  const poolM = poolFteForMonth(poolLabour ?? {}, focus)
+  const mh = siteMonthHours(lines, focus)
+  const fte = { needed: poolM.need, planned: poolM.have, gap: poolM.gap, monthHours: mh.monthHours, workingDays: mh.workingDays }
   const fteTooltip = fte && fte.monthHours > 0
     ? `1 FTE = one person working a standard month. This month: ${fte.workingDays} working days × ${Math.round(fte.monthHours / fte.workingDays)}h shift = ${Math.round(fte.monthHours)}h. Captures part-time, overtime, and partial-month operation that head-counts hide.`
     : '1 FTE = one person working a standard month (calendar-derived). Captures part-time, overtime, and partial-month operation that head-counts hide.'
@@ -166,25 +168,21 @@ export default function NextMonthSpotlight({
             {/* 4. Headcount — FTE gap */}
             {fte && fte.needed != null ? (
               (() => {
+                const isShort = fte.gap != null && fte.gap >= 1
+                const fmtFte = (v: number) => (Number.isInteger(v) ? v.toFixed(0) : v.toFixed(1))
+                // Headline = the headcount we actually have planned (never a bare "0"
+                // that reads as "no staff"); need + coverage status go in the sub.
                 const headcountSub = fte.planned == null
-                  ? `${fte.needed.toFixed(1)} FTE needed`
-                  : fte.gap != null && fte.gap >= 1
-                    ? `Need ${fte.needed.toFixed(1)}, planned ${fte.planned.toFixed(1)} — ${Math.round(fte.gap)} more FTE required`
-                    : fte.gap != null && fte.gap <= -1
-                      ? `Need ${fte.needed.toFixed(1)}, planned ${fte.planned.toFixed(1)} — ${Math.round(-fte.gap)} FTE surplus`
-                      : `Need ${fte.needed.toFixed(1)}, planned ${fte.planned.toFixed(1)} — fully covered`
+                  ? `${fmtFte(fte.needed)} FTE needed · no headcount plan`
+                  : isShort
+                    ? `Need ${fmtFte(fte.needed)} · ${fte.gap!.toFixed(1)} FTE short`
+                    : `Need ${fmtFte(fte.needed)} · fully covered`
                 return (
                   <StatChip
-                    label="Headcount"
-                    value={fte.gap != null && fte.gap > 0
-                      ? `−${fte.gap.toFixed(1)}`
-                      : fte.gap != null && fte.gap < 0
-                        ? `+${(-fte.gap).toFixed(1)}`
-                        : '0'}
-                    suffix=" FTE"
-                    tone={fte.gap != null && fte.gap >= 1 ? 'amber'
-                      : fte.gap != null && fte.gap <= -1 ? 'lime'
-                      : 'navy'}
+                    label="Headcount planned"
+                    value={fte.planned != null ? fmtFte(fte.planned) : '—'}
+                    suffix={fte.planned != null ? ' FTE' : ''}
+                    tone={isShort ? 'amber' : 'lime'}
                     sub={headcountSub}
                     tooltip={fteTooltip}
                   />
@@ -250,7 +248,7 @@ export default function NextMonthSpotlight({
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-[11.5px] font-semibold w-[92px] flex-shrink-0" style={{ color: C.ink3 }}>Short-staffed</span>
                   {short.slice(0, 8).map(s => (
-                    <LineChip key={s.code} code={s.code} detail={s.shortfall ? ` −${Math.round(s.shortfall)} ops` : ''} tone="amber" />
+                    <LineChip key={s.code} code={s.code} detail={s.shortfall ? ` −${s.shortfall.toFixed(1)} FTE` : ''} tone="amber" />
                   ))}
                 </div>
               )}

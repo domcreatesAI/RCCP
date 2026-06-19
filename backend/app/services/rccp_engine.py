@@ -110,16 +110,12 @@ def compute_dashboard(conn, batch_id: int, allowed_statuses: tuple[str, ...] = (
         plan_cycle_date = plan_cycle_date.date()
 
     # ── 2. Load capacity calendar ──────────────────────────────────────────────
-    # planned_hours (if set) is Manufacturing's explicit operating envelope for
-    # that day — i.e. hours scheduled after planned losses. The loss columns
-    # explain *why* the figure differs from the line's standard, and feed the
-    # planned-downtime panel.
+    # planned_hours is the scheduled shift for that day. downtime_hours is lost
+    # time (with a reason) and SUBTRACTS from capacity: available = planned − downtime.
     cursor.execute("""
         SELECT line_code, calendar_date, is_working_day,
-               planned_hours,
-               maintenance_hours, public_holiday_hours,
-               planned_downtime_hours, other_loss_hours
-        FROM dbo.vw_line_capacity_with_net
+               planned_hours, downtime_hours, downtime_reason
+        FROM dbo.line_capacity_calendar
         WHERE batch_id = ?
     """, batch_id)
     capacity_rows = cursor.fetchall()
@@ -237,13 +233,14 @@ def compute_dashboard(conn, batch_id: int, allowed_statuses: tuple[str, ...] = (
         FROM dbo.line_resource_requirements
         ORDER BY line_code, resource_type_code
     """)
-    hc_required: dict[str, int] = defaultdict(int)
+    hc_required: dict[str, float] = defaultdict(float)
     line_hc_roles: dict[str, list[dict]] = defaultdict(list)
     for r in cursor.fetchall():
-        hc_required[r.line_code] += int(r.headcount_required)
+        req = float(r.headcount_required)   # keep fractional crew (e.g. 2.5)
+        hc_required[r.line_code] += req
         line_hc_roles[r.line_code].append({
             "role_code": r.resource_type_code,
-            "required": int(r.headcount_required),
+            "required": req,
         })
 
     # Plant support requirements (forklift drivers, materials handlers, robot operators)
@@ -256,7 +253,7 @@ def compute_dashboard(conn, batch_id: int, allowed_statuses: tuple[str, ...] = (
     for r in cursor.fetchall():
         plant_support[r.plant_code].append({
             "role_code": r.resource_type_code,
-            "required": int(r.headcount_required),
+            "required": float(r.headcount_required),   # keep fractional (e.g. 0.6)
         })
 
     # Plant support planned headcount (from Sheet 2 of headcount_plan upload)
@@ -274,6 +271,23 @@ def compute_dashboard(conn, batch_id: int, allowed_statuses: tuple[str, ...] = (
         if hasattr(d, 'date'):
             d = d.date()
         plant_hc_plan[(r.plant_code, r.resource_type_code, str(d))] = float(r.planned)
+
+    # Pool headcount (Phase 2 v2 — people available per labour POOL, by role, per
+    # month). The "HAVE" side of the pool labour balance. Keyed by pool_code.
+    cursor.execute("""
+        SELECT pool_code, resource_type_code, CAST(plan_month AS DATE) AS plan_month, planned_headcount
+        FROM dbo.pool_headcount WHERE batch_id = ?
+    """, batch_id)
+    pool_hc: dict[tuple, float] = {}
+    for r in cursor.fetchall():
+        d = r.plan_month
+        if hasattr(d, 'date'):
+            d = d.date()
+        pool_hc[(r.pool_code, r.resource_type_code, f"{d.year:04d}-{d.month:02d}")] = float(r.planned_headcount)
+
+    # Resource type scope (LINE vs PLANT) — drives how pool need is computed.
+    cursor.execute("SELECT resource_type_code, scope FROM dbo.resource_types")
+    role_scope: dict[str, str] = {str(r[0]).strip(): str(r[1]).strip() for r in cursor.fetchall()}
 
     # Headcount exceptions (Sheet 3) — known absences applied as deltas
     cursor.execute("""
@@ -351,25 +365,21 @@ def compute_dashboard(conn, batch_id: int, allowed_statuses: tuple[str, ...] = (
     # ── 9. Build per-period operating envelope per line ───────────────────────
     # For each day:
     #   effective_mins = 0                                                   if is_working_day = 0
-    #                  = planned_hours × 60                                  if planned_hours is set
+    #                  = max(0, planned_hours − downtime_hours) × 60         if planned_hours is set
     #                  = masterdata available_mins_per_day                   otherwise (legacy default)
     #
-    # Loss columns (maintenance, planned downtime, public holiday, other) are
-    # NOT subtracted from the envelope — `planned_hours` is the authoritative
-    # net figure. The loss columns are itemised reasons, surfaced separately
-    # on the Planned-Downtime panel.
+    # downtime_hours SUBTRACTS from the day's scheduled shift, and is attributed
+    # to downtime_reason — feeding the Planned-Downtime panel (downtime by reason).
     line_period_days: dict[tuple, dict] = defaultdict(
         lambda: {"working_days": 0, "effective_mins": 0.0, "oee": 0.55}
     )
     line_week_days:   dict[tuple, dict] = defaultdict(
         lambda: {"working_days": 0, "effective_mins": 0.0, "oee": 0.55}
     )
-    # Per-line per-period planned loss hours (sum of all four loss categories)
+    # Per-line per-period total downtime hours
     line_period_losses: dict[tuple, float] = defaultdict(float)
-    # Optional per-category breakdown (for hover tooltips on the panel)
-    line_period_losses_breakdown: dict[tuple, dict] = defaultdict(
-        lambda: {"maintenance": 0.0, "planned_downtime": 0.0, "public_holiday": 0.0, "other_loss": 0.0}
-    )
+    # Per-line per-period downtime hours grouped by reason (for the panel tooltip)
+    line_period_losses_breakdown: dict[tuple, dict] = defaultdict(lambda: defaultdict(float))
     # Per-line working dates — used by the headcount-exception prorate
     line_working_dates: dict[str, set[date]] = defaultdict(set)
 
@@ -384,20 +394,15 @@ def compute_dashboard(conn, batch_id: int, allowed_statuses: tuple[str, ...] = (
         mins_default = meta.get("available_mins_per_day", 420.0)
         oee = meta.get("oee_target", 0.55)
 
-        # Effective minutes for this day under the rule above
+        downtime = _to_float(r.downtime_hours)
+
+        # Effective minutes for this day — downtime subtracts from the shift
         if not r.is_working_day:
             effective_mins = 0.0
         elif r.planned_hours is not None:
-            effective_mins = max(0.0, float(r.planned_hours) * 60.0)
+            effective_mins = max(0.0, float(r.planned_hours) - downtime) * 60.0
         else:
             effective_mins = mins_default
-
-        # Loss hours for downtime panel (independent of effective_mins)
-        loss_m = _to_float(r.maintenance_hours)
-        loss_p = _to_float(r.planned_downtime_hours)
-        loss_h = _to_float(r.public_holiday_hours)
-        loss_o = _to_float(r.other_loss_hours)
-        loss_total = loss_m + loss_p + loss_h + loss_o
 
         if r.is_working_day:
             line_working_dates[r.line_code].add(cal_date)
@@ -409,12 +414,10 @@ def compute_dashboard(conn, batch_id: int, allowed_statuses: tuple[str, ...] = (
                 line_period_days[key]["working_days"] += 1
             line_period_days[key]["effective_mins"] += effective_mins
             line_period_days[key]["oee"] = oee
-            line_period_losses[key] += loss_total
-            bd = line_period_losses_breakdown[key]
-            bd["maintenance"]      += loss_m
-            bd["planned_downtime"] += loss_p
-            bd["public_holiday"]   += loss_h
-            bd["other_loss"]       += loss_o
+            if downtime > 0:
+                line_period_losses[key] += downtime
+                reason = (r.downtime_reason or "").strip() or "Unspecified"
+                line_period_losses_breakdown[key][reason] += downtime
 
         ws = _week_str(cal_date)
         if ws in week_set:
@@ -545,6 +548,10 @@ def compute_dashboard(conn, batch_id: int, allowed_statuses: tuple[str, ...] = (
     unassigned_firm: dict[tuple, float] = defaultdict(float)   # (item_code, period, order_type)
     unassigned_planned: dict[tuple, float] = defaultdict(float)
     unassigned_counts: dict[tuple, int] = defaultdict(int)
+    # Production-plan volume (EA) per SKU per month — drives the portfolio-changes
+    # panel (highlights the plan volume/hours of phased-in/out SKUs). Independent
+    # of line routing so unrouted SKUs still report a volume.
+    item_period_ea: dict[tuple, float] = defaultdict(float)    # (item_code, period) → EA
 
     for r in order_rows:
         if r.net_quantity is None or r.basic_start_date is None:
@@ -567,6 +574,9 @@ def compute_dashboard(conn, batch_id: int, allowed_statuses: tuple[str, ...] = (
 
         p = _period(d)
         ws = _week_str(d)
+
+        if p in horizon_months_set and r.item_code:
+            item_period_ea[(r.item_code, p)] += float(r.net_quantity)
 
         if not routing_line:
             if p in horizon_months_set:
@@ -641,6 +651,12 @@ def compute_dashboard(conn, batch_id: int, allowed_statuses: tuple[str, ...] = (
     max_lpm_by_line: dict[str, float] = {
         lc: max(pc["litres_per_minute"] for pc in caps)
         for lc, caps in line_pack.items() if caps
+    }
+
+    # L/min per line per pack size — used to convert portfolio SKUs' plan volume → hours
+    line_lpm_by_pack: dict[str, dict[float, float]] = {
+        lc: {pc["pack_size_l"]: pc["litres_per_minute"] for pc in caps}
+        for lc, caps in line_pack.items()
     }
 
     def _available(line_code: str, period: str) -> float | None:
@@ -852,11 +868,9 @@ def compute_dashboard(conn, batch_id: int, allowed_statuses: tuple[str, ...] = (
                 else None
             )
 
-            # Planned downtime — total + breakdown (independent of capacity calc)
+            # Planned downtime — total + per-reason breakdown (now reduces capacity)
             loss_total = line_period_losses.get((line_code, period), 0.0)
-            loss_bd = line_period_losses_breakdown.get((line_code, period),
-                                                       {"maintenance": 0.0, "planned_downtime": 0.0,
-                                                        "public_holiday": 0.0, "other_loss": 0.0})
+            loss_bd = line_period_losses_breakdown.get((line_code, period), {})
 
             # Headcount — standard from Sheet 1, exceptions applied as a delta
             standard_hc = _hc_planned_avg(line_code, period)
@@ -905,14 +919,9 @@ def compute_dashboard(conn, batch_id: int, allowed_statuses: tuple[str, ...] = (
                 "hc_planned_standard":  standard_hc,
                 "hc_shortfall":         effective_shortfall,
                 "hc_exceptions":        line_exception_detail.get((line_code, period), []),
-                # planned downtime (annotation; does not subtract from available)
+                # planned downtime — total + hours by reason (reduces available)
                 "loss_hours":        round(loss_total, 1),
-                "loss_breakdown": {
-                    "maintenance":       round(loss_bd["maintenance"], 1),
-                    "planned_downtime":  round(loss_bd["planned_downtime"], 1),
-                    "public_holiday":    round(loss_bd["public_holiday"], 1),
-                    "other_loss":        round(loss_bd["other_loss"], 1),
-                },
+                "loss_breakdown":    {reason: round(h, 1) for reason, h in loss_bd.items()},
             })
 
         # Peak utilisation across all months (worst case)
@@ -957,6 +966,142 @@ def compute_dashboard(conn, batch_id: int, allowed_statuses: tuple[str, ...] = (
 
     # Sort by risk_score descending
     lines_out.sort(key=lambda x: x["risk_score"], reverse=True)
+
+    # ── 13b. Pool labour balance (v2 — pools span plants) ─────────────────────
+    # The unit is the labour POOL (lines.labour_pool_code), which may cover several
+    # plants. Per pool, per role, per month:
+    #   LINE-scope need  = Σ over the pool's lines of crew[line, role] × min(1, util)
+    #                      (per-line reqs — palletiser only on lines that need it)
+    #   PLANT-scope need = Σ over the pool's plants of plant_req[role] when the plant
+    #                      operates that month (FLAT — not scaled by utilisation)
+    #   have = pool_headcount[pool, role, month] + prorated absences (line & plant
+    #          exceptions mapped to the pool); None until pool headcount is entered
+    #   gap  = max(0, need − have)
+    cursor.execute("SELECT pool_code, pool_name FROM dbo.labour_pools")
+    pool_names = {str(r[0]).strip(): str(r[1]).strip() for r in cursor.fetchall()}
+
+    pool_lines: dict[str, list] = defaultdict(list)   # pool → [line dict]
+    pool_plants: dict[str, set] = defaultdict(set)    # pool → {plant_code}
+    line_to_pool: dict[str, str] = {}
+    for line in lines_out:
+        pc = line.get("pool_code")
+        if not pc:
+            continue                                  # excluded lines (no pool)
+        pool_lines[pc].append(line)
+        pool_plants[pc].add(line["plant_code"])
+        line_to_pool[line["line_code"]] = pc
+
+    # Plant requirement per (plant, role) for PLANT-scope (shared) roles.
+    plant_req: dict[tuple, float] = {}
+    for plant_code, roles in plant_support.items():
+        for role in roles:
+            plant_req[(plant_code, role["role_code"])] = float(role["required"])
+
+    # Plant operates in a period = any of its lines has production that month.
+    plant_operates: set[tuple] = set()
+    for line in lines_out:
+        for m in line["monthly"]:
+            if (m.get("production_litres") or 0) > 0:
+                plant_operates.add((line["plant_code"], m["period"]))
+
+    # Pool absences: line- and plant-level exception deltas mapped onto the pool.
+    pool_absence: dict[tuple, float] = defaultdict(float)
+    for (lc, role, period), delta in line_role_adjustments.items():
+        pc = line_to_pool.get(lc)
+        if pc:
+            pool_absence[(pc, role, period)] += delta
+    for (pl, role, period), delta in plant_role_adjustments.items():
+        for pc, plants in pool_plants.items():
+            if pl in plants:
+                pool_absence[(pc, role, period)] += delta
+                break
+
+    pool_need: dict[tuple, float] = defaultdict(float)
+    pool_roles: dict[str, set] = defaultdict(set)
+    for pool_code, plines in pool_lines.items():
+        # LINE-scope need (per line × utilisation)
+        for line in plines:
+            util_by_period = {m["period"]: m.get("utilisation_pct") for m in line["monthly"]}
+            for r in line["hc_roles"]:
+                crew = r["required"]
+                if not crew or crew <= 0:
+                    continue
+                role = r["role_code"]
+                pool_roles[pool_code].add(role)
+                for period in horizon_months:
+                    up = util_by_period.get(period)
+                    frac = min(1.0, up / 100.0) if up is not None else 0.0
+                    pool_need[(pool_code, role, period)] += crew * frac
+        # PLANT-scope (shared) need — a flat POOL TOTAL whenever the pool is
+        # running (any of its plants operating). Shared crew (forklift, material
+        # handler, robot op, technician) serve the whole pool, so the requirement
+        # is the pool's total, not per-plant. Summed from the pool's plant
+        # requirements (enter whole numbers that sum to the pool total).
+        pool_shared_total: dict[str, float] = defaultdict(float)
+        for plant in pool_plants[pool_code]:
+            for (pl, role), req in plant_req.items():
+                if pl == plant and req > 0 and role_scope.get(role) == "PLANT":
+                    pool_shared_total[role] += req
+        pool_runs = {p for p in horizon_months
+                     if any((plant, p) in plant_operates for plant in pool_plants[pool_code])}
+        for role, total in pool_shared_total.items():
+            pool_roles[pool_code].add(role)
+            for period in pool_runs:
+                pool_need[(pool_code, role, period)] += total
+    # Surface any role that has pool headcount even if it has no computed need.
+    for (pc, role, _pp) in pool_hc:
+        if pc in pool_lines:
+            pool_roles[pc].add(role)
+
+    _ROLE_ORDER = {"LINE_OPERATOR": 0, "LINE_LEADER": 1, "PALLETISING_OPERATOR": 2}
+    # Concurrency is read at the plan-cycle month (where pool headcount lives),
+    # not necessarily the first horizon bucket.
+    _cycle_period = f"{plan_cycle_date.year:04d}-{plan_cycle_date.month:02d}"
+    focus_period = _cycle_period if _cycle_period in horizon_months else (horizon_months[0] if horizon_months else None)
+    pool_labour: dict[str, list] = {}
+    pool_info: dict[str, dict] = {}
+    for pool_code in sorted(pool_lines):
+        roles_sorted = sorted(
+            pool_roles[pool_code],
+            key=lambda rc: (role_scope.get(rc) == "PLANT", _ROLE_ORDER.get(rc, 99), rc),
+        )
+        role_list = []
+        for role in roles_sorted:
+            monthly_bal = {}
+            for period in horizon_months:
+                need = round(pool_need.get((pool_code, role, period), 0.0), 2)
+                have_base = pool_hc.get((pool_code, role, period))
+                if have_base is None:
+                    monthly_bal[period] = {"need": need, "have": None, "gap": None}
+                else:
+                    have = round(max(0.0, have_base + pool_absence.get((pool_code, role, period), 0.0)), 2)
+                    monthly_bal[period] = {"need": need, "have": have, "gap": round(max(0.0, need - have), 2)}
+            role_list.append({"role_code": role, "scope": role_scope.get(role, "LINE"), "monthly": monthly_bal})
+        pool_labour[pool_code] = role_list
+
+        # Concurrency feasibility — "lines you can run" limited by the core run roles
+        # (operators + line leaders, which every running line needs). Palletisers are a
+        # per-line specialty (only some lines), so they don't drive this headline.
+        max_lines, binding = None, None
+        for role in ("LINE_OPERATOR", "LINE_LEADER"):
+            crews = [r["required"] for line in pool_lines[pool_code]
+                     for r in line["hc_roles"] if r["role_code"] == role and r["required"] > 0]
+            have_focus = pool_hc.get((pool_code, role, focus_period)) if focus_period else None
+            if not crews or have_focus is None:
+                continue
+            avg_crew = sum(crews) / len(crews)
+            if avg_crew <= 0:
+                continue
+            lines_for_role = int(have_focus // avg_crew)
+            if max_lines is None or lines_for_role < max_lines:
+                max_lines, binding = lines_for_role, role
+        pool_info[pool_code] = {
+            "pool_name": pool_names.get(pool_code, pool_code),
+            "plants": sorted(pool_plants[pool_code]),
+            "line_count": len(pool_lines[pool_code]),
+            "max_concurrent_lines_by_labour": max_lines,
+            "binding_role": binding,
+        }
 
     # ── 14. Unassigned orders ──────────────────────────────────────────────────
     # These are SKUs with no primary_line_code in sku_masterdata.
@@ -1122,12 +1267,13 @@ def compute_dashboard(conn, batch_id: int, allowed_statuses: tuple[str, ...] = (
             })
         plant_support_out[plant_code] = role_list
 
-    # ── Portfolio changes (metadata only) ───────────────────────────────────────
-    # Demand for new launches flows through demand_plan + production_orders;
-    # this file's role is to LABEL the change (what / when / line) so the UI
-    # can mark launch months on the charts and list the events for governance.
+    # ── Phase-in (information only) ───────────────────────────────────────────────
+    # The phase-in file lists the SKUs being launched. Their monthly volume & hours
+    # are derived here from the production plan (production_orders, accumulated above
+    # as item_period_ea) — surfacing the added requirement per plant & line.
+    # The line comes from the file's line_code (falls back to items.primary_line_code).
     cursor.execute("""
-        SELECT item_code, change_type, effective_date, description, impact_notes, initial_demand
+        SELECT item_code, change_type, effective_date, description, impact_notes, line_code
         FROM dbo.portfolio_changes WHERE batch_id = ?
     """, batch_id)
 
@@ -1136,10 +1282,25 @@ def compute_dashboard(conn, batch_id: int, allowed_statuses: tuple[str, ...] = (
         eff = r.effective_date
         if hasattr(eff, "date"):
             eff = eff.date()
-        line_code = item_primary_line.get(r.item_code)
+        item = r.item_code
+        line_code = r.line_code or (item_primary_line.get(item) if item else None)
         plant_code = lines_meta.get(line_code, {}).get("plant_code") if line_code else None
+        pack_l = item_pack.get(item, 0.0) if item else 0.0
+
+        # L/min for this SKU's pack on its line; fall back to the line's max L/min.
+        lpm = None
+        if line_code:
+            lpm = line_lpm_by_pack.get(line_code, {}).get(pack_l) or max_lpm_by_line.get(line_code)
+
+        monthly = {}
+        for period in horizon_months:
+            ea = item_period_ea.get((item, period), 0.0) if item else 0.0
+            litres = ea * pack_l
+            hours = (litres / lpm / 60.0) if (lpm and lpm > 0) else None
+            monthly[period] = {"ea": ea, "litres": litres, "hours": hours}
+
         portfolio_changes_out.append({
-            "item_code": r.item_code,
+            "item_code": item,
             "change_type": r.change_type or "OTHER",
             "effective_date": str(eff) if eff else None,
             "effective_period": _period(eff) if eff else None,
@@ -1147,7 +1308,7 @@ def compute_dashboard(conn, batch_id: int, allowed_statuses: tuple[str, ...] = (
             "impact_notes": r.impact_notes,
             "line_code": line_code,
             "plant_code": plant_code,
-            "initial_demand": float(r.initial_demand) if r.initial_demand is not None else None,
+            "monthly": monthly,
         })
 
     _ct_order = {"NEW_LAUNCH": 0, "DISCONTINUE": 1}
@@ -1165,6 +1326,8 @@ def compute_dashboard(conn, batch_id: int, allowed_statuses: tuple[str, ...] = (
         "unassigned_orders": unassigned_out,
         "portfolio_changes": portfolio_changes_out,        # introductions / phase-outs + capacity impact
         "plant_support_requirements": plant_support_out,  # plant_code → [{role_code, required, monthly}]
+        "pool_labour": pool_labour,                        # pool_code → [{role_code, scope, monthly: {period: {need, have, gap}}}]
+        "pool_info": pool_info,                             # pool_code → {pool_name, plants, line_count, max_concurrent_lines_by_labour, binding_role}
         "resource_type_rates": resource_type_rates,        # role_code → standard_hourly_rate
         "settings": {
             "cogs_opex_per_litre": cogs_per_litre,

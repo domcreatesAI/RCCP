@@ -100,10 +100,10 @@ GO
 -- =============================================================================
 MERGE dbo.labour_pools AS target
 USING (VALUES
-    ('POOL-A1', 'Plant 1 Filling Crew', 'Plant 1', 3, 'Lines A101, A102, A103'),
-    ('POOL-A2', 'Plant 2 Filling Crew', 'Plant 2', 2, 'Lines A201, A202'),
-    ('POOL-A3', 'Plant 3 Filling Crew', 'Plant 3', 6, 'Lines A302–A305, A307, A308 (A306 not in use)'),
-    ('POOL-A5', 'Plant 5 Filling Crew', 'Plant 5', 2, 'Lines A501, A502')
+    ('POOL-P1', 'Plant 1 Filling Crew', 'Plant 1', 3, 'Lines A101, A102, A103'),
+    ('POOL-P2', 'Plant 2 Filling Crew', 'Plant 2', 2, 'Lines A201, A202'),
+    ('POOL-P3', 'Plant 3 Filling Crew', 'Plant 3', 6, 'Lines A302–A305, A307, A308 (A306 not in use)'),
+    ('POOL-P5', 'Plant 5 Filling Crew', 'Plant 5', 2, 'Lines A501, A502')
 ) AS source (pool_code, pool_name, plant_code, max_concurrent_lines, notes)
 ON target.pool_code = source.pool_code
 WHEN NOT MATCHED THEN
@@ -133,20 +133,20 @@ GO
 -- =============================================================================
 MERGE dbo.lines AS target
 USING (VALUES
-    ('A101', 'Line A101', 'Plant 1', 'POOL-A1', 0.55, 420, 1),
-    ('A102', 'Line A102', 'Plant 1', 'POOL-A1', 0.55, 420, 1),
-    ('A103', 'Line A103', 'Plant 1', 'POOL-A1', 0.55, 420, 1),
-    ('A201', 'Line A201', 'Plant 2', 'POOL-A2', 0.55, 420, 1),
-    ('A202', 'Line A202', 'Plant 2', 'POOL-A2', 0.55, 420, 1),
-    ('A302', 'Line A302', 'Plant 3', 'POOL-A3', 0.55, 420, 1),
-    ('A303', 'Line A303', 'Plant 3', 'POOL-A3', 0.55, 420, 1),
-    ('A304', 'Line A304', 'Plant 3', 'POOL-A3', 0.55, 420, 1),
-    ('A305', 'Line A305', 'Plant 3', 'POOL-A3', 0.55, 420, 1),
-    ('A307', 'Line A307', 'Plant 3', 'POOL-A3', 0.55, 420, 1),
-    ('A308', 'Line A308', 'Plant 3', 'POOL-A3', 0.55, 420, 1),
+    ('A101', 'Line A101', 'Plant 1', 'POOL-P1', 0.55, 420, 1),
+    ('A102', 'Line A102', 'Plant 1', 'POOL-P1', 0.55, 420, 1),
+    ('A103', 'Line A103', 'Plant 1', 'POOL-P1', 0.55, 420, 1),
+    ('A201', 'Line A201', 'Plant 2', 'POOL-P2', 0.55, 420, 1),
+    ('A202', 'Line A202', 'Plant 2', 'POOL-P2', 0.55, 420, 1),
+    ('A302', 'Line A302', 'Plant 3', 'POOL-P3', 0.55, 420, 1),
+    ('A303', 'Line A303', 'Plant 3', 'POOL-P3', 0.55, 420, 1),
+    ('A304', 'Line A304', 'Plant 3', 'POOL-P3', 0.55, 420, 1),
+    ('A305', 'Line A305', 'Plant 3', 'POOL-P3', 0.55, 420, 1),
+    ('A307', 'Line A307', 'Plant 3', 'POOL-P3', 0.55, 420, 1),
+    ('A308', 'Line A308', 'Plant 3', 'POOL-P3', 0.55, 420, 1),
     ('A401', 'Line A401', 'Plant 4', NULL,       0.55, 420, 1),
-    ('A501', 'Line A501', 'Plant 5', 'POOL-A5', 0.55, 420, 1),
-    ('A502', 'Line A502', 'Plant 5', 'POOL-A5', 0.55, 420, 1)
+    ('A501', 'Line A501', 'Plant 5', 'POOL-P5', 0.55, 420, 1),
+    ('A502', 'Line A502', 'Plant 5', 'POOL-P5', 0.55, 420, 1)
 ) AS source (line_code, line_name, plant_code, labour_pool_code, oee_target, available_mins_per_day, is_active)
 ON target.line_code = source.line_code
 WHEN NOT MATCHED THEN
@@ -255,7 +255,7 @@ MERGE dbo.resource_types AS target
 USING (VALUES
     -- code               name                  scope    hourly_rate  notes                                          is_active
     ('LINE_OPERATOR',  'Line Operator',  'LINE',  NULL, 'Directly operates the filling line',            1),
-    ('TEAM_LEADER',    'Team Leader',    'LINE',  NULL, 'Supervises the line crew',                      1),
+    ('LINE_LEADER',    'Line Leader',    'LINE',  NULL, 'Supervises the line crew',                      1),
     ('ROBOT_OPERATOR', 'Robot Operator', 'PLANT', NULL, 'Operates robotic palletising equipment — shared across the plant', 1),
     ('FORKLIFT_DRIVER','Forklift Driver','PLANT', NULL, 'Moves pallets and materials — shared across the plant',            1),
     ('MATERIAL_HANDLER','Material Handler','PLANT',NULL, 'Feeds components and consumables — shared across the plant',      1)
@@ -286,11 +286,11 @@ MERGE dbo.line_resource_requirements AS target
 USING (VALUES
     -- line    resource_type       headcount
     ('A101', 'LINE_OPERATOR',  3),
-    ('A101', 'TEAM_LEADER',    1),
+    ('A101', 'LINE_LEADER',    1),
     ('A102', 'LINE_OPERATOR',  4),
-    ('A102', 'TEAM_LEADER',    1),
+    ('A102', 'LINE_LEADER',    1),
     ('A103', 'LINE_OPERATOR',  4),
-    ('A103', 'TEAM_LEADER',    1)
+    ('A103', 'LINE_LEADER',    1)
 ) AS source (line_code, resource_type_code, headcount_required)
 ON target.line_code = source.line_code AND target.resource_type_code = source.resource_type_code
 WHEN NOT MATCHED THEN
@@ -431,11 +431,11 @@ PRINT '=== Masterdata seed complete ===';
 PRINT '  Warehouses:                   4 (UKP1, UKP3, UKP4, UKP5)';
 PRINT '  Pack types:                   4 (Small Pack, 60L, Barrel 200L, IBC)';
 PRINT '  Plants:                       5 (P1–P5, all linked to UKP1)';
-PRINT '  Labour pools:                 4 (POOL-A1, A2, A3, A5)';
+PRINT '  Labour pools:                 4 (POOL-P1, P2, P3, P5)';
 PRINT '  Lines:                       14 (A101–A103, A201–A202, A302–A308, A401, A501–A502)';
 PRINT '  Items:                        7 (5 finished goods, 2 semi-finished)';
 PRINT '  Item resource rules:          5 (Plant P1 only — PLACEHOLDER std hrs)';
-PRINT '  Resource types:               5 (Line Operator, Team Leader, Robot Operator,';
+PRINT '  Resource types:               5 (Line Operator, Line Leader, Robot Operator,';
 PRINT '                                   Forklift Driver, Material Handler)';
 PRINT '  Line resource requirements:   6 (Plant P1 lines only)';
 PRINT '  Plant resource requirements:  3 (Plant P1 only)';

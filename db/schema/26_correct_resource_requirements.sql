@@ -16,29 +16,29 @@ ELSE
     PRINT 'TECHNICIAN already exists — skipped.';
 
 -- ── 2. Replace line_resource_requirements ────────────────────────────────────
--- Only LINE-scoped roles: LINE_OPERATOR, TEAM_LEADER
--- Lines with 0 Team Leaders are omitted (no requirement = no row)
+-- Only LINE-scoped roles: LINE_OPERATOR, LINE_LEADER
+-- Lines with 0 Line Leaders are omitted (no requirement = no row)
 
 DELETE FROM dbo.line_resource_requirements;
 
 INSERT INTO dbo.line_resource_requirements (line_code, resource_type_code, headcount_required)
 VALUES
     -- Plant 1
-    ('A101', 'LINE_OPERATOR', 2), ('A101', 'TEAM_LEADER', 1),
-    ('A102', 'LINE_OPERATOR', 2), ('A102', 'TEAM_LEADER', 1),
-    ('A103', 'LINE_OPERATOR', 2), ('A103', 'TEAM_LEADER', 1),
+    ('A101', 'LINE_OPERATOR', 2), ('A101', 'LINE_LEADER', 1),
+    ('A102', 'LINE_OPERATOR', 2), ('A102', 'LINE_LEADER', 1),
+    ('A103', 'LINE_OPERATOR', 2), ('A103', 'LINE_LEADER', 1),
     -- Plant 2
     ('A201', 'LINE_OPERATOR', 1),
     ('A202', 'LINE_OPERATOR', 1),
     -- Plant 3
     ('A302', 'LINE_OPERATOR', 1),
-    ('A303', 'LINE_OPERATOR', 3), ('A303', 'TEAM_LEADER', 1),
-    ('A304', 'LINE_OPERATOR', 2), ('A304', 'TEAM_LEADER', 1),
-    ('A305', 'LINE_OPERATOR', 2), ('A305', 'TEAM_LEADER', 1),
+    ('A303', 'LINE_OPERATOR', 3), ('A303', 'LINE_LEADER', 1),
+    ('A304', 'LINE_OPERATOR', 2), ('A304', 'LINE_LEADER', 1),
+    ('A305', 'LINE_OPERATOR', 2), ('A305', 'LINE_LEADER', 1),
     ('A307', 'LINE_OPERATOR', 1),
     ('A308', 'LINE_OPERATOR', 1),
     -- Plant 4
-    ('A401', 'LINE_OPERATOR', 3), ('A401', 'TEAM_LEADER', 1),
+    ('A401', 'LINE_OPERATOR', 3), ('A401', 'LINE_LEADER', 1),
     -- Plant 5
     ('A501', 'LINE_OPERATOR', 2),
     ('A502', 'LINE_OPERATOR', 2);

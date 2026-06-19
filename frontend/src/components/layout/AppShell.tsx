@@ -8,6 +8,7 @@ import type { Batch } from '../../types'
 const PAGE_TITLES: Record<string, string> = {
   '/': 'Planning Data',
   '/executive-summary': 'Executive Summary',
+  '/capacity-dashboard': 'Capacity Dashboard',
   '/scenarios': 'Scenarios',
   '/exports': 'Batch Exports',
   '/settings': 'Settings',

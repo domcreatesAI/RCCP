@@ -15,8 +15,8 @@ Sheets, in reading order:
   7.  Plant-shared Headcount      — per plant × role × month
   8.  Headcount Exceptions        — absence events with prorated FTE delta
   9.  FTE Breakdown               — the math: role-hours ÷ FTE-month hours
-  10. Planned Downtime            — line × month: total loss + breakdown
-  11. Portfolio / Launches        — new launches + phase-outs with routing
+  10. Planned Downtime            — line × month: downtime hours by reason
+  11. Phase-in                    — phased-in SKUs: monthly Litres (+ total hrs) from the plan
   12. Action Items                — auto-generated talking points
 
 Used by both the API endpoint (in-memory) and scripts/export_sop_verification.py (to disk).
@@ -334,13 +334,11 @@ def build_verification_workbook(dash: dict, horizon_months: int = 12) -> Workboo
     _build_monthly_summary_sheet(wb.create_sheet("Capacity & Headcount"), lines, forward_list)
     _build_detail_sheet(wb.create_sheet("Monthly Detail"), detail_rows, cogs)
 
-    # Sheets 6–12: new audit pack sheets
-    _build_headcount_by_line_sheet(wb.create_sheet("Headcount by Line"), lines, forward_list, plant_support)
-    _build_plant_shared_sheet(wb.create_sheet("Plant-shared Headcount"), plant_support, forward_list, lines)
+    # Sheets 6–11: audit pack sheets
+    _build_pool_labour_sheet(wb.create_sheet("Pool Labour"), dash, forward_list)
     _build_exceptions_sheet(wb.create_sheet("Headcount Exceptions"), lines, plant_support)
-    _build_fte_breakdown_sheet(wb.create_sheet("FTE Breakdown"), lines, plant_support, forward_list)
     _build_downtime_sheet(wb.create_sheet("Planned Downtime"), lines, forward_list)
-    _build_portfolio_sheet(wb.create_sheet("Portfolio Launches"), dash)
+    _build_portfolio_sheet(wb.create_sheet("Phase-in"), dash)
     _build_actions_sheet(wb.create_sheet("Action Items"), dash, lines)
 
     return wb
@@ -581,13 +579,11 @@ def _build_readme_sheet(ws, dash: dict):
         ("3. Per Line",                  "Capacity vs volumes summarised per line over the forward horizon (legacy verification view)."),
         ("4. Capacity & Headcount",      "Line × month grid of capacity drivers + heads-based headcount."),
         ("5. Monthly Detail",            "Line × month: volumes + capacity with a window flag (past / forward / before / later)."),
-        ("6. Headcount by Line",         "Per line per month: heads needed, planned, gap. The basis for line-level shortfall flags."),
-        ("7. Plant-shared Headcount",    "Per plant × role × month for shared crew (forklift, materials handler, robot op, technician)."),
-        ("8. Headcount Exceptions",      "Known absence events. Prorated delta is the FTE adjustment applied to each affected month."),
-        ("9. FTE Breakdown",             "Site-level FTE math per month. (production hours × per-line crew + plant-shared role-hours) ÷ FTE-month hours."),
-        ("10. Planned Downtime",         "Loss hours per line per month — maintenance, planned downtime, public holiday, other loss."),
-        ("11. Portfolio / Launches",     "Phase-ins and phase-outs with effective month + routing line."),
-        ("12. Action Items",             "Auto-generated talking points — same logic as the dashboard Action Items card."),
+        ("6. Pool Labour",               "Labour balance per pool × role × month: need vs have vs gap (the v2 headcount model). Pools span plants (POOL-FLEX = Plants 1/3/4, POOL-P2 = Plant 2)."),
+        ("7. Headcount Exceptions",      "Known absence events. Prorated delta is the FTE adjustment applied to each affected month."),
+        ("8. Planned Downtime",          "Downtime hours per line per month, by reason. Subtracts from available capacity."),
+        ("9. Phase-in",                  "Phased-in SKUs with monthly volume (Litres) + total hours from the production plan + the line affected."),
+        ("10. Action Items",             "Auto-generated talking points — same logic as the dashboard Action Items card."),
         ("", ""),
         ("Units", ""),
         ("Litres (L)",                   "All volume figures. Capacity, demand, production = litres. £ × COGS_per_litre = OPEX cost."),
@@ -599,8 +595,8 @@ def _build_readme_sheet(ws, dash: dict):
         ("Glossary",                     ""),
         ("Plan feasibility",             "% of production deliverable at current capacity = Σ min(prod, avail) ÷ Σ prod."),
         ("Volume to clear",              "Σ max(0, prod − avail) — the unbookable volume that needs OT or extra shift."),
-        ("Critical / High",              "Line risk classification. Critical = util > 100% in any month. High = util > 90% or ≥1 FTE labour gap."),
-        ("Material labour shortfall",    "Per-line monthly heads gap ≥ 1 FTE. Sub-1 gaps surface in detail but don't escalate the line risk."),
+        ("Critical / High",              "Line risk classification. Critical = util > 100% in any month. High = util > 90%."),
+        ("Pool labour gap",              "Per pool × role: need − have. Headcount is pooled (people flex across the pool's lines), so gaps are reported per pool, not per line. See the Pool Labour sheet."),
         ("Theoretical capacity",         "Σ available across all lines — the raw ceiling if mix could rebalance. The dashboard's 'optimisation lever' figure."),
     ]
     r = 5
@@ -615,6 +611,29 @@ def _build_readme_sheet(ws, dash: dict):
         c1.alignment = Alignment(horizontal="left", vertical="top", wrap_text=False)
         c2.alignment = Alignment(horizontal="left", vertical="top", wrap_text=True)
         r += 1
+
+
+def _pool_fte_for_period(pool_labour: dict, period: str) -> dict:
+    """Sum pool need/have/gap across all pools & roles for one month (v2 model)."""
+    need = have = gap = 0.0
+    has_have = False
+    for _pool, roles in (pool_labour or {}).items():
+        for role in roles:
+            m = (role.get("monthly") or {}).get(period)
+            if not m:
+                continue
+            need += m.get("need") or 0.0
+            if m.get("have") is not None:
+                has_have = True
+                have += m["have"]
+            if m.get("gap") is not None:
+                gap += m["gap"]
+    return {
+        "need": round(need, 1),
+        "have": round(have, 1) if has_have else None,
+        "gap": round(gap, 1) if has_have else None,
+        "has_have": has_have,
+    }
 
 
 def _build_kpis_sheet(ws, dash: dict, lines: list, plant_support: dict):
@@ -636,7 +655,17 @@ def _build_kpis_sheet(ws, dash: dict, lines: list, plant_support: dict):
 
     crit_lines = sum(1 for l in lines if l.get("risk_status") == "Critical")
     high_lines = sum(1 for l in lines if l.get("risk_status") == "High")
-    labour_lines = sum(1 for l in lines if l.get("material_labour_shortfall"))
+
+    # Pool labour (v2) — the headcount source of truth.
+    pool_labour = dash.get("pool_labour") or {}
+    pool_focus = _pool_fte_for_period(pool_labour, cycle)
+    # Pools short ≥1 FTE on any role in the planning month.
+    pools_short = 0
+    for _pool, roles in pool_labour.items():
+        if any(((r.get("monthly") or {}).get(cycle) or {}).get("gap") is not None
+               and ((r.get("monthly") or {}).get(cycle) or {}).get("gap") >= 1
+               for r in roles):
+            pools_short += 1
 
     def _section_header(label: str, row: int) -> int:
         cell = ws.cell(row=row, column=1, value=label)
@@ -681,10 +710,12 @@ def _build_kpis_sheet(ws, dash: dict, lines: list, plant_support: dict):
     r = _row("Demand coverage (%)",      feas_focus["demand_cov_pct"],   "Σ demand ÷ Σ available", r, fmt='0"%"')
     r += 1
 
-    r = _section_header(f"PLANNING MONTH · headcount (FTE)", r)
-    r = _row("FTE needed",   fte_focus["needed"],  "Σ role-hours ÷ FTE-month hours", r, fmt="#,##0.0")
-    r = _row("FTE planned",  fte_focus["planned"], "Σ planned headcount across lines + plant-shared roles", r, fmt="#,##0.0")
-    r = _row("FTE gap",      fte_focus["gap"],     "positive = short, negative = surplus", r, fmt="#,##0.0")
+    r = _section_header(f"PLANNING MONTH · headcount (pool FTE)", r)
+    r = _row("FTE needed",      pool_focus["need"], "Σ pool need: line roles = crew × util; shared = flat plant req", r, fmt="#,##0.0")
+    r = _row("FTE available",   pool_focus["have"] if pool_focus["has_have"] else "—",
+             "Σ pool headcount − absences" if pool_focus["has_have"] else "no pool headcount entered yet", r, fmt="#,##0.0")
+    r = _row("FTE gap",         pool_focus["gap"] if pool_focus["has_have"] else "—",
+             "positive = short (need − available)" if pool_focus["has_have"] else "enter pool headcount to compute", r, fmt="#,##0.0")
     r = _row("Working days", fte_focus["working_days"], "site working days this month (max of lines)", r)
     r = _row("Shift hours",  fte_focus["shift_hours"],  "max line shift hours (available_mins_per_day / 60)", r, fmt="#,##0.0")
     r = _row("1 FTE = X hours", fte_focus["month_hours"], "working_days × shift_hours", r, fmt="#,##0")
@@ -703,7 +734,7 @@ def _build_kpis_sheet(ws, dash: dict, lines: list, plant_support: dict):
     r = _section_header("RISK & STAFFING (12-month)", r)
     r = _row("Critical lines",                 crit_lines,   "lines with utilisation > 100% in any month", r)
     r = _row("High-risk lines",                high_lines,   "lines > 90% util or with ≥1 FTE labour gap", r)
-    r = _row("Lines with labour shortfall",    labour_lines, "lines flagged material_labour_shortfall", r)
+    r = _row("Pools short of crew",            pools_short, "pools with a ≥1 FTE gap on any role this month", r)
     r = _row("Lines with no data",             kpis.get("lines_with_no_data"), "no capacity figure for any month", r)
     r = _row("Peak utilisation (%)",           kpis.get("peak_util_pct"), f"worst month: {kpis.get('peak_util_period') or '—'}", r, fmt='0.0"%"')
     r = _row("Total capacity gap (L)",         kpis.get("total_gap_litres"), "Σ deficit months × deficit litres (negative gaps only)", r)
@@ -714,10 +745,65 @@ def _build_kpis_sheet(ws, dash: dict, lines: list, plant_support: dict):
     r = _row("COGS OPEX per litre (£)", cogs, "from app_settings.cogs_opex_per_litre", r, fmt='"£"0.00')
 
 
+def _build_pool_labour_sheet(ws, dash: dict, periods: list[str]):
+    """Pool labour balance (v2) — per pool × role × month: need vs have vs gap.
+    Mirrors the on-screen Staffing Feasibility panel."""
+    pool_labour = dash.get("pool_labour") or {}
+    pool_info = dash.get("pool_info") or {}
+
+    next_row = _title(ws,
+                       "Pool Labour — need vs have vs gap (per pool × role × month)",
+                       "Line roles: Σ crew × utilisation. Shared roles: flat plant requirement when the plant runs. "
+                       "Have = pool headcount − absences. Gap = need − have (positive = short).")
+    headers = ["Pool", "Role", "Scope", "Month", "Need (FTE)", "Have (FTE)", "Gap (FTE)"]
+    r = _header_row(ws, next_row, headers, left_cols=4)
+
+    for pool_code in sorted(pool_labour):
+        info = pool_info.get(pool_code, {})
+        pname = info.get("pool_name", pool_code)
+        for role in pool_labour[pool_code]:
+            monthly = role.get("monthly") or {}
+            for p in periods:
+                m = monthly.get(p)
+                if not m:
+                    continue
+                need = m.get("need")
+                have = m.get("have")
+                gap = m.get("gap")
+                ws.cell(row=r, column=1, value=pname).font = Font(bold=True, color=NAVY, size=10)
+                ws.cell(row=r, column=2, value=role.get("role_code")).font = Font(color=INK, size=10)
+                ws.cell(row=r, column=3, value=role.get("scope") or "").font = Font(color="6B7A8A", size=10)
+                ws.cell(row=r, column=4, value=p).font = Font(color=INK, size=10)
+                _dec(ws.cell(row=r, column=5), need)
+                _dec(ws.cell(row=r, column=6), have)
+                _dec(ws.cell(row=r, column=7), gap,
+                     color="C2410C" if (gap or 0) >= 1 else ("B45309" if (gap or 0) > 0 else INK))
+                for c in range(1, len(headers) + 1):
+                    ws.cell(row=r, column=c).border = BORDER
+                r += 1
+
+    # Concurrency note per pool
+    r += 1
+    ws.cell(row=r, column=1, value="Concurrency (lines you can run, by labour):").font = Font(bold=True, color=NAVY, size=10)
+    r += 1
+    for pool_code in sorted(pool_info):
+        info = pool_info[pool_code]
+        ml = info.get("max_concurrent_lines_by_labour")
+        txt = f"{info.get('pool_name', pool_code)}: " + (
+            f"≈ {ml} lines" + (f" (limited by {info.get('binding_role')})" if info.get("binding_role") else "")
+            if ml is not None else "enter pool headcount to compute")
+        ws.cell(row=r, column=1, value=txt).font = Font(color=INK, size=10)
+        r += 1
+
+    for i, w in enumerate([26, 22, 9, 11, 12, 12, 12], start=1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+    ws.freeze_panes = "E5"
+
+
 def _build_headcount_by_line_sheet(ws, lines: list, periods: list[str], plant_support: dict):
     next_row = _title(ws,
                        "Headcount by Line × Month — heads + FTE",
-                       "Per-line crew demand vs the headcount plan. Crew = LINE_OPERATOR + TEAM_LEADER + PALLETISING_OPERATOR per line. "
+                       "Per-line crew demand vs the headcount plan. Crew = LINE_OPERATOR + LINE_LEADER + PALLETISING_OPERATOR per line. "
                        "FTE = (production_hours × crew) ÷ FTE-month hours.")
     headers = ["Line", "Plant", "Month", "Working days", "Production (h)",
                "Crew/line", "Role-hours (h)", "FTE needed", "Heads needed", "Heads planned (avg)", "Heads shortfall"]
@@ -913,11 +999,10 @@ def _build_fte_breakdown_sheet(ws, lines: list, plant_support: dict, periods: li
 
 def _build_downtime_sheet(ws, lines: list, periods: list[str]):
     next_row = _title(ws,
-                       "Planned Downtime — line × month with breakdown",
-                       "Total loss hours and the four categories (maintenance, planned downtime, public holiday, other). "
-                       "Loss hours are annotations — they do NOT subtract from available_litres on capacity calcs.")
-    headers = ["Line", "Plant", "Month", "Loss (h)", "Maintenance (h)",
-               "Planned downtime (h)", "Public holiday (h)", "Other loss (h)"]
+                       "Planned Downtime — line × month by reason",
+                       "Downtime hours recorded in the line capacity calendar, by reason. "
+                       "Downtime SUBTRACTS from each line's available capacity.")
+    headers = ["Line", "Plant", "Month", "Downtime (h)", "By reason"]
     r = _header_row(ws, next_row, headers, left_cols=3)
 
     for l in lines:
@@ -927,20 +1012,24 @@ def _build_downtime_sheet(ws, lines: list, periods: list[str]):
             if not m:
                 continue
             loss = m.get("loss_hours") or 0.0
+            if loss <= 0:
+                continue
             bd = m.get("loss_breakdown") or {}
+            reasons = " · ".join(
+                f"{reason} {round(h, 1)}h"
+                for reason, h in sorted(bd.items(), key=lambda kv: kv[1], reverse=True)
+                if h > 0
+            )
             ws.cell(row=r, column=1, value=l["line_code"]).font = Font(bold=True, color=NAVY, size=10)
             ws.cell(row=r, column=2, value=l["plant_code"]).font = Font(color=INK, size=10)
             ws.cell(row=r, column=3, value=p).font = Font(color=INK, size=10)
             _dec(ws.cell(row=r, column=4), loss, color="B45309" if loss > 0 else INK)
-            _dec(ws.cell(row=r, column=5), bd.get("maintenance"))
-            _dec(ws.cell(row=r, column=6), bd.get("planned_downtime"))
-            _dec(ws.cell(row=r, column=7), bd.get("public_holiday"))
-            _dec(ws.cell(row=r, column=8), bd.get("other_loss"))
+            ws.cell(row=r, column=5, value=reasons).font = Font(color=INK, size=10)
             for c in range(1, len(headers) + 1):
                 ws.cell(row=r, column=c).border = BORDER
             r += 1
 
-    for i, w in enumerate([10, 9, 11, 11, 16, 20, 18, 14], start=1):
+    for i, w in enumerate([10, 9, 11, 12, 46], start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
     ws.freeze_panes = "D5"
     ws.auto_filter.ref = f"A4:{get_column_letter(len(headers))}{r - 1}"
@@ -948,36 +1037,56 @@ def _build_downtime_sheet(ws, lines: list, periods: list[str]):
 
 def _build_portfolio_sheet(ws, dash: dict):
     next_row = _title(ws,
-                       "Portfolio / Launches — phase-ins and phase-outs",
-                       "Metadata only — launch demand flows via demand_plan + production_orders. "
-                       "Use this sheet to confirm routing line × effective month for new launches.")
-    headers = ["Change type", "Item code", "Routing line", "Effective month",
-               "Effective date", "Description", "Impact notes"]
-    r = _header_row(ws, next_row, headers, left_cols=7)
+                       "Phase-in — added volume from the production plan",
+                       "Information only — volume & hours are derived from the production plan "
+                       "(production_orders) for the phase-in SKUs. Monthly figures are Litres; "
+                       "Total (hrs) is the fill-time equivalent.")
+    months = list(dash.get("horizon_months") or [])
+    text_cols = 4   # item, line, plant, effective month
+    headers = (["Item code", "Line", "Plant", "Effective month"]
+               + months + ["Total (L)", "Total (hrs)", "Comments"])
+    r = _header_row(ws, next_row, headers, left_cols=text_cols)
 
-    pcs = dash.get("portfolio_changes") or []
+    # Phase-ins only (skip any legacy DISCONTINUE rows).
+    pcs = [pc for pc in (dash.get("portfolio_changes") or []) if pc.get("change_type") != "DISCONTINUE"]
     for pc in pcs:
-        ct = pc.get("change_type") or "OTHER"
-        c1 = ws.cell(row=r, column=1, value=ct)
-        c1.font = Font(
-            bold=True, size=10,
-            color="7B9400" if ct == "NEW_LAUNCH" else ("C2410C" if ct == "DISCONTINUE" else INK),
-        )
-        ws.cell(row=r, column=2, value=pc.get("item_code") or "—").font = Font(color=INK, size=10)
-        ws.cell(row=r, column=3, value=pc.get("line_code") or "—").font = Font(color=INK, size=10)
+        monthly = pc.get("monthly") or {}
+        ws.cell(row=r, column=1, value=pc.get("item_code") or "—").font = Font(bold=True, color=NAVY, size=10)
+        ws.cell(row=r, column=2, value=pc.get("line_code") or "—").font = Font(color=INK, size=10)
+        ws.cell(row=r, column=3, value=pc.get("plant_code") or "—").font = Font(color=INK, size=10)
         ws.cell(row=r, column=4, value=pc.get("effective_period") or "—").font = Font(color=INK, size=10)
-        ws.cell(row=r, column=5, value=pc.get("effective_date") or "—").font = Font(color=INK, size=10)
-        ws.cell(row=r, column=6, value=pc.get("description") or "").font = Font(color=INK, size=10)
-        ws.cell(row=r, column=7, value=pc.get("impact_notes") or "").font = Font(color=INK, size=10)
+
+        col = text_cols + 1
+        total_l = 0.0
+        total_h = 0.0
+        for m in months:
+            cell_data = monthly.get(m) or {}
+            litres = cell_data.get("litres") or 0.0
+            total_l += litres
+            total_h += cell_data.get("hours") or 0.0
+            cell = ws.cell(row=r, column=col, value=round(litres) if litres else None)
+            cell.font = Font(color=INK, size=10)
+            cell.alignment = Alignment(horizontal="right")
+            col += 1
+        tl = ws.cell(row=r, column=col, value=round(total_l) if total_l else None)
+        tl.font = Font(bold=True, color=NAVY, size=10)
+        tl.alignment = Alignment(horizontal="right")
+        col += 1
+        th = ws.cell(row=r, column=col, value=round(total_h, 1) if total_h else None)
+        th.font = Font(bold=True, color=NAVY, size=10)
+        th.alignment = Alignment(horizontal="right")
+        col += 1
+        ws.cell(row=r, column=col, value=pc.get("description") or "").font = Font(color=INK, size=10)
         for c in range(1, len(headers) + 1):
             ws.cell(row=r, column=c).border = BORDER
         r += 1
 
     if not pcs:
-        ws.cell(row=r, column=1, value="(no portfolio changes this batch)").font = Font(italic=True, color="9CABB9", size=10)
+        ws.cell(row=r, column=1, value="(no phase-ins this batch)").font = Font(italic=True, color="9CABB9", size=10)
         r += 1
 
-    for i, w in enumerate([14, 13, 13, 16, 14, 38, 36], start=1):
+    widths = [14, 13, 10, 16] + [11] * len(months) + [12, 12, 40]
+    for i, w in enumerate(widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
     ws.freeze_panes = "A5"
     ws.auto_filter.ref = f"A4:{get_column_letter(len(headers))}{max(r - 1, next_row)}"

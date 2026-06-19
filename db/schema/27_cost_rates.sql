@@ -6,7 +6,7 @@
 
 -- ── 1. Resource type hourly rates ─────────────────────────────────────────────
 UPDATE dbo.resource_types SET standard_hourly_rate = 13.50 WHERE resource_type_code = 'LINE_OPERATOR';
-UPDATE dbo.resource_types SET standard_hourly_rate = 17.00 WHERE resource_type_code = 'TEAM_LEADER';
+UPDATE dbo.resource_types SET standard_hourly_rate = 17.00 WHERE resource_type_code = 'LINE_LEADER';
 UPDATE dbo.resource_types SET standard_hourly_rate = 15.00 WHERE resource_type_code = 'FORKLIFT_DRIVER';
 UPDATE dbo.resource_types SET standard_hourly_rate = 16.00 WHERE resource_type_code = 'ROBOT_OPERATOR';
 UPDATE dbo.resource_types SET standard_hourly_rate = 13.00 WHERE resource_type_code = 'MATERIAL_HANDLER';

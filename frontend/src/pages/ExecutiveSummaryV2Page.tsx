@@ -8,135 +8,22 @@ import {
 } from 'lucide-react'
 import { listBatches } from '../api/batches'
 import { getDashboard, downloadVerificationExcel } from '../api/rccp'
-import type { Batch, RCCPLine, RCCPPortfolioChange } from '../types'
-import { C, focusMonthPeriod, monthLabel, rollingMonths, HIDDEN_LINE_CODES, sortLinesByCode, fteSummaryHorizon } from '../components/rccp/brand'
+import type { Batch, RCCPLine, RCCPPortfolioChange, RCCPPoolRoleBalance } from '../types'
+import { C, focusMonthPeriod, monthLabel, rollingMonths, HIDDEN_LINE_CODES, sortLinesByCode, poolFteForMonth, poolFteHorizon } from '../components/rccp/brand'
 import NextMonthSpotlight from '../components/rccp/NextMonthSpotlight'
 import PortfolioPanel from '../components/rccp/PortfolioPanel'
-import PortfolioChangesChart from '../components/rccp/PortfolioChangesChart'
+import PoolLabourPanel from '../components/rccp/PoolLabourPanel'
 import KPITile from '../components/rccp/KPITile'
 import PlantChart, { formatLarge } from '../components/rccp/PlantChart'
+import {
+  type ActionItem, COGS_PER_LITRE, fmtGBP, loadActionStatus, saveActionStatus,
+  buildActionItems, buildHeadline,
+} from '../components/rccp/execInsights'
 
 type UnitMode = 'L' | 'h'
 
-// ─── Action items ─────────────────────────────────────────────────────────────
-// Auto-generated each render from the live data. Each item has a stable id so
-// "done" status persists across re-renders / refreshes (kept in localStorage,
-// keyed by batch_id so each cycle starts fresh).
-
-type ActionCategory = 'CAPACITY' | 'LABOUR' | 'PORTFOLIO'
-type ActionSeverity = 'critical' | 'high' | 'info'
-
-interface ActionItem {
-  id: string
-  category: ActionCategory
-  severity: ActionSeverity
-  period: string                 // YYYY-MM, or '' for cross-horizon
-  title: string
-  detail: string
-  cost?: number                  // £, when relevant
-}
-
-const COGS_PER_LITRE = 0.12      // matches the engine default; cost is illustrative
-
-function actionsKey(batchId: number) {
-  return `rccp_actions_v2_${batchId}`
-}
-
-function loadActionStatus(batchId: number): Record<string, 'done' | 'pending'> {
-  try {
-    const raw = localStorage.getItem(actionsKey(batchId))
-    return raw ? JSON.parse(raw) : {}
-  } catch { return {} }
-}
-
-function saveActionStatus(batchId: number, s: Record<string, 'done' | 'pending'>) {
-  try { localStorage.setItem(actionsKey(batchId), JSON.stringify(s)) } catch { /* ignore */ }
-}
-
-function fmtGBP(v: number): string {
-  if (Math.abs(v) >= 1_000_000) return `£${(v / 1_000_000).toFixed(2)}M`
-  if (Math.abs(v) >= 1_000) return `£${(v / 1_000).toFixed(0)}k`
-  return `£${Math.round(v)}`
-}
-
-function buildActionItems(
-  lines: RCCPLine[],
-  portfolioChanges: RCCPPortfolioChange[],
-  planCycleDate: string,
-): ActionItem[] {
-  const items: ActionItem[] = []
-  const focus = focusMonthPeriod(planCycleDate)
-  const horizon = rollingMonths(planCycleDate, 12)
-  const horizonSet = new Set(horizon)
-
-  // 1. Capacity actions — every line × month with util > 100% in the next 12.
-  // Group by line, surface the worst month per line so the list stays digestible.
-  for (const l of lines) {
-    const overs = l.monthly
-      .filter(m => horizonSet.has(m.period) && m.utilisation_pct != null && m.utilisation_pct > 100)
-      .sort((a, b) => (b.utilisation_pct ?? 0) - (a.utilisation_pct ?? 0))
-    if (overs.length === 0) continue
-    const worst = overs[0]
-    const extraLitres = Math.max(0, (worst.production_litres ?? 0) - (worst.available_litres ?? 0))
-    // Convert extra litres → hours-equivalent using the line's available_litres / available_hours ratio.
-    const av = worst.available_litres ?? 0
-    const ah = worst.available_hours ?? 0
-    const extraHours = av > 0 && ah > 0 ? Math.round((extraLitres / av) * ah) : 0
-    const cost = extraLitres * COGS_PER_LITRE
-    const months = overs.length > 1 ? ` (+${overs.length - 1} more month${overs.length > 2 ? 's' : ''})` : ''
-    items.push({
-      id: `cap_${l.line_code}_${worst.period}`,
-      category: 'CAPACITY',
-      severity: (worst.utilisation_pct ?? 0) > 115 ? 'critical' : 'high',
-      period: worst.period,
-      title: `Approve extra hours on ${l.line_code} — ${monthLabel(worst.period)}`,
-      detail: `Order book at ${Math.round(worst.utilisation_pct ?? 0)}% · need +${extraHours}h to clear${months}`,
-      cost,
-    })
-  }
-
-  // 2. Labour actions — lines with material headcount shortfall in the focus month.
-  for (const l of lines) {
-    if (!l.material_labour_shortfall) continue
-    const m = l.monthly.find(x => x.period === focus)
-    if (!m || (m.hc_shortfall ?? 0) < 1) continue
-    const short = Math.round(m.hc_shortfall ?? 0)
-    items.push({
-      id: `lab_${l.line_code}_${focus}`,
-      category: 'LABOUR',
-      severity: 'high',
-      period: focus,
-      title: `Resolve ${short} FTE labour gap on ${l.line_code} — ${monthLabel(focus)}`,
-      detail: `Standard crew below the line requirement. Confirm cover with Manufacturing or reschedule the lines.`,
-    })
-  }
-
-  // 3. Portfolio actions — new launches landing in the next 3 months.
-  const next3 = rollingMonths(planCycleDate, 3)
-  const next3Set = new Set(next3)
-  for (const pc of portfolioChanges) {
-    if (pc.change_type !== 'NEW_LAUNCH') continue
-    if (!pc.effective_period || !next3Set.has(pc.effective_period)) continue
-    items.push({
-      id: `pf_${pc.item_code ?? '?'}_${pc.effective_period}`,
-      category: 'PORTFOLIO',
-      severity: 'info',
-      period: pc.effective_period,
-      title: `Confirm capacity for ${pc.item_code ?? 'new SKU'} — launching ${monthLabel(pc.effective_period)}`,
-      detail: pc.line_code
-        ? `Routing line ${pc.line_code}. Demand will flow through S&OP — sanity-check the line's load that month.`
-        : `No routing line yet — set up the SKU in masterdata before the launch month.`,
-    })
-  }
-
-  // Sort by period (soonest first), then severity (critical > high > info)
-  const sevRank: Record<ActionSeverity, number> = { critical: 0, high: 1, info: 2 }
-  items.sort((a, b) => {
-    if (a.period !== b.period) return a.period.localeCompare(b.period)
-    return sevRank[a.severity] - sevRank[b.severity]
-  })
-  return items
-}
+// Action items, headline + cost helpers now live in components/rccp/execInsights.ts
+// (shared with the slim Executive Summary).
 
 function ActionItemsCard({
   batchId, items,
@@ -258,73 +145,6 @@ function ActionItemsCard({
   )
 }
 
-// ─── Headline stats ───────────────────────────────────────────────────────────
-// "Plan feasibility" — the share of planned production that fits in current
-// per-line capacity. Theoretical figure (Σ prod / Σ avail) stays alongside as
-// the optimisation lever (what we'd get if mix could rebalance).
-function buildHeadline(lines: RCCPLine[], periods: string[]): {
-  planFeasibility: number | null       // % of production deliverable at current capacity
-  deliverableLitres: number
-  shortfallLitres: number
-  productionTotal: number
-  siteUtilTheoretical: number | null   // raw: Σ production / Σ available
-  theoreticalCapacity: number | null
-  demandTotal: number
-  demandCoverage: number | null        // raw: Σ demand / Σ available
-  criticalLines: number
-  highLines: number
-  linesAtRisk: number
-  labourShortfalls: number
-} {
-  const periodSet = new Set(periods)
-  let prod = 0, availSum = 0, dem = 0
-  let deliverable = 0, shortfall = 0
-  let anyAvail = false
-
-  for (const l of lines) {
-    for (const m of l.monthly) {
-      if (!periodSet.has(m.period)) continue
-      const a = m.available_litres ?? 0
-      const p = m.production_litres ?? 0
-      const d = m.demand_litres ?? 0
-      if (m.available_litres != null) { anyAvail = true; availSum += a }
-      prod += p
-      dem  += d
-      if (m.available_litres != null && p > 0) {
-        deliverable += Math.min(p, a)
-        shortfall   += Math.max(0, p - a)
-      } else {
-        deliverable += p
-      }
-    }
-  }
-
-  const planFeasibility = prod > 0 ? Math.round((deliverable / prod) * 100) : null
-  const siteUtilTheoretical =
-    anyAvail && availSum > 0 ? Math.round((prod / availSum) * 100) : null
-  const demandCoverage =
-    anyAvail && availSum > 0 ? Math.round((dem / availSum) * 100) : null
-
-  const criticalLines = lines.filter(l => l.risk_status === 'Critical').length
-  const highLines = lines.filter(l => l.risk_status === 'High').length
-  const labourShortfalls = lines.filter(l => l.material_labour_shortfall).length
-
-  return {
-    planFeasibility,
-    deliverableLitres: deliverable,
-    shortfallLitres: shortfall,
-    productionTotal: prod,
-    siteUtilTheoretical,
-    theoreticalCapacity: anyAvail ? availSum : null,
-    demandTotal: dem,
-    demandCoverage,
-    criticalLines,
-    highLines,
-    linesAtRisk: criticalLines + highLines,
-    labourShortfalls,
-  }
-}
-
 // ─── Page ─────────────────────────────────────────────────────────────────────
 export default function ExecutiveSummaryV2Page() {
   const [selectedBatchId, setSelectedBatchId] = useState<number | null>(null)
@@ -406,22 +226,22 @@ export default function ExecutiveSummaryV2Page() {
   const focus = dashboard ? focusMonthPeriod(dashboard.plan_cycle_date) : null
   const horizon = dashboard ? rollingMonths(dashboard.plan_cycle_date, 12) : []
 
-  // FTE across the 12-month horizon — for the outlook tile (consistent with the spotlight)
+  // Pool labour across the 12-month horizon — for the outlook tile (consistent with the spotlight)
   const fteHorizon = useMemo(
     () => dashboard
-      ? fteSummaryHorizon(allLines, dashboard.plant_support_requirements ?? {}, horizon)
+      ? poolFteHorizon(dashboard.pool_labour ?? {}, horizon)
       : null,
-    [allLines, dashboard, horizon],
+    [dashboard, horizon],
   )
 
   // Headline stats — 12-month, mix-weighted (sums, not averaged percentages)
   const headline = useMemo(
-    () => buildHeadline(allLines, horizon),
-    [allLines, horizon],
+    () => buildHeadline(allLines, horizon, dashboard?.pool_labour ?? {}),
+    [allLines, horizon, dashboard],
   )
   const actionItems = useMemo(
     () => dashboard
-      ? buildActionItems(allLines, dashboard.portfolio_changes ?? [], dashboard.plan_cycle_date)
+      ? buildActionItems(allLines, dashboard.portfolio_changes ?? [], dashboard.plan_cycle_date, dashboard.pool_labour ?? {})
       : [],
     [allLines, dashboard],
   )
@@ -438,7 +258,7 @@ export default function ExecutiveSummaryV2Page() {
         <div>
           <h1 className="font-semibold flex items-center gap-3 flex-wrap" style={{ color: C.navy, fontSize: 28, letterSpacing: '-0.025em', lineHeight: 1.1 }}>
             <span className="inline-block rounded" style={{ width: 5, height: 30, background: `linear-gradient(180deg,${C.lime},${C.limeDeep})`, boxShadow: '0 0 10px rgba(170,205,0,0.4)' }} />
-            Executive Summary
+            Capacity Dashboard
           </h1>
           <p className="mt-2 text-[13.5px] max-w-[700px] leading-relaxed" style={{ color: C.ink2 }}>
             Planning month first, action items next, then the underlying data. Everything below the actions is supporting detail.
@@ -532,7 +352,7 @@ export default function ExecutiveSummaryV2Page() {
             <NextMonthSpotlight
               lines={allLines}
               planCycleDate={dashboard.plan_cycle_date}
-              plantSupport={dashboard.plant_support_requirements ?? {}}
+              poolLabour={dashboard.pool_labour ?? {}}
               cogsPerLitre={dashboard.settings?.cogs_opex_per_litre ?? 0.12}
             />
           </motion.div>
@@ -557,7 +377,7 @@ export default function ExecutiveSummaryV2Page() {
               planCycleDate={dashboard.plan_cycle_date}
               unitMode={unitMode}
               launchesByPeriod={launchesAllPlants}
-              headerMetricLabel="15-month site capacity"
+              headerMetricLabel="12-month site capacity"
             />
           </motion.div>
 
@@ -578,24 +398,25 @@ export default function ExecutiveSummaryV2Page() {
             ))}
           </motion.div>
 
-          {/* 5. Portfolio changes — launch volume chart */}
+          {/* 4b. Staffing feasibility — pool labour balance */}
+          <motion.div
+            initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.19 }}
+            className="mt-4"
+          >
+            <PoolLabourPanel poolLabour={dashboard.pool_labour ?? {}} poolInfo={dashboard.pool_info ?? {}} horizon={horizon} />
+          </motion.div>
+
+          {/* 5. Portfolio changes — monthly volume/hours impact (informational) */}
           <motion.div
             initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.205 }}
             className="mt-4"
           >
-            <PortfolioChangesChart
+            <PortfolioPanel
               changes={dashboard.portfolio_changes ?? []}
               lines={allLines}
-              planCycleDate={dashboard.plan_cycle_date}
+              horizon={horizon}
+              unitMode={unitMode}
             />
-          </motion.div>
-
-          {/* 5b. Portfolio changes — event list */}
-          <motion.div
-            initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.21 }}
-            className="mt-4"
-          >
-            <PortfolioPanel changes={dashboard.portfolio_changes ?? []} />
           </motion.div>
 
           {/* 6. 12-month outlook — collapsed by default, lives at the bottom */}
@@ -619,8 +440,8 @@ export default function ExecutiveSummaryV2Page() {
               <div className="flex items-center gap-3">
                 <span className="font-mono text-[11px]" style={{ color: C.ink3 }}>
                   plan feasibility {headline.planFeasibility ?? '—'}{headline.planFeasibility != null ? '%' : ''} · demand cov {headline.demandCoverage ?? '—'}{headline.demandCoverage != null ? '%' : ''}
-                  {fteHorizon?.avgGap != null && (
-                    <> · FTE gap {fteHorizon.avgGap > 0 ? '−' : '+'}{Math.abs(fteHorizon.avgGap).toFixed(1)}/mo</>
+                  {fteHorizon?.avgGap != null && fteHorizon.avgGap > 0 && (
+                    <> · pool short −{fteHorizon.avgGap.toFixed(1)} FTE/mo</>
                   )}
                 </span>
                 {showOutlook ? <ChevronUp className="w-4 h-4" style={{ color: C.ink3 }} /> : <ChevronDown className="w-4 h-4" style={{ color: C.ink3 }} />}
@@ -659,24 +480,18 @@ export default function ExecutiveSummaryV2Page() {
                     footnote={`${formatLarge(headline.demandTotal, 'L')} S&OP demand`}
                   />
                   <KPITile
-                    tone={fteHorizon && fteHorizon.avgGap != null && fteHorizon.avgGap >= 1 ? 'warn'
-                      : fteHorizon && fteHorizon.avgGap != null && fteHorizon.avgGap <= -1 ? 'lime'
+                    tone={fteHorizon && fteHorizon.monthsShort > 0 ? 'warn'
+                      : fteHorizon && fteHorizon.hasHave ? 'lime'
                       : 'navy'}
                     icon={Users}
-                    label="Headcount (12-mo avg)"
-                    value={fteHorizon && fteHorizon.avgGap != null
-                      ? (fteHorizon.avgGap > 0
-                        ? `−${fteHorizon.avgGap.toFixed(1)}`
-                        : fteHorizon.avgGap < 0
-                          ? `+${(-fteHorizon.avgGap).toFixed(1)}`
-                          : '0')
-                      : '—'}
-                    suffix={fteHorizon && fteHorizon.avgGap != null ? ' FTE' : ''}
-                    footnote={fteHorizon && fteHorizon.avgNeeded != null
+                    label="Pool headcount (12-mo avg)"
+                    value={fteHorizon && fteHorizon.avgHave != null ? fteHorizon.avgHave.toFixed(0) : '—'}
+                    suffix={fteHorizon && fteHorizon.avgHave != null ? ' FTE' : ''}
+                    footnote={fteHorizon && fteHorizon.hasHave
                       ? (fteHorizon.monthsShort > 0
-                        ? `${fteHorizon.monthsShort} of ${fteHorizon.totalMonths} months short · avg need ${fteHorizon.avgNeeded.toFixed(1)} FTE`
-                        : `avg need ${fteHorizon.avgNeeded.toFixed(1)} · plan ${fteHorizon.avgPlanned?.toFixed(1)} FTE`)
-                      : 'no headcount data'}
+                        ? `avg need ${fteHorizon.avgNeed?.toFixed(1) ?? '—'} · ${fteHorizon.monthsShort} of ${fteHorizon.totalMonths} mo short (peak −${fteHorizon.peakGap.toFixed(1)})`
+                        : `avg need ${fteHorizon.avgNeed?.toFixed(1) ?? '—'} FTE · covers demand all ${fteHorizon.totalMonths} months`)
+                      : 'no pool headcount entered'}
                   />
                 </div>
                 {(headline.shortfallLitres > 0 || headline.siteUtilTheoretical != null) && (

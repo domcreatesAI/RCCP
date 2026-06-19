@@ -23,11 +23,11 @@ const FILE_META: Record<FileType, { label: string; description: string }> = {
   },
   headcount_plan: {
     label: 'headcount_plan',
-    description: 'Planned headcount per line per date. Compared against line_resource_requirements to flag shortfalls.',
+    description: 'People available per labour pool, by role, per month (Pool Headcount + Exceptions sheets). Drives the staffing-feasibility gap.',
   },
   portfolio_changes: {
-    label: 'portfolio_changes',
-    description: 'Product portfolio changes in the planning horizon. Accepts 0 rows if no changes this cycle.',
+    label: 'phase_in',
+    description: 'Lists the SKUs being phased in this cycle, with the line affected. Volume & hours are derived from the production plan (information only). Accepts 0 rows.',
   },
   production_orders: {
     label: 'production_orders',
@@ -79,10 +79,9 @@ function StatusCell({ file, fileType }: { file: BatchFile | undefined; fileType:
   }
 
   if (status === 'PASS') {
-    const isEmptyValid = fileType === 'portfolio_changes' && (file.total_issue_count ?? 0) === 0
     return (
       <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700">
-        <CheckCircle2 className="w-3.5 h-3.5" /> {isEmptyValid ? 'Empty — valid' : 'Validated'}
+        <CheckCircle2 className="w-3.5 h-3.5" /> Validated
       </span>
     )
   }

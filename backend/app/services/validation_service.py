@@ -27,12 +27,12 @@ line_capacity_calendar: maintenance_hours is now required.
 
 headcount_plan: available_hours is now required (>= 0).
 
-portfolio_changes: initial_demand is required column; must be > 0 for NEW_LAUNCH rows.
+portfolio_changes (phase-in): item_code + line_code required (the SKU and the line it is phased in on).
 
 Stage 8 cross-file checks (WARNING only):
   master_stock:      SKUs not present in demand_plan or production_orders
   headcount_plan:    (line, date) pairs in line_capacity_calendar missing from headcount_plan
-  portfolio_changes: NEW_LAUNCH items with initial_demand that also appear in demand_plan
+  portfolio_changes: phase-in SKUs absent from the production plan (production_orders)
 """
 
 import re
@@ -52,6 +52,7 @@ from app.services.excel_utils import (
     is_valid_int as _is_valid_int,
     to_date as _to_date,
 )
+from app.services.reasons import CAPACITY_DOWNTIME_REASONS, is_known_reason
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -186,19 +187,16 @@ FILE_SCHEMAS: dict = {
         "is_sap": False,
         "header_row": 2,
         "data_start_row": 3,
-        # maintenance_hours promoted to required
-        "required": ["line_code", "calendar_date", "is_working_day", "planned_hours", "maintenance_hours"],
-        "optional": ["public_holiday_hours", "planned_downtime_hours", "other_loss_hours", "notes"],
+        # planned_hours = scheduled shift; downtime_hours (with a reason) subtracts.
+        "required": ["line_code", "calendar_date", "is_working_day", "planned_hours"],
+        "optional": ["downtime_hours", "downtime_reason"],
         "types": {
-            "line_code":               "str",
-            "calendar_date":           "date",
-            "is_working_day":          "bit",
-            "planned_hours":           "decimal",
-            "maintenance_hours":       "decimal",
-            "public_holiday_hours":    "decimal",
-            "planned_downtime_hours":  "decimal",
-            "other_loss_hours":        "decimal",
-            "notes":                   "str",
+            "line_code":        "str",
+            "calendar_date":    "date",
+            "is_working_day":   "bit",
+            "planned_hours":    "decimal",
+            "downtime_hours":   "decimal",
+            "downtime_reason":  "str",
         },
         "fk_checks": {"line_code": ("dbo.lines", "line_code")},
         "min_rows": 1,
@@ -207,40 +205,46 @@ FILE_SCHEMAS: dict = {
         "is_sap": False,
         "header_row": 2,
         "data_start_row": 3,
-        # Monthly format (one row per line per month) is the contract. Legacy
-        # daily files (with plan_date) are still accepted by the publish handler
-        # — see _import_headcount_plan in publish_service.py. The "at least one
-        # of plan_month / plan_date" check lives in _stage3.
-        "required": ["line_code", "planned_headcount"],
-        "optional": ["plan_month", "notes"],
+        # Phase 2 v2: the primary sheet is POOL headcount — people available per
+        # labour POOL (which may span plants), by role, per month. Covers ALL roles
+        # (line + shared). Absences live on the 'Exceptions' sheet.
+        "required": ["pool_code", "resource_type_code", "planned_headcount"],
+        "optional": ["plan_month"],
         "types": {
-            "line_code":         "str",
-            "plan_month":        "date",
-            "plan_date":         "date",   # type known for legacy files; not in optional
-            "planned_headcount": "decimal",
-            "notes":             "str",
+            "pool_code":          "str",
+            "resource_type_code": "str",
+            "plan_month":         "date",
+            "plan_date":          "date",   # tolerated if a file still uses daily dates
+            "planned_headcount":  "decimal",
         },
-        "fk_checks": {"line_code": ("dbo.lines", "line_code")},
+        "fk_checks": {
+            "pool_code":          ("dbo.labour_pools",   "pool_code"),
+            "resource_type_code": ("dbo.resource_types", "resource_type_code"),
+        },
         "min_rows": 1,
     },
     "portfolio_changes": {
         "is_sap": False,
         "header_row": 2,
         "data_start_row": 3,
+        # Phase-in: lists the SKUs being phased in. Volume & hours are derived from
+        # the production plan (production_orders) for information.
         # Required columns must be present in the header even if there are 0 data rows.
-        # Stage 6 validates NEW_LAUNCH row content when data rows exist.
-        "required": ["change_type", "effective_date", "initial_demand"],
-        "optional": [],
+        "required": ["effective_date", "item_code", "line_code"],
+        "optional": ["comments"],
         "types": {
-            "change_type":    ("enum", ["NEW_LAUNCH", "DISCONTINUE", "REFORMULATION", "LINE_CHANGE", "OTHER"]),
             "effective_date": "date",
             "item_code":      "str",
-            "description":    "str",
-            "impact_notes":   "str",
-            "initial_demand": "decimal",
+            "line_code":      "str",
+            "comments":       "str",
         },
-        "fk_checks": {},
-        "min_rows": 0,  # Empty file valid — no changes this cycle
+        # item_code must be a real SKU (drives the derived volume); line_code is the
+        # line the SKU is phased in on — both must exist in masterdata.
+        "fk_checks": {
+            "item_code": ("dbo.items", "item_code"),
+            "line_code": ("dbo.lines", "line_code"),
+        },
+        "min_rows": 0,  # Empty file valid — no phase-ins this cycle
     },
     "actual_production": {
         # SAP MB51 goods receipts export (list download format — single header row)
@@ -422,7 +426,7 @@ def run_validation(
     _stage7(cursor, conn, batch_id, batch_file_id)
 
     # --- Stage 8: cross-file checks (only for participating file types, only when file opened) ---
-    _STAGE8_TYPES = ("master_stock", "headcount_plan", "portfolio_changes",
+    _STAGE8_TYPES = ("master_stock", "portfolio_changes",
                      "production_orders", "demand_plan")
     if file_type in _STAGE8_TYPES and wb is not None:
         try:
@@ -709,7 +713,8 @@ def _stage6(cursor, conn: pyodbc.Connection, batch_file_id: int, file_type: str,
                                    f"{col} cannot be negative: {val}", str(val)))
 
         # Coverage guardrail — catch a template/sample uploaded by mistake.
-        plan_cycle, active_lines = _horizon_context(conn, batch_file_id)
+        # Primary sheet is pool headcount (pool + role + month).
+        plan_cycle, _active_lines = _horizon_context(conn, batch_file_id)
         months = []
         for _, rd in data_rows:
             raw = rd.get("plan_month") if "plan_month" in header_set else rd.get("plan_date")
@@ -720,13 +725,13 @@ def _stage6(cursor, conn: pyodbc.Connection, batch_file_id: int, file_type: str,
         reasons = []
         if max_month is not None and plan_cycle is not None and max_month < plan_cycle:
             reasons.append(f"latest month in file is {max_month:%Y-%m}, before the plan cycle ({plan_cycle:%Y-%m})")
-        if active_lines and len(data_rows) < active_lines:
-            reasons.append(f"only {len(data_rows)} row(s) for {active_lines} active lines")
+        if len(data_rows) <= 3:
+            reasons.append(f"only {len(data_rows)} row(s)")
         if reasons:
             errors.append((None, "planned_headcount", "WARNING",
-                           "headcount_plan looks incomplete (" + "; ".join(reasons) + "). "
-                           "Expected planned headcount for every active line across the planning horizon — "
-                           "did you upload the template/sample instead of the full headcount plan?",
+                           "headcount_plan (pool headcount) looks incomplete (" + "; ".join(reasons) + "). "
+                           "Expected pool headcount per pool per role across the planning horizon — "
+                           "did you upload the template/sample instead of the full plan?",
                            None))
 
     elif file_type == "line_capacity_calendar":
@@ -741,15 +746,29 @@ def _stage6(cursor, conn: pyodbc.Connection, batch_file_id: int, file_type: str,
                     elif f > 24:
                         errors.append((row_num, "planned_hours", "BLOCKED",
                                        f"planned_hours cannot exceed 24: {val}", str(val)))
-        for loss_col in ("maintenance_hours", "public_holiday_hours",
-                         "planned_downtime_hours", "other_loss_hours"):
-            if loss_col not in header_set:
-                continue
+        # Downtime hours + reason. Downtime subtracts from the shift; a reason is
+        # expected when there's downtime, and an off-list reason is a soft WARNING.
+        if "downtime_hours" in header_set:
             for row_num, row_dict in data_rows:
-                val = row_dict.get(loss_col)
-                if val is not None and _is_valid_decimal(val) and float(val) < 0:
-                    errors.append((row_num, loss_col, "BLOCKED",
-                                   f"{loss_col} cannot be negative: {val}", str(val)))
+                val = row_dict.get("downtime_hours")
+                dt = float(val) if (val is not None and _is_valid_decimal(val)) else 0.0
+                if dt < 0:
+                    errors.append((row_num, "downtime_hours", "BLOCKED",
+                                   f"downtime_hours cannot be negative: {val}", str(val)))
+                    continue
+                if dt > 0:
+                    planned = row_dict.get("planned_hours")
+                    if planned is not None and _is_valid_decimal(planned) and dt > float(planned):
+                        errors.append((row_num, "downtime_hours", "WARNING",
+                                       f"downtime_hours ({dt}) exceeds planned_hours ({planned}) — capacity floored at 0", str(val)))
+                    reason = str(row_dict.get("downtime_reason", "") or "").strip()
+                    if not reason:
+                        errors.append((row_num, "downtime_reason", "WARNING",
+                                       "downtime_hours recorded without a downtime_reason", None))
+                    elif not is_known_reason(reason, CAPACITY_DOWNTIME_REASONS):
+                        errors.append((row_num, "downtime_reason", "WARNING",
+                                       f"'{reason}' is not a standard downtime reason "
+                                       f"({', '.join(CAPACITY_DOWNTIME_REASONS)}) — imported as-is", reason))
 
         # Coverage guardrail — catch a template/sample uploaded by mistake.
         if "calendar_date" in header_set:
@@ -834,22 +853,16 @@ def _stage6(cursor, conn: pyodbc.Connection, batch_file_id: int, file_type: str,
                                    None))
 
     elif file_type == "portfolio_changes":
-        # initial_demand must be a positive number on NEW_LAUNCH rows
-        if "initial_demand" in header_set:
+        # Every phase-in row needs the SKU and the affected line. item_code / line_code
+        # existence is enforced via the hard FKs (stage 5); here we flag blank values.
+        # (Whether the SKU is in the production plan is a WARNING — see stage 8.)
+        for col, label in (("item_code", "the SKU being phased in"),
+                           ("line_code", "the line the SKU is phased in on")):
             for row_num, row_dict in data_rows:
-                ct = str(row_dict.get("change_type", "")).strip().upper()
-                if ct != "NEW_LAUNCH":
-                    continue
-                val = row_dict.get("initial_demand")
-                is_empty = val is None or (isinstance(val, str) and val.strip() == "")
-                if is_empty:
-                    errors.append((row_num, "initial_demand", "BLOCKED",
-                                   "NEW_LAUNCH row requires initial_demand — value is blank",
-                                   None))
-                elif _is_valid_decimal(val) and float(val) <= 0:
-                    errors.append((row_num, "initial_demand", "BLOCKED",
-                                   f"NEW_LAUNCH initial_demand must be > 0, got: {val}",
-                                   str(val)))
+                val = row_dict.get(col)
+                if val is None or (isinstance(val, str) and val.strip() == ""):
+                    errors.append((row_num, col, "BLOCKED",
+                                   f"Phase-in row requires {col} — {label}", None))
 
     elif file_type == "production_orders":
         if "order_quantity_(gmein)" in header_set:
@@ -1036,10 +1049,10 @@ def _stage8(cursor, conn: pyodbc.Connection, batch_id: int, batch_file_id: int,
     """Run cross-file consistency checks. WARNING severity only — never blocks publish."""
     if file_type == "master_stock":
         _stage8_sku_coverage(cursor, conn, batch_id, batch_file_id, stored_file_path)
-    elif file_type == "headcount_plan":
-        _stage8_headcount_coverage(cursor, conn, batch_id, batch_file_id, stored_file_path)
+    # headcount_plan: no cross-file per-line coverage check — headcount is now
+    # pooled per plant (Phase 2), so line-level coverage no longer applies.
     elif file_type == "portfolio_changes":
-        _stage8_demand_overlap(cursor, conn, batch_id, batch_file_id, stored_file_path)
+        _stage8_portfolio_in_plan(cursor, conn, batch_id, batch_file_id, stored_file_path)
     elif file_type == "production_orders":
         _stage8_material_vs_master_stock(cursor, conn, batch_id, batch_file_id,
                                          stored_file_path, "production_orders", "material")
@@ -1192,20 +1205,25 @@ def _stage8_headcount_coverage(cursor, conn, batch_id, batch_file_id, stored_fil
                field_name="headcount_coverage", sample_value=lc)
 
 
-def _stage8_demand_overlap(cursor, conn, batch_id, batch_file_id, stored_file_path):
-    """Warn when NEW_LAUNCH items with initial_demand also appear in demand_plan."""
+def _stage8_portfolio_in_plan(cursor, conn, batch_id, batch_file_id, stored_file_path):
+    """Warn when a phase-in SKU is absent from the production plan.
+
+    The phase-in panel highlights each SKU's volume/hours as read from
+    production_orders. A phase-in SKU with no orders shows zero impact — usually a
+    sign the production plan (MRP) needs updating to reflect the launch.
+    """
     stage_num, stage_name = 8, STAGE_NAMES[8]
 
-    dp_path = _get_sibling_path(conn, batch_id, "demand_plan")
-    if not dp_path:
+    po_path = _get_sibling_path(conn, batch_id, "production_orders")
+    if not po_path:
         _write(cursor, batch_file_id, stage_num, stage_name, "INFO",
-               "demand_plan not yet uploaded — "
-               "demand overlap check pending. Run Re-validate when all files are uploaded.")
+               "production_orders not yet uploaded — "
+               "portfolio plan-coverage check pending. Run Re-validate when all files are uploaded.")
         return
 
-    demand_items = _read_file_column(dp_path, "demand_plan", "material_id")
+    plan_items = _read_file_column(po_path, "production_orders", "material")
 
-    # Read NEW_LAUNCH rows with initial_demand > 0 from portfolio_changes
+    # Flagged launches + phase-outs from this portfolio file
     pc_schema = FILE_SCHEMAS["portfolio_changes"]
     try:
         wb = openpyxl.load_workbook(stored_file_path, read_only=True, data_only=True)
@@ -1215,34 +1233,24 @@ def _stage8_demand_overlap(cursor, conn, batch_id, batch_file_id, stored_file_pa
     except Exception:
         return
 
-    overlapping: list[str] = []
+    flagged: list[str] = []
     for _, row in rows:
-        ct = str(row.get("change_type", "")).strip().upper()
-        if ct != "NEW_LAUNCH":
-            continue
         item_code = str(row.get("item_code", "")).strip()
-        if not item_code:
-            continue
-        val = row.get("initial_demand")
-        has_demand = (
-            val is not None
-            and str(val).strip() != ""
-            and _is_valid_decimal(val)
-            and float(val) > 0
-        )
-        if has_demand and item_code in demand_items:
-            overlapping.append(item_code)
+        if item_code:
+            flagged.append(item_code)
 
-    if not overlapping:
+    missing = sorted({i for i in flagged if i not in plan_items})
+
+    if not missing:
         _write(cursor, batch_file_id, stage_num, stage_name, "PASS",
-               "No demand overlap — NEW_LAUNCH initial_demand items are not present in demand_plan")
+               "All phase-in SKUs appear in the production plan (production_orders)")
         return
 
-    for item_code in overlapping[:50]:
+    for item_code in missing[:50]:
         _write(cursor, batch_file_id, stage_num, stage_name, "WARNING",
-               f"NEW_LAUNCH item '{item_code}' has initial_demand AND appears in demand_plan "
-               f"— risk of double-counting demand in capacity calculations",
-               field_name="demand_overlap", sample_value=item_code)
+               f"Phase-in SKU '{item_code}' has no orders in production_orders — it will show "
+               f"zero volume/hours impact. Add it to the production plan (MRP).",
+               field_name="portfolio_plan_coverage", sample_value=item_code)
 
 
 def _stage8_material_vs_master_stock(cursor, conn, batch_id, batch_file_id,

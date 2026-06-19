@@ -30,12 +30,11 @@ function tooltipFor(line: RCCPLine, period: string): string {
   const m = line.monthly.find(x => x.period === period)
   const bd = m?.loss_breakdown
   if (!bd) return ''
-  const parts: string[] = []
-  if (bd.maintenance > 0)      parts.push(`Maintenance ${fmtH(bd.maintenance)}h`)
-  if (bd.planned_downtime > 0) parts.push(`Planned downtime ${fmtH(bd.planned_downtime)}h`)
-  if (bd.public_holiday > 0)   parts.push(`Public holiday ${fmtH(bd.public_holiday)}h`)
-  if (bd.other_loss > 0)       parts.push(`Other loss ${fmtH(bd.other_loss)}h`)
-  return parts.join(' · ')
+  return Object.entries(bd)
+    .filter(([, h]) => h > 0)
+    .sort((a, b) => b[1] - a[1])
+    .map(([reason, h]) => `${reason} ${fmtH(h)}h`)
+    .join(' · ')
 }
 
 export default function DowntimePanel({ lines, planCycleDate }: Props) {
@@ -71,7 +70,7 @@ export default function DowntimePanel({ lines, planCycleDate }: Props) {
             Planned downtime — next 12 months
           </h2>
           <p className="text-[12px] mt-1 ml-[13px]" style={{ color: C.ink3 }}>
-            Maintenance, planned downtime, public-holiday cover or other planned losses recorded in the line capacity calendar.
+            Downtime hours recorded in the line capacity calendar — by reason. Downtime reduces available capacity.
           </p>
         </div>
         {grandTotal > 0 && (
@@ -188,7 +187,7 @@ export default function DowntimePanel({ lines, planCycleDate }: Props) {
       )}
 
       <p className="text-[11px] mt-3 ml-[1px]" style={{ color: C.ink4 }}>
-        Source: line_capacity_calendar — sum of maintenance, planned downtime, public-holiday and other-loss columns. Hover a cell for the breakdown.
+        Source: line_capacity_calendar downtime_hours (subtracted from each line's shift). Hover a cell for the reason breakdown.
       </p>
     </div>
   )

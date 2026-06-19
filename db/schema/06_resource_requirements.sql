@@ -28,7 +28,7 @@ GO
 -- RESOURCE_TYPES
 -- Controlled vocabulary of staff roles used across resource requirements.
 -- scope defines which Excel tab the role belongs to:
---   LINE  = required per individual line (e.g. Line Operator, Team Leader)
+--   LINE  = required per individual line (e.g. Line Operator, Line Leader)
 --   PLANT = shared across the whole plant (e.g. Forklift Driver, Robot Operator)
 --
 -- Adding a new role = insert one row here. No schema change required.
@@ -69,7 +69,7 @@ GO
 -- How many people of each role are needed to run one line.
 -- One row per line per resource type (LINE-scope only).
 --
--- Example: Line A101 requires 3 Line Operators and 1 Team Leader.
+-- Example: Line A101 requires 3 Line Operators and 1 Line Leader.
 --
 -- Phase 2 formula (per line, per period):
 --   shortfall = headcount_required - planned_headcount (from staffing_plan)

@@ -2,7 +2,7 @@
 // Single source of truth so the Executive Summary and planner dashboard
 // (NextMonthSpotlight, LineRiskRadar, CapacityChart) stay visually in sync.
 
-import type { RCCPLine, RCCPPlantSupportRole } from '../../types'
+import type { RCCPLine, RCCPPlantSupportRole, RCCPPoolRoleBalance } from '../../types'
 
 // ─── Moove palette ──────────────────────────────────────────────────────────────
 export const C = {
@@ -165,7 +165,11 @@ export interface FocusVerdict {
  * The theoretical figure (Σ prod / Σ avail) is kept as a secondary number —
  * "if mix could rebalance freely across lines".
  */
-export function focusVerdict(lines: RCCPLine[], period: string): FocusVerdict {
+export function focusVerdict(
+  lines: RCCPLine[],
+  period: string,
+  poolLabour?: Record<string, RCCPPoolRoleBalance[]>,
+): FocusVerdict {
   let availSum = 0, prod = 0, demand = 0, firm = 0, plannedSum = 0
   let deliverable = 0, shortfall = 0
   let anyAvail = false
@@ -193,8 +197,12 @@ export function focusVerdict(lines: RCCPLine[], period: string): FocusVerdict {
     if (m.utilisation_pct != null && m.utilisation_pct >= 100) {
       over.push({ code: l.line_code, util: m.utilisation_pct })
     }
-    if (m.labour_status === 'SHORTFALL' && (m.hc_shortfall ?? 0) >= HC_MATERIAL) {
-      short.push({ code: l.line_code, shortfall: m.hc_shortfall ?? 0 })
+  }
+
+  // Short-staffing now comes from the pool labour balance (plant × role), not per line.
+  if (poolLabour) {
+    for (const s of poolFteForMonth(poolLabour, period).shortItems) {
+      short.push({ code: `${s.pool.replace(/^POOL-/, '')} · ${roleShortLabel(s.role)}`, shortfall: s.gap })
     }
   }
 
@@ -424,6 +432,104 @@ export interface FteHorizonSummary {
   avgGap: number | null
   monthsShort: number          // count of horizon months with material gap (≥ 1 FTE)
   totalMonths: number
+}
+
+// ─── Pool labour balance summaries (Phase 2) ──────────────────────────────────
+// Aggregate the engine's pool_labour (need vs have vs gap, by plant × role × month)
+// to site-level FTE figures for the spotlight, actions and outlook widgets.
+
+export interface PoolFteMonth {
+  need: number
+  have: number | null
+  gap: number | null              // total per-role shortfall (Σ max(0, need−have)); null until pool data entered
+  shortItems: { pool: string; role: string; gap: number }[]    // roles short ≥ 1 FTE
+  hasHave: boolean                // any pool headcount entered for this month
+}
+
+const _r1 = (v: number) => Math.round(v * 10) / 10
+
+const _ROLE_SHORT: Record<string, string> = {
+  LINE_OPERATOR: 'Operators',
+  LINE_LEADER: 'Line leaders',
+  PALLETISING_OPERATOR: 'Palletisers',
+}
+export function roleShortLabel(code: string): string {
+  return _ROLE_SHORT[code] ?? code
+}
+
+export function poolFteForMonth(
+  poolLabour: Record<string, RCCPPoolRoleBalance[]>,
+  period: string,
+): PoolFteMonth {
+  let need = 0, have = 0, gap = 0, hasHave = false
+  const shortItems: { pool: string; role: string; gap: number }[] = []
+  for (const plant of Object.keys(poolLabour ?? {})) {
+    for (const r of poolLabour[plant]) {
+      const m = r.monthly[period]
+      if (!m) continue
+      need += m.need
+      if (m.have != null) { hasHave = true; have += m.have }
+      if (m.gap != null) {
+        gap += m.gap
+        if (m.gap >= 1) shortItems.push({ pool: plant, role: r.role_code, gap: m.gap })
+      }
+    }
+  }
+  shortItems.sort((a, b) => b.gap - a.gap)
+  return { need: _r1(need), have: hasHave ? _r1(have) : null, gap: hasHave ? _r1(gap) : null, shortItems, hasHave }
+}
+
+export interface PoolFteHorizon {
+  avgNeed: number | null
+  avgHave: number | null
+  avgGap: number | null
+  peakGap: number
+  monthsShort: number
+  totalMonths: number
+  hasHave: boolean
+}
+
+export function poolFteHorizon(
+  poolLabour: Record<string, RCCPPoolRoleBalance[]>,
+  periods: string[],
+): PoolFteHorizon {
+  let needSum = 0, haveSum = 0, gapSum = 0, count = 0, monthsShort = 0, peakGap = 0, hasHave = false
+  for (const p of periods) {
+    const s = poolFteForMonth(poolLabour, p)
+    needSum += s.need
+    count++
+    if (s.hasHave) {
+      hasHave = true
+      haveSum += s.have ?? 0
+      const g = s.gap ?? 0
+      gapSum += g
+      if (g >= 1) monthsShort++
+      if (g > peakGap) peakGap = g
+    }
+  }
+  if (count === 0) return { avgNeed: null, avgHave: null, avgGap: null, peakGap: 0, monthsShort: 0, totalMonths: 0, hasHave: false }
+  return {
+    avgNeed: _r1(needSum / count),
+    avgHave: hasHave ? _r1(haveSum / count) : null,
+    avgGap: hasHave ? _r1(gapSum / count) : null,
+    peakGap: _r1(peakGap),
+    monthsShort,
+    totalMonths: count,
+    hasHave,
+  }
+}
+
+// Site working days + month-hours for a period (FTE explainer). Calendar-derived.
+export function siteMonthHours(lines: RCCPLine[], period: string): { workingDays: number; monthHours: number } {
+  let wd = 0, mins = 0
+  for (const l of lines) {
+    const m = l.monthly.find(x => x.period === period)
+    if (!m) continue
+    if (m.working_days > wd) wd = m.working_days
+    const lm = l.available_mins_per_day || 420
+    if (lm > mins) mins = lm
+  }
+  return { workingDays: wd, monthHours: (wd * mins) / 60 }
 }
 
 export function fteSummaryHorizon(

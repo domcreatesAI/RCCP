@@ -38,7 +38,7 @@ This is a 4-phase plan to move RCCP One from "feature complete + end-to-end test
 
 #### 1b. Manufacturing manager confirms headcount requirements
 **What:** Steve + Josh review headcount model:
-- `line_resource_requirements` table: per-line crew (LINE_OPERATOR, TEAM_LEADER counts) — the "cost" of running each line
+- `line_resource_requirements` table: per-line crew (LINE_OPERATOR, LINE_LEADER counts) — the "cost" of running each line
 - `plant_resource_requirements` table: per-plant shared roles (FORKLIFT_DRIVER, MATERIAL_HANDLER, ROBOT_OPERATOR, TECHNICIAN) + required headcount per role
 - Ask: *Does this match what you actually staff? Any roles missing? Any headcount assumptions wrong?*
 

@@ -183,7 +183,7 @@ def _clear_planning_data(conn: pyodbc.Connection, batch_id: int) -> None:
     cursor = conn.cursor()
     for table in ("master_stock", "demand_plan", "line_capacity_calendar",
                   "headcount_plan", "plant_headcount_plan", "headcount_exceptions",
-                  "portfolio_changes", "production_orders", "actual_production"):
+                  "pool_headcount", "portfolio_changes", "production_orders", "actual_production"):
         cursor.execute(f"DELETE FROM dbo.{table} WHERE batch_id = ?", batch_id)  # noqa: S608
 
 
@@ -269,6 +269,8 @@ def _import_file(
             headers3 = get_headers(sheet3, header_row=2)
             data_rows3 = get_data_rows(sheet3, headers3, start_row=3)
             _import_headcount_exceptions(conn, batch_id, data_rows3)
+        # Note: the PRIMARY sheet (worksheets[0]) is Pool Headcount and is imported
+        # by the file_type handler (_import_headcount_plan → _import_pool_headcount).
 
 
 # ---------------------------------------------------------------------------
@@ -415,30 +417,59 @@ def _import_line_capacity_calendar(conn, batch_id, headers, data_rows, plan_cycl
 
         is_working = to_bit(row.get("is_working_day"), default=1)
         planned_hrs = _dec(row.get("planned_hours")) or 0.0
-        maint = _dec(row.get("maintenance_hours")) if "maintenance_hours" in header_set else 0.0
-        ph = _dec(row.get("public_holiday_hours")) if "public_holiday_hours" in header_set else 0.0
-        downtime = _dec(row.get("planned_downtime_hours")) if "planned_downtime_hours" in header_set else 0.0
-        other = _dec(row.get("other_loss_hours")) if "other_loss_hours" in header_set else 0.0
-        notes = _str(row.get("notes")) if "notes" in header_set else None
+        downtime = (_dec(row.get("downtime_hours")) if "downtime_hours" in header_set else 0.0) or 0.0
+        reason = _str(row.get("downtime_reason")) if "downtime_reason" in header_set else None
 
         batch.append((
             batch_id, line_code, cal_date, is_working,
-            planned_hrs, planned_hrs,
-            maint or 0.0, ph or 0.0, downtime or 0.0, other or 0.0,
-            notes, row_num,
+            planned_hrs, planned_hrs,         # standard_hours = planned_hours (legacy)
+            downtime, reason, row_num,
         ))
 
     if batch:
         cursor.fast_executemany = True
+        # Legacy loss columns (maintenance/public_holiday/planned_downtime/other_loss)
+        # are NOT NULL DEFAULT 0 — omitted here, they default to 0.
         cursor.executemany(
             """
             INSERT INTO dbo.line_capacity_calendar
                 (batch_id, line_code, calendar_date, is_working_day,
                  standard_hours, planned_hours,
-                 maintenance_hours, public_holiday_hours,
-                 planned_downtime_hours, other_loss_hours,
-                 notes, source_row_number)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 downtime_hours, downtime_reason, source_row_number)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            batch,
+        )
+
+
+def _import_pool_headcount(conn, batch_id, data_rows):
+    """Import pool headcount — people available per labour POOL, by role, per month.
+
+    The 'HAVE' side of the pool labour balance (v2). Covers ALL roles (line +
+    shared). Monthly (plan_month = 1st of month).
+    """
+    cursor = conn.cursor()
+    batch = []
+    for row_num, row in data_rows:
+        pool_code = _str(row.get("pool_code"))
+        role_code = _str(row.get("resource_type_code"))
+        plan_dt   = to_date(row.get("plan_month")) or to_date(row.get("plan_date"))
+        if not pool_code or not role_code or plan_dt is None:
+            continue
+        headcount = _dec(row.get("planned_headcount"))
+        if headcount is None or headcount < 0:
+            continue
+        plan_dt = date(plan_dt.year, plan_dt.month, 1)
+        batch.append((batch_id, pool_code, role_code, plan_dt, headcount, row_num))
+
+    if batch:
+        cursor.fast_executemany = True
+        cursor.executemany(
+            """
+            INSERT INTO dbo.pool_headcount
+                (batch_id, pool_code, resource_type_code, plan_month,
+                 planned_headcount, source_row_number)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
             batch,
         )
@@ -525,44 +556,12 @@ def _import_headcount_exceptions(conn, batch_id, data_rows):
 
 
 def _import_headcount_plan(conn, batch_id, headers, data_rows, plan_cycle_date):
-    """Import line-level planned headcount.
-
-    Accepts either the new monthly format (plan_month = 1st of month) or the
-    legacy daily format (plan_date). Stored value goes into
-    headcount_plan.plan_date. The engine averages by month, so single-row-
-    per-month entries work fine.
+    """Primary sheet of the headcount_plan upload is now POOL headcount (Phase 2) —
+    people available per plant pool, by role, per month. Delegates to the pool importer.
+    Plant-shared crew (Sheet 'Plant Support') and absences (Sheet 'Exceptions') are
+    imported separately by name in _import_file.
     """
-    header_set = set(headers)
-    cursor = conn.cursor()
-
-    batch = []
-    for row_num, row in data_rows:
-        line_code = _str(row.get("line_code"))
-        plan_dt = to_date(row.get("plan_month")) or to_date(row.get("plan_date"))
-        if not line_code or plan_dt is None:
-            continue
-
-        headcount = _dec(row.get("planned_headcount")) or 0.0
-        shift_code = _str(row.get("shift_code")) if "shift_code" in header_set else None
-        avail_hrs = _dec(row.get("available_hours")) if "available_hours" in header_set else None
-        notes = _str(row.get("notes")) if "notes" in header_set else None
-
-        batch.append((
-            batch_id, line_code, plan_dt, shift_code,
-            headcount, avail_hrs, notes, row_num,
-        ))
-
-    if batch:
-        cursor.fast_executemany = True
-        cursor.executemany(
-            """
-            INSERT INTO dbo.headcount_plan
-                (batch_id, line_code, plan_date, shift_code,
-                 planned_headcount, available_hours, notes, source_row_number)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            batch,
-        )
+    _import_pool_headcount(conn, batch_id, data_rows)
 
 
 def _import_portfolio_changes(conn, batch_id, headers, data_rows, plan_cycle_date):
@@ -572,16 +571,17 @@ def _import_portfolio_changes(conn, batch_id, headers, data_rows, plan_cycle_dat
 
     batch = []
     for row_num, row in data_rows:
-        change_type = _str(row.get("change_type"))
         effective_dt = to_date(row.get("effective_date")) if "effective_date" in header_set else None
         item_code = _str(row.get("item_code")) if "item_code" in header_set else None
-        description = _str(row.get("description")) if "description" in header_set else None
-        impact_notes = _str(row.get("impact_notes")) if "impact_notes" in header_set else None
-        initial_demand = _dec(row.get("initial_demand")) if "initial_demand" in header_set else None
+        line_code = _str(row.get("line_code")) if "line_code" in header_set else None
+        comments = _str(row.get("comments")) if "comments" in header_set else None
 
+        # Phase-in only: every row is a launch. change_type fixed to NEW_LAUNCH;
+        # comments stored in description; impact_notes / initial_demand left NULL
+        # (deprecated — volume is derived from the production plan).
         batch.append((
-            batch_id, item_code, change_type, effective_dt,
-            description, impact_notes, initial_demand, row_num,
+            batch_id, item_code, line_code, "NEW_LAUNCH", effective_dt,
+            comments, row_num,
         ))
 
     if batch:
@@ -589,9 +589,9 @@ def _import_portfolio_changes(conn, batch_id, headers, data_rows, plan_cycle_dat
         cursor.executemany(
             """
             INSERT INTO dbo.portfolio_changes
-                (batch_id, item_code, change_type, effective_date,
-                 description, impact_notes, initial_demand, source_row_number)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (batch_id, item_code, line_code, change_type, effective_date,
+                 description, source_row_number)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             batch,
         )

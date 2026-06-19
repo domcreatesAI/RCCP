@@ -51,11 +51,14 @@ def get_headers(ws, header_row: int = 1) -> list[str]:
 def get_data_rows(ws, headers: list[str], start_row: int = 2) -> list[tuple[int, dict]]:
     """Return [(excel_row_num, {col: val}), ...] skipping blank rows."""
     rows = []
-    for excel_row in ws.iter_rows(min_row=start_row):
+    # iter_rows yields contiguous rows from start_row, so the row number is
+    # start_row + offset. (Don't read cell.row — in read-only mode an empty
+    # leading cell is an EmptyCell with no .row attribute.)
+    for offset, excel_row in enumerate(ws.iter_rows(min_row=start_row)):
         vals = [cell.value for cell in excel_row]
         if all(v is None or (isinstance(v, str) and v.strip() == "") for v in vals):
             continue
-        row_num = excel_row[0].row
+        row_num = start_row + offset
         row_dict = {headers[i]: vals[i] for i in range(min(len(headers), len(vals)))}
         rows.append((row_num, row_dict))
     return rows

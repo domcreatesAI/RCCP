@@ -1,6 +1,6 @@
 import { NavLink } from 'react-router'
 import {
-  Upload, GitBranch, FileText, SlidersHorizontal, LogOut, Download, Factory,
+  Upload, GitBranch, FileText, SlidersHorizontal, LogOut, Download, Factory, LayoutDashboard,
 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 
@@ -15,6 +15,7 @@ interface NavItem {
 const navItems: NavItem[] = [
   { label: 'Planning Data',        path: '/',                     badge: 'P1', icon: Upload },
   { label: 'Executive Summary',    path: '/executive-summary',    badge: 'P4', icon: FileText },
+  { label: 'Capacity Dashboard',   path: '/capacity-dashboard',   badge: 'P4', icon: LayoutDashboard },
   { label: 'Plant Detail',         path: '/plant-detail',         badge: 'OPS', icon: Factory },
   { label: 'Scenarios',            path: '/scenarios',            badge: 'P3', icon: GitBranch },
   { label: 'Batch Exports',        path: '/exports',              badge: 'XLS', icon: Download },

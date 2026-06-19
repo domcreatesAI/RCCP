@@ -78,12 +78,8 @@ export interface RCCPKPIs {
   peak_util_period: string | null
 }
 
-export interface RCCPLossBreakdown {
-  maintenance: number
-  planned_downtime: number
-  public_holiday: number
-  other_loss: number
-}
+// Downtime hours grouped by reason code (e.g. { Maintenance: 8, Breakdown: 4 }).
+export type RCCPLossBreakdown = Record<string, number>
 
 export interface RCCPHcException {
   scope: 'LINE' | 'PLANT'
@@ -197,6 +193,12 @@ export interface RCCPSettings {
   cogs_opex_per_litre: number    // £ per litre produced (OEE is per-line, see RCCPLine.oee_target)
 }
 
+export interface RCCPPortfolioMonth {
+  ea: number
+  litres: number
+  hours: number | null    // null when the line has no L/min capability for the SKU's pack
+}
+
 export interface RCCPPortfolioChange {
   item_code: string | null
   change_type: 'NEW_LAUNCH' | 'DISCONTINUE' | 'REFORMULATION' | 'LINE_CHANGE' | 'OTHER'
@@ -204,9 +206,9 @@ export interface RCCPPortfolioChange {
   effective_period: string | null   // 'YYYY-MM'
   description: string | null
   impact_notes: string | null
-  line_code: string | null          // routing line (items.primary_line_code), if the SKU is set up
+  line_code: string | null          // routing line (file override or items.primary_line_code)
   plant_code: string | null         // plant of the routing line, if resolvable
-  initial_demand: number | null     // expected initial demand (EA) for NEW_LAUNCH rows
+  monthly: Record<string, RCCPPortfolioMonth>   // 'YYYY-MM' → plan volume & hours
 }
 
 export interface RCCPDashboard {
@@ -221,8 +223,25 @@ export interface RCCPDashboard {
   unassigned_orders: RCCPUnassignedOrder[]
   portfolio_changes: RCCPPortfolioChange[]
   plant_support_requirements: Record<string, RCCPPlantSupportRole[]>
+  pool_labour: Record<string, RCCPPoolRoleBalance[]>   // pool_code → per-role need/have/gap by month
+  pool_info: Record<string, RCCPPoolInfo>              // pool_code → name, plants, concurrency
   resource_type_rates: Record<string, number>  // role_code → standard_hourly_rate
   settings: RCCPSettings
+}
+
+export interface RCCPPoolRoleBalance {
+  role_code: string
+  scope?: 'LINE' | 'PLANT'
+  // period 'YYYY-MM' → balance. have/gap are null until pool headcount is entered.
+  monthly: Record<string, { need: number; have: number | null; gap: number | null }>
+}
+
+export interface RCCPPoolInfo {
+  pool_name: string
+  plants: string[]
+  line_count: number
+  max_concurrent_lines_by_labour: number | null   // "lines you can run" at the binding role
+  binding_role: string | null
 }
 
 export interface User {

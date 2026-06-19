@@ -9,9 +9,10 @@ Shift pattern (planned_hours = on-site hours minus 1h allocated to breaks):
   - Fri:     is_working_day = 1, planned_hours = 5.5  (6.5h on site − 1h breaks)
   - Sat/Sun: is_working_day = 0, planned_hours = 0
 
-UK bank holidays: is_working_day = 0, planned_hours = 0,
-                  public_holiday_hours = hours lost for that weekday
-                  (8.5 if Mon–Thu, 6.0 if Fri, 0 if Sat/Sun)
+UK bank holidays: is_working_day = 0, planned_hours = 0, labelled in downtime_reason.
+
+downtime_hours + downtime_reason capture lost time on working days (maintenance,
+breakdown, stock check, planned shutdown) and SUBTRACT from planned_hours.
 
 Run from the repo root:
     python scripts/generate_capacity_calendar.py
@@ -19,10 +20,16 @@ Output: uploads/capacity_calendar_2026_2030.xlsx
 """
 
 import os
+import sys
 from datetime import date, timedelta
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
+
+# Canonical bank-holiday list + shift pattern live in the backend so the Tmpl
+# download and this script never drift.
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
+from app.services.uk_calendar import UK_BANK_HOLIDAYS, PLANNED_HOURS_BY_WEEKDAY  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Production lines (all 14 active lines)
@@ -35,73 +42,8 @@ LINES = [
     "A501", "A502",
 ]
 
-# ---------------------------------------------------------------------------
-# Planned hours by weekday  (Mon=0 … Sun=6)
-# ---------------------------------------------------------------------------
-PLANNED_HOURS_BY_WEEKDAY = {
-    0: 8.0,  # Monday    — 9.0h on site − 1h breaks
-    1: 8.0,  # Tuesday   — 9.0h on site − 1h breaks
-    2: 8.0,  # Wednesday — 9.0h on site − 1h breaks
-    3: 8.0,  # Thursday  — 9.0h on site − 1h breaks
-    4: 5.5,  # Friday    — 6.5h on site − 1h breaks
-    5: 0.0,  # Saturday
-    6: 0.0,  # Sunday
-}
-
-# ---------------------------------------------------------------------------
-# UK Bank Holidays 2026–2030
-# ---------------------------------------------------------------------------
-UK_BANK_HOLIDAYS = {
-    # 2026
-    date(2026,  1,  1),  # New Year's Day
-    date(2026,  4,  3),  # Good Friday
-    date(2026,  4,  6),  # Easter Monday
-    date(2026,  5,  4),  # Early May Bank Holiday
-    date(2026,  5, 25),  # Spring Bank Holiday
-    date(2026,  8, 31),  # Summer Bank Holiday
-    date(2026, 12, 25),  # Christmas Day
-    date(2026, 12, 28),  # Boxing Day (substitute — 26 Dec is Saturday)
-
-    # 2027
-    date(2027,  1,  1),  # New Year's Day
-    date(2027,  3, 26),  # Good Friday
-    date(2027,  3, 29),  # Easter Monday
-    date(2027,  5,  3),  # Early May Bank Holiday
-    date(2027,  5, 31),  # Spring Bank Holiday
-    date(2027,  8, 30),  # Summer Bank Holiday
-    date(2027, 12, 27),  # Christmas Day (substitute — 25 Dec is Saturday)
-    date(2027, 12, 28),  # Boxing Day (substitute — 26 Dec is Sunday)
-
-    # 2028
-    date(2028,  1,  3),  # New Year's Day (substitute — 1 Jan is Saturday)
-    date(2028,  4, 14),  # Good Friday
-    date(2028,  4, 17),  # Easter Monday
-    date(2028,  5,  1),  # Early May Bank Holiday (1 May is Monday)
-    date(2028,  5, 29),  # Spring Bank Holiday
-    date(2028,  8, 28),  # Summer Bank Holiday
-    date(2028, 12, 25),  # Christmas Day
-    date(2028, 12, 26),  # Boxing Day
-
-    # 2029
-    date(2029,  1,  1),  # New Year's Day
-    date(2029,  3, 30),  # Good Friday
-    date(2029,  4,  2),  # Easter Monday
-    date(2029,  5,  7),  # Early May Bank Holiday
-    date(2029,  5, 28),  # Spring Bank Holiday
-    date(2029,  8, 27),  # Summer Bank Holiday
-    date(2029, 12, 25),  # Christmas Day
-    date(2029, 12, 26),  # Boxing Day
-
-    # 2030
-    date(2030,  1,  1),  # New Year's Day
-    date(2030,  4, 19),  # Good Friday
-    date(2030,  4, 22),  # Easter Monday
-    date(2030,  5,  6),  # Early May Bank Holiday
-    date(2030,  5, 27),  # Spring Bank Holiday
-    date(2030,  8, 26),  # Summer Bank Holiday
-    date(2030, 12, 25),  # Christmas Day
-    date(2030, 12, 26),  # Boxing Day
-}
+# PLANNED_HOURS_BY_WEEKDAY and UK_BANK_HOLIDAYS are imported from
+# app.services.uk_calendar (single source of truth).
 
 # ---------------------------------------------------------------------------
 # Styles
@@ -120,23 +62,17 @@ COLUMNS = [
     "calendar_date",
     "is_working_day",
     "planned_hours",
-    "maintenance_hours",
-    "public_holiday_hours",
-    "planned_downtime_hours",
-    "other_loss_hours",
-    "notes",
+    "downtime_hours",
+    "downtime_reason",
 ]
 
 DESCRIPTIONS = [
     "Production line code (e.g. A101, A202). Must match a line in the masterdata.",
     "Date in DD/MM/YYYY format (e.g. 01/03/2026).",
     "1 = working day, 0 = non-working day (weekend, bank holiday).",
-    "Total planned production hours for this line on this date (0–24). Required.",
-    "Scheduled maintenance time (hours). Required. Must be ≥ 0 — enter 0 if none.",
-    "Public holiday loss (hours). Optional.",
-    "Other planned downtime (hours). Optional.",
-    "Any other losses not covered above (hours). Optional.",
-    "Free text notes for this entry. Optional.",
+    "Scheduled production hours for this line on this date (0–24). Required.",
+    "Hours lost this day (subtracts from planned_hours). Enter 0 if none.",
+    "Why the line is down: Breakdown / Maintenance / Stock check / Planned shutdown. Required when downtime_hours > 0.",
 ]
 
 COL_WIDTHS = {
@@ -144,11 +80,8 @@ COL_WIDTHS = {
     "calendar_date":         16,
     "is_working_day":        16,
     "planned_hours":         16,
-    "maintenance_hours":     20,
-    "public_holiday_hours":  22,
-    "planned_downtime_hours":24,
-    "other_loss_hours":      18,
-    "notes":                 28,
+    "downtime_hours":        16,
+    "downtime_reason":       22,
 }
 
 
@@ -185,33 +118,27 @@ def generate() -> None:
         is_bank_hol   = current in UK_BANK_HOLIDAYS
         is_working    = not is_weekend and not is_bank_hol
 
-        # Hours this weekday would normally carry (used for bank holiday loss)
-        normal_hours  = PLANNED_HOURS_BY_WEEKDAY[weekday]
-        planned_hours = normal_hours if is_working else 0.0
-        bh_hours      = normal_hours if is_bank_hol else 0.0   # hours lost to bank holiday
+        planned_hours = PLANNED_HOURS_BY_WEEKDAY[weekday] if is_working else 0.0
 
-        notes = ""
+        reason = ""
         if is_bank_hol:
-            notes = "Bank holiday"
+            reason = "Bank holiday"
         elif is_weekend:
-            notes = "Weekend"
+            reason = "Weekend"
 
         for line in LINES:
             ws.cell(row=row_num, column=1, value=line)
             ws.cell(row=row_num, column=2, value=current.strftime("%d/%m/%Y"))
             ws.cell(row=row_num, column=3, value=1 if is_working else 0)
             ws.cell(row=row_num, column=4, value=planned_hours)
-            ws.cell(row=row_num, column=5, value=0)          # maintenance_hours
-            ws.cell(row=row_num, column=6, value=bh_hours)   # public_holiday_hours
-            ws.cell(row=row_num, column=7, value=0)          # planned_downtime_hours
-            ws.cell(row=row_num, column=8, value=0)          # other_loss_hours
-            ws.cell(row=row_num, column=9, value=notes)
+            ws.cell(row=row_num, column=5, value=0)          # downtime_hours
+            ws.cell(row=row_num, column=6, value=reason)     # downtime_reason (label for non-working)
 
             if is_bank_hol:
-                for c in range(1, 10):
+                for c in range(1, 7):
                     ws.cell(row=row_num, column=c).fill = _BH_FILL
             elif is_weekend:
-                for c in range(1, 10):
+                for c in range(1, 7):
                     ws.cell(row=row_num, column=c).fill = _WE_FILL
 
             row_num += 1
@@ -234,15 +161,16 @@ def generate() -> None:
         "  Friday:   5.5 hours / day (6.5h on site − 1h breaks)",
         "  Sat/Sun:  non-working     (is_working_day = 0, planned_hours = 0)",
         "",
-        "UK bank holidays: is_working_day=0, planned_hours=0,",
-        "  public_holiday_hours = hours that day would normally carry",
-        "  (8.0 if Mon–Thu falls on BH, 5.5 if Friday falls on BH)",
+        "UK bank holidays: is_working_day=0, planned_hours=0 (labelled in downtime_reason)",
         "",
         "Amber rows = UK bank holidays",
         "Grey rows  = weekends",
         "",
+        "downtime_hours subtracts from planned_hours (available = planned − downtime).",
+        "downtime_reason: Breakdown / Maintenance / Stock check / Planned shutdown.",
+        "",
         "BEFORE UPLOADING — review and adjust:",
-        "  - maintenance_hours for scheduled maintenance windows",
+        "  - downtime_hours + downtime_reason for maintenance / shutdown windows",
         "  - Any site-specific shutdowns (e.g. factory closure weeks)",
         "  - Lines with different shift patterns (adjust planned_hours per row)",
     ]

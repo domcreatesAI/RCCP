@@ -10,6 +10,8 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
 
+from app.services.reasons import CAPACITY_DOWNTIME_REASONS, HEADCOUNT_ABSENCE_REASONS
+
 # ---------------------------------------------------------------------------
 # Template definitions
 # Each entry: (header_label, column_key, description, sample_value)
@@ -19,66 +21,70 @@ TEMPLATES: dict[str, dict] = {
     "line_capacity_calendar": {
         "title": "Line Capacity Calendar",
         "description": (
-            "One row per production line per day. "
-            "Covers the full planning horizon (typically 12–18 months). "
-            "planned_hours = total available hours after losses. "
-            "All loss columns are optional — omit or leave blank if not applicable."
+            "One row per production line per day, covering the full planning horizon "
+            "(typically 12–18 months). planned_hours = the scheduled shift for that line "
+            "that day. downtime_hours = lost time that SUBTRACTS from the shift "
+            "(available = planned − downtime); record a downtime_reason so the app can "
+            "report why capacity is reduced. Leave downtime 0 on normal days."
         ),
         "columns": [
-            ("line_code",               "Line Code",               "Production line code (e.g. A101, A202). Must match a line in the masterdata.",  "A101"),
-            ("calendar_date",           "Calendar Date",           "Date in DD/MM/YYYY format (e.g. 01/03/2026).",                                   "01/03/2026"),
-            ("is_working_day",          "Is Working Day",          "1 = working day, 0 = non-working day (weekend, bank holiday).",                  "1"),
-            ("planned_hours",           "Planned Hours",           "Total planned production hours for this line on this date (0–24). Required.",    "7.0"),
-            ("maintenance_hours",       "Maintenance Hours",       "Scheduled maintenance time (hours). Required. Must be ≥ 0 — enter 0 if none.", "0.5"),
-            ("public_holiday_hours",    "Public Holiday Hours",    "Public holiday loss (hours). Optional.",                                          "0"),
-            ("planned_downtime_hours",  "Planned Downtime Hours",  "Other planned downtime (hours). Optional.",                                       "0"),
-            ("other_loss_hours",        "Other Loss Hours",        "Any other losses not covered above (hours). Optional.",                           "0"),
-            ("notes",                   "Notes",                   "Free text notes for this entry. Optional.",                                       ""),
+            ("line_code",        "Line Code",        "Production line code (e.g. A101, A202). Must match a line in the masterdata.",   "A101"),
+            ("calendar_date",    "Calendar Date",    "Date in DD/MM/YYYY format (e.g. 01/03/2026).",                                   "01/03/2026"),
+            ("is_working_day",   "Is Working Day",   "1 = working day, 0 = non-working day (weekend, bank holiday).",                  "1"),
+            ("planned_hours",    "Planned Hours",    "Scheduled production hours for this line on this date (0–24). Required.",        "8.0"),
+            ("downtime_hours",   "Downtime Hours",   "Hours lost this day (maintenance, breakdown, etc.). Subtracts from planned_hours. Enter 0 if none.", "0"),
+            ("downtime_reason",  "Downtime Reason",  "Why the line is down — pick from the list (Breakdown, Maintenance, Stock check, Planned shutdown). Required when downtime_hours > 0.", "Maintenance"),
         ],
         "sample_rows": [
-            ["A101", "01/03/2026", 1, 7.0, 0.5, 0, 0, 0, ""],
-            ["A101", "02/03/2026", 0, 0.0, 0,   0, 0, 0, "Weekend"],
-            ["A202", "01/03/2026", 1, 7.0, 0,   0, 0, 0, ""],
+            ["A101", "01/03/2026", 1, 8.0, 0, ""],
+            ["A101", "02/03/2026", 0, 0.0, 0, "Weekend"],
+            ["A101", "03/03/2026", 1, 8.0, 8, "Maintenance"],
+            ["A202", "01/03/2026", 1, 8.0, 4, "Stock check"],
         ],
+        "dropdowns": {"downtime_reason": CAPACITY_DOWNTIME_REASONS},
     },
     "headcount_plan": {
-        "title": "Headcount Plan",
+        "title": "Pool Headcount",
         "description": (
-            "Planned operator headcount per production line per month. "
-            "One row per line per month — use the 1st of the month for plan_month (e.g. 01/05/2026 for May). "
-            "Plant-shared roles (forklift, materials handler, etc.) live on the 'Plant Support' sheet."
+            "People you ACTUALLY have in each labour POOL, by role, per month. "
+            "A pool can span plants (POOL-FLEX = Plants 1/3/4; POOL-P2 = Plant 2). "
+            "One row per pool × role × month — use the 1st of the month for plan_month. "
+            "Covers ALL roles (operators, line leaders, palletisers AND shared roles like "
+            "forklift drivers). The engine compares this against the demand-driven crew need "
+            "to flag staffing gaps. Known absences (holiday/sick) go on the 'Exceptions' sheet."
         ),
         "columns": [
-            ("line_code",         "Line Code",          "Production line code (e.g. A101). Must match a line in the masterdata.",                                 "A101"),
-            ("plan_month",        "Plan Month",         "1st of the month in DD/MM/YYYY format (e.g. 01/05/2026 for May 2026). Required.",                          "01/05/2026"),
-            ("planned_headcount", "Planned Headcount",  "Total operators available for this line that month, summed across all roles (LINE_OPERATOR + TEAM_LEADER + PALLETISING_OPERATOR). Required. Must be ≥ 0.", "4"),
-            ("notes",             "Notes",              "Free text notes (e.g. '2 leavers in June'). Optional.",                                                    ""),
+            ("pool_code",          "Pool Code",          "Labour pool (e.g. POOL-FLEX, POOL-P2). Must match a pool in labour_pools.",            "POOL-FLEX"),
+            ("resource_type_code", "Role Code",          "Any role: LINE_OPERATOR, LINE_LEADER, PALLETISING_OPERATOR, FORKLIFT_DRIVER, MATERIAL_HANDLER, ROBOT_OPERATOR, TECHNICIAN.", "LINE_OPERATOR"),
+            ("plan_month",         "Plan Month",         "1st of the month in DD/MM/YYYY format (e.g. 01/05/2026 for May 2026). Required.",      "01/05/2026"),
+            ("planned_headcount",  "Planned Headcount",  "People available in the pool for this role that month. Required. Must be ≥ 0.",        "12"),
         ],
         "sample_rows": [
-            ["A101", "01/05/2026", 4, ""],
-            ["A101", "01/06/2026", 4, ""],
-            ["A202", "01/05/2026", 3, ""],
+            ["POOL-FLEX", "LINE_OPERATOR",        "01/05/2026", 12],
+            ["POOL-FLEX", "LINE_LEADER",          "01/05/2026", 3],
+            ["POOL-FLEX", "PALLETISING_OPERATOR", "01/05/2026", 2],
+            ["POOL-P2",   "LINE_OPERATOR",        "01/05/2026", 2],
         ],
     },
     "portfolio_changes": {
-        "title": "Portfolio Changes",
+        "title": "Phase-in",
         "description": (
-            "New product launches, discontinuations or other portfolio changes within the planning horizon. "
-            "This file is REQUIRED every cycle, but may contain zero data rows if there are no changes. "
-            "Upload an empty file (header row only) when there are no portfolio changes this cycle. "
-            "initial_demand is required for NEW_LAUNCH rows (must be > 0) — leave blank for all other change types."
+            "Lists the SKUs being phased in (new launches) this cycle. REQUIRED every cycle, but may "
+            "contain zero data rows if there are no phase-ins — upload an empty file (header row only). "
+            "This file carries NO volumes: the monthly volume & hours impact is derived from the "
+            "production plan (production_orders) for the SKUs you list, and shown for information only "
+            "on the Executive Summary. Every SKU listed should also appear in the production plan (MRP) "
+            "— if it doesn't, validation raises a WARNING (it does not block publish)."
         ),
         "columns": [
-            ("change_type",    "Change Type",    "Type of change. Must be one of: NEW_LAUNCH, DISCONTINUE, REFORMULATION, LINE_CHANGE, OTHER.",                      "NEW_LAUNCH"),
-            ("effective_date", "Effective Date", "Date the change takes effect (DD/MM/YYYY).",                                                                       "01/04/2026"),
-            ("item_code",      "Item Code",      "SKU / item code affected. Optional — leave blank for plant-wide or range changes.",                                 "101221"),
-            ("description",    "Description",    "Brief description of the change. Optional.",                                                                       "New 1L SKU launch"),
-            ("impact_notes",   "Impact Notes",   "Notes on capacity or planning impact. Optional.",                                                                   "Requires A101 line qualification"),
-            ("initial_demand", "Initial Demand", "Expected initial demand quantity in eaches. Required for NEW_LAUNCH rows (must be > 0). Leave blank for all other change types.", "5000"),
+            ("effective_date", "Effective Date", "Month the phase-in takes effect (DD/MM/YYYY).",                                                                     "01/04/2026"),
+            ("item_code",      "Item Code",      "SKU / item code being phased in. Required — must exist in the SKU Masterdata. Its production-plan volume drives the impact shown.", "101221"),
+            ("line_code",      "Line Code",      "Production line affected. Required — the line the SKU is being phased in on.",                                       "A101"),
+            ("comments",       "Comments",       "Brief description of the change. Optional.",                                                                        "New 1L SKU launch"),
         ],
         "sample_rows": [
-            ["NEW_LAUNCH",  "01/04/2026", "101221", "New 1L SKU launch",      "Requires A101 line qualification", 5000],
-            ["DISCONTINUE", "01/06/2026", "101233", "4L SKU discontinuation", "Run out existing stock first",     ""],
+            ["01/04/2026", "101221", "A101", "New 1L SKU launch"],
+            ["01/09/2026", "101245", "A305", "Autumn range addition"],
         ],
     },
     "master_stock": {
@@ -235,32 +241,32 @@ TEMPLATES: dict[str, dict] = {
         ],
         "sample_rows": [
             ["A101", "",        "",                "15/05/2026", "19/05/2026", -1, "Annual leave"],
-            ["",     "Plant 1", "FORKLIFT_DRIVER", "01/06/2026", "12/06/2026", -1, "Long-term sick"],
+            ["",     "Plant 1", "FORKLIFT_DRIVER", "01/06/2026", "12/06/2026", -1, "Sickness"],
         ],
-        "dropdowns": {"reason": ["Annual leave", "Long-term sick", "Training of staff"]},
+        "dropdowns": {"reason": HEADCOUNT_ABSENCE_REASONS},
     },
     "line_capacity_exceptions": {
         "title": "Line Capacity Exceptions (Reference)",
         "description": (
             "REFERENCE ONLY — a planning aid for known losses of line capacity "
-            "(maintenance, planned downtime, full shutdowns). Capacity is actually entered as "
-            "columns (maintenance_hours, planned_downtime_hours, other_loss_hours) in the "
-            "line_capacity_calendar upload — this sheet is NOT uploaded separately and NOT validated. "
+            "(breakdown, maintenance, stock check, planned shutdown). Capacity downtime is "
+            "actually entered as downtime_hours + downtime_reason in the line_capacity_calendar "
+            "upload — this sheet is NOT uploaded separately and NOT validated. "
             "Use it to plan the events, then reflect the lost hours in the calendar before uploading."
         ),
         "columns": [
             ("line_code",          "Line Code",          "Production line code affected (e.g. A101). Must exist in the masterdata.",          "A101"),
-            ("event_type",         "Event Type",         "Maintenance, Planned downtime, Full shutdown, or Other.",                           "Maintenance"),
+            ("event_type",         "Event Type",         "Breakdown, Maintenance, Stock check, or Planned shutdown.",                         "Maintenance"),
             ("start_date",         "Start Date",         "First affected date in DD/MM/YYYY format.",                                         "15/06/2026"),
             ("end_date",           "End Date",           "Last affected date inclusive (DD/MM/YYYY). Same as start for a one-day event.",     "15/06/2026"),
-            ("hours_lost_per_day", "Hours Lost / Day",   "How many production hours are lost per day during the event.",                      "4"),
+            ("hours_lost_per_day", "Hours Lost / Day",   "How many production hours are lost per day during the event (→ downtime_hours).",   "4"),
             ("reason",             "Reason",             "Free text — what's happening (e.g. Quarterly PM, Annual cleaning).",                "Quarterly PM"),
         ],
         "sample_rows": [
-            ["A101", "Maintenance",   "15/06/2026", "15/06/2026", 4, "Quarterly PM"],
-            ["A103", "Full shutdown", "22/06/2026", "26/06/2026", 7, "Annual cleaning"],
+            ["A101", "Maintenance",      "15/06/2026", "15/06/2026", 4, "Quarterly PM"],
+            ["A103", "Planned shutdown", "22/06/2026", "26/06/2026", 8, "Annual cleaning"],
         ],
-        "dropdowns": {"event_type": ["Maintenance", "Planned downtime", "Full shutdown", "Other"]},
+        "dropdowns": {"event_type": CAPACITY_DOWNTIME_REASONS},
     },
 
     # ------------------------------------------------------------------
@@ -326,7 +332,7 @@ TEMPLATES: dict[str, dict] = {
         "description": (
             "Headcount required per resource role to run each production line. "
             "Each row = one line + resource type combination. "
-            "LINE-scope roles are LINE_OPERATOR, TEAM_LEADER and PALLETISING_OPERATOR "
+            "LINE-scope roles are LINE_OPERATOR, LINE_LEADER and PALLETISING_OPERATOR "
             "(manual end-of-line palletising). "
             "resource_type_code must match a code in the resource_types masterdata table. "
             "Every active line must have a row for every LINE-scope role — use 0 where a "
@@ -335,15 +341,15 @@ TEMPLATES: dict[str, dict] = {
         ),
         "columns": [
             ("line_code",          "Line Code",           "Production line code (e.g. A101). Must exist in the masterdata.",                    "A101"),
-            ("resource_type_code", "Resource Type Code",  "Role code (LINE_OPERATOR, TEAM_LEADER, PALLETISING_OPERATOR). Must exist in resource_types.", "LINE_OPERATOR"),
+            ("resource_type_code", "Resource Type Code",  "Role code (LINE_OPERATOR, LINE_LEADER, PALLETISING_OPERATOR). Must exist in resource_types.", "LINE_OPERATOR"),
             ("headcount_required", "Headcount Required",  "Number of people required for this role on this line. Must be ≥ 0 (0 = role not needed on this line).", "3"),
         ],
         "sample_rows": [
             ["A101", "LINE_OPERATOR",        3],
-            ["A101", "TEAM_LEADER",          1],
+            ["A101", "LINE_LEADER",          1],
             ["A101", "PALLETISING_OPERATOR", 0],
             ["A303", "LINE_OPERATOR",        3],
-            ["A303", "TEAM_LEADER",          1],
+            ["A303", "LINE_LEADER",          1],
             ["A303", "PALLETISING_OPERATOR", 2],
         ],
     },
@@ -446,7 +452,7 @@ def _line_resource_sample_rows(conn) -> list:
     cur.execute("SELECT resource_type_code FROM dbo.resource_types WHERE scope = 'LINE' AND is_active = 1")
     roles = [str(r[0]).strip() for r in cur.fetchall()]
     # Preferred display order; unknown roles fall to the end alphabetically.
-    order = {"LINE_OPERATOR": 0, "TEAM_LEADER": 1, "PALLETISING_OPERATOR": 2}
+    order = {"LINE_OPERATOR": 0, "LINE_LEADER": 1, "PALLETISING_OPERATOR": 2}
     roles.sort(key=lambda rc: (order.get(rc, 99), rc))
 
     # Current values, so the template reflects existing data rather than blank zeros.
@@ -491,12 +497,79 @@ def _plant_resource_sample_rows(conn) -> list:
     return rows
 
 
+def _line_capacity_sample_rows(conn) -> list:
+    """Full Line Capacity Calendar — one row per active line per day, 2026–2030,
+    weekends and UK bank holidays set non-working. Shared logic lives in
+    app.services.uk_calendar so the template and the standalone script agree."""
+    from app.services.uk_calendar import build_calendar_rows
+    cur = conn.cursor()
+    cur.execute("SELECT line_code FROM dbo.lines WHERE is_active = 1 ORDER BY line_code")
+    lines = [str(r[0]).strip() for r in cur.fetchall()]
+    if not lines:
+        return []
+    return build_calendar_rows(lines)
+
+
+def _headcount_months() -> list[str]:
+    """First-of-month DD/MM/YYYY strings across the planning horizon (2026–2030)."""
+    out, y, m = [], 2026, 1
+    while (y, m) <= (2030, 12):
+        out.append(f"01/{m:02d}/{y}")
+        m += 1
+        if m > 12:
+            m, y = 1, y + 1
+    return out
+
+
+def _hc_num(v):
+    """Whole numbers as int (3.0 → 3); keep fractional (3.5)."""
+    return int(v) if float(v).is_integer() else float(v)
+
+
+def _pool_headcount_sample_rows(conn) -> list:
+    """Complete Pool Headcount — every labour pool × role × month, fully-staffed
+    default. Covers ALL roles: line roles (Σ per-line crew across the pool's lines)
+    and shared roles (Σ plant requirement across the pool's plants). Edit DOWN to
+    the people actually available."""
+    cur = conn.cursor()
+    # Line-scope roles: sum per-line crew across each pool's lines.
+    cur.execute("""
+        SELECT l.labour_pool_code, lrr.resource_type_code, SUM(lrr.headcount_required)
+        FROM dbo.line_resource_requirements lrr
+        JOIN dbo.lines l ON l.line_code = lrr.line_code
+        WHERE l.labour_pool_code IS NOT NULL
+        GROUP BY l.labour_pool_code, lrr.resource_type_code
+    """)
+    combos = {(str(r[0]).strip(), str(r[1]).strip()): _hc_num(r[2]) for r in cur.fetchall()}
+    # Shared (plant-scope) roles: sum plant requirement across each pool's plants.
+    cur.execute("""
+        SELECT pl.labour_pool_code, prr.resource_type_code, SUM(prr.headcount_required)
+        FROM dbo.plant_resource_requirements prr
+        JOIN (SELECT DISTINCT labour_pool_code, plant_code FROM dbo.lines
+              WHERE labour_pool_code IS NOT NULL) pl ON pl.plant_code = prr.plant_code
+        WHERE prr.headcount_required > 0
+        GROUP BY pl.labour_pool_code, prr.resource_type_code
+    """)
+    for r in cur.fetchall():
+        combos[(str(r[0]).strip(), str(r[1]).strip())] = _hc_num(r[2])
+
+    months = _headcount_months()
+    # Month-major ordering: each month is a contiguous block of all pool×role rows.
+    rows = []
+    for mo in months:
+        for (pool_code, role), hc in sorted(combos.items()):
+            rows.append([pool_code, role, mo, hc])
+    return rows
+
+
 def generate_template(file_type: str, conn=None) -> bytes:
     """Return an in-memory .xlsx file for the given file_type.
 
     If conn is provided, line_resource_requirements and plant_resource_requirements
-    are pre-populated with a full role-coverage skeleton from live masterdata
-    instead of static samples.
+    are pre-populated with a full role-coverage skeleton from live masterdata,
+    line_capacity_calendar with the full 2026–2030 working calendar, and
+    headcount_plan (Pool Headcount + Plant Support sheets) fully across all
+    plants/roles × months.
     """
     if file_type not in TEMPLATES:
         raise ValueError(f"No template defined for file_type '{file_type}'")
@@ -514,12 +587,20 @@ def generate_template(file_type: str, conn=None) -> bytes:
             dynamic_rows = _plant_resource_sample_rows(conn)
             if dynamic_rows:
                 sample_rows = dynamic_rows
+        elif file_type == "line_capacity_calendar":
+            dynamic_rows = _line_capacity_sample_rows(conn)
+            if dynamic_rows:
+                sample_rows = dynamic_rows
+        elif file_type == "headcount_plan":
+            dynamic_rows = _pool_headcount_sample_rows(conn)
+            if dynamic_rows:
+                sample_rows = dynamic_rows
 
     wb = Workbook()
 
     # --- Data sheet ---
     ws = wb.active
-    ws.title = "Line Headcount" if file_type == "headcount_plan" else "Data"
+    ws.title = "Pool Headcount" if file_type == "headcount_plan" else "Data"
 
     cols = spec["columns"]
     no_desc_row = spec.get("no_desc_row", False)
@@ -580,9 +661,8 @@ def generate_template(file_type: str, conn=None) -> bytes:
         "planned_headcount": 18, "shift_code": 12,
         "available_hours": 16, "oee_target": 14,
         "change_type": 18, "item_code": 14,
-        "maintenance_hours": 20, "public_holiday_hours": 22,
-        "planned_downtime_hours": 24, "other_loss_hours": 18,
-        "description": 32, "impact_notes": 36, "notes": 28,
+        "downtime_hours": 16, "downtime_reason": 22,
+        "description": 32, "impact_notes": 36, "notes": 28, "comments": 40,
         # exception reference columns
         "resource_type_code": 22, "start_date": 14, "end_date": 14,
         "delta_headcount": 18, "event_type": 18, "hours_lost_per_day": 18,
@@ -599,8 +679,6 @@ def generate_template(file_type: str, conn=None) -> bytes:
         "primary_line_code": 20, "secondary_line_code": 22,
         "tertiary_line_code": 20, "quaternary_line_code": 22,
         "unit_cost": 14,
-        # portfolio_changes
-        "initial_demand": 16,
         # demand_plan columns
         "material_id": 14, "mrp_area": 12, "version": 10, "req_type": 10,
         "version_active": 16, "req_plan": 10, "req_seg": 10, "uom": 8,
@@ -622,47 +700,9 @@ def generate_template(file_type: str, conn=None) -> bytes:
     # Freeze panes below header row
     ws.freeze_panes = f"A{data_start}"
 
-    # --- Plant Support sheet (headcount_plan only) ---
+    # (v2: the separate Plant Support sheet is gone — shared roles are part of the
+    # single Pool Headcount sheet, since they flex with the pool.)
     if file_type == "headcount_plan":
-        ps_cols = [
-            ("plant_code",          "Plant Code",          "Plant code matching masterdata (e.g. 'Plant 1', 'Plant 2').",                          "Plant 1"),
-            ("resource_type_code",  "Role Code",           "Resource type code from masterdata (e.g. FORKLIFT_DRIVER, MATERIAL_HANDLER, ROBOT_OPERATOR, TECHNICIAN).", "FORKLIFT_DRIVER"),
-            ("plan_month",          "Plan Month",          "1st of the month in DD/MM/YYYY format (e.g. 01/05/2026 for May).",                     "01/05/2026"),
-            ("planned_headcount",   "Planned Headcount",   "Number of staff planned for this plant-level role that month. ≥ 0.",                   "2"),
-        ]
-        ws2 = wb.create_sheet("Plant Support")
-
-        # Row 1: descriptions (amber)
-        for col_idx, (key, label, desc, sample) in enumerate(ps_cols, start=1):
-            cell = ws2.cell(row=1, column=col_idx, value=desc)
-            cell.font = _DESC_FONT
-            cell.fill = _DESC_FILL
-            cell.alignment = _LEFT
-
-        # Row 2: column keys (machine-readable header)
-        for col_idx, (key, label, desc, sample) in enumerate(ps_cols, start=1):
-            cell = ws2.cell(row=2, column=col_idx, value=key)
-            cell.font = _HEADER_FONT
-            cell.fill = _HEADER_FILL
-            cell.alignment = _CENTER
-            cell.border = _THIN_BORDER
-
-        # Sample rows
-        sample_rows2 = [
-            ["Plant 1", "FORKLIFT_DRIVER",  "01/05/2026", 2],
-            ["Plant 1", "MATERIAL_HANDLER", "01/05/2026", 2],
-            ["Plant 3", "ROBOT_OPERATOR",   "01/05/2026", 4],
-        ]
-        for row_offset, sample_row in enumerate(sample_rows2, start=3):
-            for col_idx, val in enumerate(sample_row, start=1):
-                cell = ws2.cell(row=row_offset, column=col_idx, value=val)
-                cell.font = _SAMPLE_FONT
-                cell.alignment = _LEFT
-
-        ps_widths = {"plant_code": 14, "resource_type_code": 24, "plan_month": 16, "planned_headcount": 20}
-        for col_idx, (key, *_) in enumerate(ps_cols, start=1):
-            ws2.column_dimensions[get_column_letter(col_idx)].width = ps_widths.get(key, 18)
-        ws2.freeze_panes = "A3"
 
         # --- Exceptions sheet (planned absences vs the standard headcount) ---
         ex_cols = [
@@ -715,7 +755,7 @@ def generate_template(file_type: str, conn=None) -> bytes:
         reason_col = get_column_letter(len(ex_cols))  # reason is the last column (G)
         reason_dv = DataValidation(
             type="list",
-            formula1='"Annual leave,Long-term sick,Training of staff"',
+            formula1='"' + ",".join(HEADCOUNT_ABSENCE_REASONS) + '"',
             allow_blank=True,
             showErrorMessage=False,
         )

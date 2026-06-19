@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import {
   ResponsiveContainer, ComposedChart, CartesianGrid, XAxis, YAxis, Tooltip,
   Bar, Line, ReferenceLine,
@@ -32,6 +33,7 @@ export function buildChartData(
   unitMode: UnitMode,
   launchesByPeriod: Record<string, RCCPPortfolioChange[]> = {},
 ): ChartRow[] {
+  // 12-month forward plan + 3 trailing actual months for context.
   const cycle = addMonths(planCycleDate.slice(0, 7), 0)
   const actualPeriods = [-3, -2, -1].map(o => addMonths(cycle, o))
   const forwardPeriods = Array.from({ length: 12 }, (_, i) => addMonths(cycle, i))
@@ -181,20 +183,37 @@ interface Props {
   unitMode: UnitMode
   launchesByPeriod?: Record<string, RCCPPortfolioChange[]>
   subtitle?: string              // override the default list-of-line-codes
-  headerMetricLabel?: string     // default "15-month capacity"
+  headerMetricLabel?: string     // default "12-month capacity"
 }
 
 export default function PlantChart({
   title, lines, planCycleDate, unitMode, launchesByPeriod, subtitle, headerMetricLabel,
 }: Props) {
-  const data = buildChartData(lines, planCycleDate, unitMode, launchesByPeriod ?? {})
+  // Line selector — which of the plant's lines feed the chart. Default = all.
+  const allCodes = lines.map(l => l.line_code)
+  const [selected, setSelected] = useState<Set<string>>(() => new Set(allCodes))
+  const showSelector = lines.length > 1
+
+  function toggle(code: string) {
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (next.has(code)) { if (next.size > 1) next.delete(code) }  // keep at least one
+      else next.add(code)
+      return next
+    })
+  }
+  const allOn = selected.size === allCodes.length
+  const activeLines = showSelector ? lines.filter(l => selected.has(l.line_code)) : lines
+
+  const data = buildChartData(activeLines, planCycleDate, unitMode, launchesByPeriod ?? {})
   const hasLaunches = data.some(d => (d.launches?.length ?? 0) > 0)
   const dividerIdx = data.findIndex(d => !d.isActual)
   const dividerLabel = dividerIdx > 0 ? data[dividerIdx]?.label : null
 
-  const totalAvail = data.reduce((s, d) => s + (d.available ?? 0), 0)
-  const lineCodes = lines.map(l => l.line_code)
-  const subtitleText = subtitle ?? lineCodes.join(' · ')
+  // Headline = capacity over the 12-month forward plan only (exclude trailing actuals).
+  const totalAvail = data.reduce((s, d) => s + (d.isActual ? 0 : (d.available ?? 0)), 0)
+  const lineCodes = activeLines.map(l => l.line_code)   // per-line series follow the selection
+  const subtitleText = subtitle ?? allCodes.join(' · ')
 
   return (
     <div
@@ -212,12 +231,40 @@ export default function PlantChart({
           </p>
         </div>
         <div className="text-right font-mono text-[11.5px]" style={{ color: C.ink3 }}>
-          {headerMetricLabel ?? '15-month capacity'}
+          {headerMetricLabel ?? '12-month capacity'}
           <strong className="block mt-0.5 text-[15px] font-semibold tabnum" style={{ color: C.navy, letterSpacing: '-0.02em' }}>
             {totalAvail > 0 ? formatLarge(totalAvail, unitMode) : '—'}
           </strong>
         </div>
       </div>
+
+      {showSelector && (
+        <div className="flex flex-wrap items-center gap-1.5 mb-2.5">
+          <span className="text-[10.5px] font-semibold uppercase tracking-wider mr-1" style={{ color: C.ink4 }}>Lines</span>
+          <button
+            onClick={() => setSelected(new Set(allCodes))}
+            className="px-2 py-0.5 rounded-md text-[11px] font-semibold transition-colors"
+            style={allOn
+              ? { background: C.navy, color: '#fff', border: `1px solid ${C.navy}` }
+              : { background: '#fff', color: C.ink3, border: `1px solid ${C.border2}` }}>
+            All
+          </button>
+          {allCodes.map(code => {
+            const on = selected.has(code)
+            return (
+              <button
+                key={code}
+                onClick={() => toggle(code)}
+                className="px-2 py-0.5 rounded-md text-[11px] font-mono font-semibold transition-colors"
+                style={on
+                  ? { background: C.limeTint, color: C.limeDeep, border: `1px solid ${C.lime}` }
+                  : { background: '#fff', color: C.ink4, border: `1px solid ${C.border2}` }}>
+                {code}
+              </button>
+            )
+          })}
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-x-5 gap-y-2 pb-3 mb-2 text-[11.5px] font-medium" style={{ color: C.ink3, borderBottom: `1px solid ${C.border}` }}>
         <span className="flex items-center gap-1.5">

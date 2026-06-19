@@ -6,7 +6,7 @@
 -- palletising on top of the crew that runs the line.
 --
 -- Scope = LINE: requirement is per production line, lives in
--- dbo.line_resource_requirements alongside LINE_OPERATOR and TEAM_LEADER.
+-- dbo.line_resource_requirements alongside LINE_OPERATOR and LINE_LEADER.
 --
 -- NOTE: once this role is active, the masterdata stage-6 completeness check
 -- requires every active line to have a PALLETISING_OPERATOR row in the
